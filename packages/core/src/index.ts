@@ -66,3 +66,26 @@ export type {
   ReadonlyCommandJsonObject,
   ReadonlyCommandJsonValue,
 } from './command/types.js';
+export { createSearchEngine, SearchEngine } from './search/searchEngine.js';
+export type { SearchEngineOptions, SearchOptions, SearchResult } from './search/searchEngine.js';
+export {
+  SEARCH_FIELD_SCORE_WEIGHTS,
+  SEARCH_RANKING_BOOSTS,
+  SEARCH_SOURCE_SCORE_WEIGHTS,
+  rankSearchCandidate,
+} from './search/ranking.js';
+export type {
+  SearchMatchedBy,
+  SearchMatchField,
+  SearchRankingComponents,
+  SearchRankingContext,
+  SearchRankingExplanation,
+  SearchRankingHistoryEntry,
+  SearchRankingInput,
+  SearchRankingResult,
+} from './search/ranking.js';
+export {
+  normalizeSearchKeywords,
+  normalizeSearchText,
+  tokenizeSearchText,
+} from './search/tokenize.js';

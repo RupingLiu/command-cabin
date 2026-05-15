@@ -41,3 +41,28 @@ export type {
   PluginRepository,
   UpsertPluginInput,
 } from './storage/pluginRepository.js';
+export { DuplicateCommandIdError, createCommandRegistry } from './command/commandRegistry.js';
+export type { CommandRegistry } from './command/commandRegistry.js';
+export { createCommandExecutor } from './command/commandExecutor.js';
+export type { CommandExecutor, CommandExecutorOptions } from './command/commandExecutor.js';
+export type {
+  Command,
+  CommandAction,
+  CommandActionHandler,
+  CommandActionHandlers,
+  CommandActionType,
+  CommandExecutionFailure,
+  CommandExecutionMetadata,
+  CommandExecutionResult,
+  CommandExecutionSuccess,
+  CommandHandlerResult,
+  CommandJsonObject,
+  CommandJsonPrimitive,
+  CommandJsonValue,
+  CommandPayload,
+  CommandSource,
+  ReadonlyCommand,
+  ReadonlyCommandAction,
+  ReadonlyCommandJsonObject,
+  ReadonlyCommandJsonValue,
+} from './command/types.js';

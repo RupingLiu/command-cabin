@@ -89,3 +89,38 @@ export {
   normalizeSearchText,
   tokenizeSearchText,
 } from './search/tokenize.js';
+export { createAppCommandsFromShortcuts, createAppIndexer } from './indexer/appIndexer.js';
+export type {
+  AppIndexSnapshot,
+  AppIndexer,
+  AppIndexerOptions,
+  AppIndexerScanner,
+} from './indexer/appIndexer.js';
+export { createIndexCache } from './indexer/indexCache.js';
+export type {
+  AppIndexCache,
+  AppIndexCacheSnapshot,
+  IndexCacheFileSystem,
+  IndexCacheOptions,
+} from './indexer/indexCache.js';
+export {
+  createWindowsShortcutResolver,
+  createWindowsStartMenuScanner,
+  getDefaultWindowsStartMenuDirectories,
+} from './indexer/windows/startMenuScanner.js';
+export type {
+  ResolvedShortcut,
+  ShortcutResolver,
+  StartMenuDirectoryEntry,
+  StartMenuDirectoryEntryKind,
+  StartMenuFileSystem,
+  StartMenuScanFailure,
+  StartMenuScanResult,
+  StartMenuShortcut,
+  WindowsStartMenuScanner,
+  WindowsStartMenuScannerOptions,
+  WindowsShortcutResolverExecFile,
+  WindowsShortcutResolverExecFileOptions,
+  WindowsShortcutResolverExecFileResult,
+  WindowsShortcutResolverOptions,
+} from './indexer/windows/startMenuScanner.js';

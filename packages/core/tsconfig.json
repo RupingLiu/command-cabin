@@ -10,5 +10,10 @@
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["dist", "src/**/*.test.ts"]
+  "exclude": ["dist", "src/**/*.test.ts"],
+  "references": [
+    {
+      "path": "../plugin-api"
+    }
+  ]
 }

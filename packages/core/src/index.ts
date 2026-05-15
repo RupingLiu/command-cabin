@@ -85,6 +85,52 @@ export type {
   ValidatePluginManifestResult,
   ValidatePluginManifestSuccess,
 } from './plugin/validateManifest.js';
+export {
+  createPluginCommand,
+  createPluginCommandId,
+  readPluginCommandPayload,
+  PluginCommandAdapterError,
+} from './plugin/pluginCommandAdapter.js';
+export type { PluginCommandPayload } from './plugin/pluginCommandAdapter.js';
+export {
+  createPluginContext,
+  createPluginLogger,
+  createPluginLogStore,
+  formatPluginThrownValue,
+  logPluginError,
+  runPluginLifecycleHook,
+} from './plugin/pluginLifecycle.js';
+export type {
+  CreatePluginContextOptions,
+  CreatePluginLogStoreOptions,
+  PluginLifecycleClock,
+  PluginLifecycleHookFailure,
+  PluginLifecycleHookResult,
+  PluginLifecycleHookSuccess,
+  PluginLogEntry,
+  PluginLogSink,
+  PluginLogStore,
+} from './plugin/pluginLifecycle.js';
+export { createPluginRuntime } from './plugin/pluginRuntime.js';
+export type {
+  DisablePluginSuccess,
+  PluginCommandExecutionFailure,
+  PluginCommandExecutionResult,
+  PluginCommandExecutionSuccess,
+  PluginMainPathResolver,
+  PluginManifestReader,
+  PluginModuleLoader,
+  PluginModuleLoadInput,
+  PluginRuntime,
+  PluginRuntimeError,
+  PluginRuntimeErrorCode,
+  PluginRuntimeFailure,
+  PluginRuntimeOptions,
+  PluginRuntimePlugin,
+  PluginRuntimeResult,
+  PluginRuntimeStatus,
+  PluginRuntimeSuccess,
+} from './plugin/pluginRuntime.js';
 export { DuplicateCommandIdError, createCommandRegistry } from './command/commandRegistry.js';
 export type { CommandRegistry } from './command/commandRegistry.js';
 export { createCommandExecutor } from './command/commandExecutor.js';

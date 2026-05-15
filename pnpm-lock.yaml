@@ -63,6 +63,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@command-cabin/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.10.0

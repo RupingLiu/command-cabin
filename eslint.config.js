@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/coverage/**', '**/dist/**', '**/node_modules/**'],
+    ignores: ['**/coverage/**', '**/dist/**', '**/node_modules/**', '**/out/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -12,6 +12,9 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
+    },
+    rules: {
+      'no-undef': 'off',
     },
   },
 );

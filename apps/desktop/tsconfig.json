@@ -4,10 +4,13 @@
     "composite": true,
     "declaration": true,
     "declarationMap": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "outDir": "dist",
     "rootDir": "src",
     "sourceMap": true,
-    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
+    "types": ["node", "electron-vite/node"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["dist", "src/**/*.test.ts"],

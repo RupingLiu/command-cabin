@@ -11,7 +11,8 @@
   },
   "scripts": {
     "dev": "corepack pnpm --filter @command-cabin/desktop dev",
-    "build": "tsc -b",
+    "build": "corepack pnpm -r --if-present build",
+    "typecheck": "tsc -b",
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --check \"*.{json,js,ts,yaml,yml}\" \".prettierrc.json\" \"apps/**/*.{json,ts,tsx,js,yaml,yml}\" \"packages/**/*.{json,ts,tsx,js,yaml,yml}\"",

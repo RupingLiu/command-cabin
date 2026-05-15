@@ -1,0 +1,19 @@
+{
+  "name": "@command-cabin/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop shell for CommandCabin.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "node -e \"console.log('CommandCabin desktop shell starts in Task 2.')\"",
+    "build": "tsc -b",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint .",
+    "format": "prettier . --check --ignore-path ../../.prettierignore"
+  },
+  "dependencies": {
+    "@command-cabin/core": "workspace:*"
+  }
+}

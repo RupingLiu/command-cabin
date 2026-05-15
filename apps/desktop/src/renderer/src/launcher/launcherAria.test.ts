@@ -1,0 +1,84 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
+
+import { ResultList } from './ResultList.js';
+import { SearchInput } from './SearchInput.js';
+
+describe('launcher ARIA markup', () => {
+  it('wires search input as a combobox controlling the result listbox', () => {
+    const html = renderToStaticMarkup(
+      createElement(SearchInput, {
+        activeDescendantId: 'launcher-option-system-settings',
+        inputRef: null,
+        isBusy: false,
+        isExpanded: true,
+        listboxId: 'launcher-results-listbox',
+        onKeyDown: vi.fn(),
+        onQueryChange: vi.fn(),
+        query: 'settings',
+        searchInputId: 'launcher-search-input',
+      }),
+    );
+
+    expect(html).toContain('role="combobox"');
+    expect(html).toContain('aria-controls="launcher-results-listbox"');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('aria-activedescendant="launcher-option-system-settings"');
+  });
+
+  it('renders stable listbox and option ids', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResultList, {
+        errorMessage: undefined,
+        isExecutionDisabled: false,
+        listboxId: 'launcher-results-listbox',
+        onExecute: vi.fn(),
+        onSelect: vi.fn(),
+        query: '',
+        results: [
+          {
+            id: 'system.settings',
+            score: 1,
+            source: 'system',
+            subtitle: 'Preferences',
+            title: 'Open Settings',
+          },
+        ],
+        selectedIndex: 0,
+        status: 'ready',
+      }),
+    );
+
+    expect(html).toContain('id="launcher-results-listbox"');
+    expect(html).toContain('role="listbox"');
+    expect(html).toContain('id="launcher-option-system-settings"');
+    expect(html).toContain('role="option"');
+  });
+
+  it('marks options disabled while command execution is in progress', () => {
+    const html = renderToStaticMarkup(
+      createElement(ResultList, {
+        errorMessage: undefined,
+        isExecutionDisabled: true,
+        listboxId: 'launcher-results-listbox',
+        onExecute: vi.fn(),
+        onSelect: vi.fn(),
+        query: '',
+        results: [
+          {
+            id: 'system.settings',
+            score: 1,
+            source: 'system',
+            title: 'Open Settings',
+          },
+        ],
+        selectedIndex: 0,
+        status: 'executing',
+      }),
+    );
+
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).toContain('data-disabled="true"');
+  });
+});

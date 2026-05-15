@@ -1,4 +1,6 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
+
+import { FOCUS_SEARCH_INPUT_CHANNEL } from '../shared/ipcChannels.js';
 
 export interface DesktopAppInfo {
   name: string;
@@ -11,6 +13,7 @@ export interface DesktopAppInfo {
 
 export interface DesktopApi {
   getAppInfo: () => DesktopAppInfo;
+  onFocusSearchInput: (listener: () => void) => () => void;
 }
 
 const desktopApi = {
@@ -22,6 +25,17 @@ const desktopApi = {
       node: process.versions.node,
     },
   }),
+  onFocusSearchInput: (listener) => {
+    const handleFocusSearchInput = () => {
+      listener();
+    };
+
+    ipcRenderer.on(FOCUS_SEARCH_INPUT_CHANNEL, handleFocusSearchInput);
+
+    return () => {
+      ipcRenderer.removeListener(FOCUS_SEARCH_INPUT_CHANNEL, handleFocusSearchInput);
+    };
+  },
 } satisfies DesktopApi;
 
 contextBridge.exposeInMainWorld('desktopApi', desktopApi);

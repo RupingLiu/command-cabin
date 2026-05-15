@@ -1,10 +1,13 @@
-import { app, BrowserWindow } from 'electron';
+import { createInMemorySettingsStore } from '@command-cabin/core';
+import { app, dialog, globalShortcut } from 'electron';
 import { fileURLToPath } from 'node:url';
 
+import { createDesktopApplicationController } from './desktopApplication.js';
 import { createMainWindow } from './window/createMainWindow.js';
 import { resolveWindowEntryPaths } from './window/entryPaths.js';
 
 const mainDirectory = fileURLToPath(new URL('.', import.meta.url));
+const settingsStore = createInMemorySettingsStore();
 
 function getWindowOptions() {
   return {
@@ -15,8 +18,18 @@ function getWindowOptions() {
 }
 
 async function createApplicationWindow(): Promise<void> {
-  await createMainWindow(getWindowOptions());
+  await desktopApplication.start();
 }
+
+const desktopApplication = createDesktopApplicationController({
+  createWindow: () => createMainWindow(getWindowOptions()),
+  getSettings: () => settingsStore.getSettings(),
+  hotkeyRegistry: globalShortcut,
+  logger: console,
+  notifyHotkeyConflict: (message) => {
+    dialog.showErrorBox('CommandCabin shortcut conflict', message);
+  },
+});
 
 app
   .whenReady()
@@ -27,13 +40,16 @@ app
   });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    void createApplicationWindow();
-  }
+  void desktopApplication.handleActivate();
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('will-quit', () => {
+  desktopApplication.dispose();
+  globalShortcut.unregisterAll();
 });

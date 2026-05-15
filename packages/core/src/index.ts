@@ -13,3 +13,31 @@ export type {
   CommandCabinSettingsStore,
   CommandCabinTheme,
 } from './storage/settings.js';
+export {
+  openInMemoryCommandCabinDatabase,
+  openCommandCabinDatabase,
+  parseStorageJson,
+  stringifyStorageJson,
+} from './storage/database.js';
+export type {
+  CommandCabinDatabase,
+  CommandCabinDatabaseOptions,
+  StorageJsonObject,
+  StorageJsonPrimitive,
+  StorageJsonValue,
+} from './storage/database.js';
+export { runMigrations } from './storage/migrations.js';
+export type { MigrationResult, StorageMigration } from './storage/migrations.js';
+export { createSettingsRepository } from './storage/settingsRepository.js';
+export { createHistoryRepository } from './storage/historyRepository.js';
+export type {
+  CommandHistoryEntry,
+  HistoryRepository,
+  RecordCommandExecutionInput,
+} from './storage/historyRepository.js';
+export { createPluginRepository } from './storage/pluginRepository.js';
+export type {
+  PluginRecord,
+  PluginRepository,
+  UpsertPluginInput,
+} from './storage/pluginRepository.js';

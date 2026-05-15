@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run --config vitest.config.ts",
     "lint": "eslint .",
     "format": "prettier . --check --ignore-path ../../.prettierignore"
   },

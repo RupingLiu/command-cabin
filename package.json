@@ -15,8 +15,8 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "lint": "eslint .",
-    "format": "prettier --check \"*.{json,js,ts,yaml,yml}\" \".prettierrc.json\" \"apps/**/*.{json,ts,tsx,js,yaml,yml}\" \"packages/**/*.{json,ts,tsx,js,yaml,yml}\"",
-    "format:write": "prettier --write \"*.{json,js,ts,yaml,yml}\" \".prettierrc.json\" \"apps/**/*.{json,ts,tsx,js,yaml,yml}\" \"packages/**/*.{json,ts,tsx,js,yaml,yml}\""
+    "format": "prettier --check \"*.{json,js,ts,yaml,yml}\" \".prettierrc.json\" \"apps/**/*.{json,ts,tsx,js,yaml,yml}\" \"packages/**/*.{json,ts,tsx,js,yaml,yml}\" \"tests/**/*.{json,ts,tsx,js,yaml,yml}\"",
+    "format:write": "prettier --write \"*.{json,js,ts,yaml,yml}\" \".prettierrc.json\" \"apps/**/*.{json,ts,tsx,js,yaml,yml}\" \"packages/**/*.{json,ts,tsx,js,yaml,yml}\" \"tests/**/*.{json,ts,tsx,js,yaml,yml}\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

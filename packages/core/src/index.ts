@@ -49,6 +49,42 @@ export type {
   PluginRepository,
   UpsertPluginInput,
 } from './storage/pluginRepository.js';
+export {
+  PLUGIN_COMMAND_ID_PATTERN,
+  PLUGIN_ID_PATTERN,
+  PLUGIN_MANIFEST_FILE_NAME,
+  PLUGIN_MANIFEST_SCHEMA,
+  PLUGIN_PERMISSIONS,
+  PLUGIN_VERSION_PATTERN,
+} from './plugin/pluginManifest.js';
+export type {
+  PluginManifest,
+  PluginManifestCommand,
+  PluginManifestValidationError,
+  PluginPermission,
+} from './plugin/pluginManifest.js';
+export {
+  getPluginManifestFilePath,
+  resolvePluginManifestRealPath,
+  resolvePluginManifestPath,
+  validatePluginManifestPath,
+} from './plugin/pluginPaths.js';
+export type {
+  PluginPathRealpath,
+  ResolvePluginManifestRealPathOptions,
+  ResolvePluginManifestPathFailure,
+  ResolvePluginManifestPathResult,
+  ResolvePluginManifestPathSuccess,
+} from './plugin/pluginPaths.js';
+export {
+  formatPluginManifestValidationErrors,
+  validatePluginManifest,
+} from './plugin/validateManifest.js';
+export type {
+  ValidatePluginManifestFailure,
+  ValidatePluginManifestResult,
+  ValidatePluginManifestSuccess,
+} from './plugin/validateManifest.js';
 export { DuplicateCommandIdError, createCommandRegistry } from './command/commandRegistry.js';
 export type { CommandRegistry } from './command/commandRegistry.js';
 export { createCommandExecutor } from './command/commandExecutor.js';

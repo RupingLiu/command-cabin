@@ -35,6 +35,14 @@ export type {
   HistoryRepository,
   RecordCommandExecutionInput,
 } from './storage/historyRepository.js';
+export { createFavoritesRepository } from './indexer/favoritesRepository.js';
+export type {
+  AddFavoriteInput,
+  FavoriteKind,
+  FavoriteRecord,
+  FavoritesRepository,
+  UpdateFavoriteInput,
+} from './indexer/favoritesRepository.js';
 export { createPluginRepository } from './storage/pluginRepository.js';
 export type {
   PluginRecord,
@@ -45,6 +53,11 @@ export { DuplicateCommandIdError, createCommandRegistry } from './command/comman
 export type { CommandRegistry } from './command/commandRegistry.js';
 export { createCommandExecutor } from './command/commandExecutor.js';
 export type { CommandExecutor, CommandExecutorOptions } from './command/commandExecutor.js';
+export {
+  createFavoriteCommand,
+  createFavoriteCommandId,
+  createFavoriteCommands,
+} from './command/builtInFavorites.js';
 export type {
   Command,
   CommandAction,

@@ -1,16 +1,36 @@
 import {
+  createFavoriteCommands,
   createCommandExecutor,
   createCommandRegistry,
   createSearchEngine,
+  type AddFavoriteInput,
   type Command,
   type CommandExecutionResult,
+  type FavoriteRecord,
+  type FavoritesRepository,
+  type HistoryRepository,
+  type SearchOptions,
+  type SearchRankingContext,
+  type UpdateFavoriteInput,
 } from '@command-cabin/core';
 
 import type { LauncherCommandSearchResult } from '../../shared/launcherApi.js';
 
 export interface LauncherCommandService {
+  addFavorite: (input: AddFavoriteInput) => FavoriteRecord;
   executeCommand: (commandId: string) => Promise<CommandExecutionResult>;
+  listFavorites: () => FavoriteRecord[];
+  removeFavorite: (id: string) => boolean;
   searchCommands: (query: string) => LauncherCommandSearchResult[];
+  updateFavorite: (id: string, input: UpdateFavoriteInput) => FavoriteRecord | undefined;
+}
+
+export interface LauncherCommandServiceOptions {
+  commands?: readonly Command[];
+  favoritesRepository?: FavoritesRepository;
+  historyRepository?: HistoryRepository;
+  openPath?: (path: string) => Promise<void> | void;
+  openUrl?: (url: string) => Promise<void> | void;
 }
 
 const DEMO_COMMANDS: readonly Command[] = [
@@ -99,16 +119,27 @@ function createUnknownCommandFailure(commandId: string): CommandExecutionResult 
   };
 }
 
+function isCommandList(
+  value: readonly Command[] | LauncherCommandServiceOptions,
+): value is readonly Command[] {
+  return Array.isArray(value);
+}
+
 export function createLauncherCommandService(
-  commands: readonly Command[] = DEMO_COMMANDS,
+  optionsOrCommands: readonly Command[] | LauncherCommandServiceOptions = {},
 ): LauncherCommandService {
+  const options: LauncherCommandServiceOptions = isCommandList(optionsOrCommands)
+    ? { commands: optionsOrCommands }
+    : optionsOrCommands;
+  const commands = options.commands ?? DEMO_COMMANDS;
   const registry = createCommandRegistry();
+  const favoriteCommandIds = new Set<string>();
 
   for (const command of commands) {
     registry.register(command);
   }
 
-  const searchEngine = createSearchEngine(registry.list(), {
+  const searchEngine = createSearchEngine([], {
     includeAllOnEmptyQuery: true,
     limit: 10,
   });
@@ -120,6 +151,44 @@ export function createLauncherCommandService(
           text: String(command.action.payload.text ?? ''),
         },
       }),
+      'open-path': async (command) => {
+        const path = String(command.action.payload.path ?? '');
+
+        if (path.trim().length === 0) {
+          throw new Error('Favorite path is missing.');
+        }
+
+        if (!options.openPath) {
+          throw new Error('No opener configured for favorite paths.');
+        }
+
+        await options.openPath(path);
+
+        return {
+          metadata: {
+            openedPath: path,
+          },
+        };
+      },
+      'open-url': async (command) => {
+        const url = String(command.action.payload.url ?? '');
+
+        if (url.trim().length === 0) {
+          throw new Error('Favorite URL is missing.');
+        }
+
+        if (!options.openUrl) {
+          throw new Error('No opener configured for favorite URLs.');
+        }
+
+        await options.openUrl(url);
+
+        return {
+          metadata: {
+            openedUrl: url,
+          },
+        };
+      },
       'run-system': (command) => ({
         metadata: {
           handled: true,
@@ -129,7 +198,61 @@ export function createLauncherCommandService(
     },
   });
 
+  function refreshSearchIndex(): void {
+    searchEngine.update(registry.list());
+  }
+
+  function refreshFavoriteCommands(): void {
+    for (const commandId of favoriteCommandIds) {
+      registry.unregister(commandId);
+    }
+
+    favoriteCommandIds.clear();
+
+    if (!options.favoritesRepository) {
+      refreshSearchIndex();
+      return;
+    }
+
+    for (const command of createFavoriteCommands(options.favoritesRepository.listFavorites())) {
+      registry.register(command);
+      favoriteCommandIds.add(command.id);
+    }
+
+    refreshSearchIndex();
+  }
+
+  function createHistoryRankingContext(): SearchRankingContext | undefined {
+    if (!options.historyRepository) {
+      return undefined;
+    }
+
+    return {
+      history: new Map(
+        options.historyRepository.listRecent(100).map((entry) => [
+          entry.commandId,
+          {
+            executionCount: entry.executionCount,
+            executedAt: entry.executedAt,
+          },
+        ]),
+      ),
+      now: new Date(),
+    };
+  }
+
+  refreshFavoriteCommands();
+
   return {
+    addFavorite: (input) => {
+      if (!options.favoritesRepository) {
+        throw new Error('Favorites repository is not configured.');
+      }
+
+      const favorite = options.favoritesRepository.addFavorite(input);
+      refreshFavoriteCommands();
+      return favorite;
+    },
     executeCommand: async (commandId) => {
       const command = registry.get(commandId);
 
@@ -137,9 +260,71 @@ export function createLauncherCommandService(
         return createUnknownCommandFailure(commandId);
       }
 
-      return executor.execute(command);
+      const result = await executor.execute(command);
+
+      if (
+        result.status === 'success' &&
+        favoriteCommandIds.has(command.id) &&
+        options.historyRepository
+      ) {
+        const historyInput = {
+          commandId: command.id,
+          title: command.title,
+          source: command.source,
+          metadata: result.metadata,
+        };
+
+        options.historyRepository.recordExecution(
+          command.subtitle === undefined
+            ? historyInput
+            : {
+                ...historyInput,
+                subtitle: command.subtitle,
+              },
+        );
+      }
+
+      return result;
     },
-    searchCommands: (query) =>
-      searchEngine.search(query, { includeAllOnEmptyQuery: true, limit: 10 }).map(mapSearchResult),
+    listFavorites: () => options.favoritesRepository?.listFavorites() ?? [],
+    removeFavorite: (id) => {
+      if (!options.favoritesRepository) {
+        throw new Error('Favorites repository is not configured.');
+      }
+
+      const removed = options.favoritesRepository.removeFavorite(id);
+
+      if (removed) {
+        refreshFavoriteCommands();
+      }
+
+      return removed;
+    },
+    searchCommands: (query) => {
+      const searchOptions: SearchOptions = {
+        includeAllOnEmptyQuery: true,
+        limit: 10,
+      };
+      const ranking = createHistoryRankingContext();
+
+      if (ranking !== undefined) {
+        searchOptions.ranking = ranking;
+      }
+
+      return searchEngine.search(query, searchOptions).map(mapSearchResult);
+    },
+    updateFavorite: (id, input) => {
+      if (!options.favoritesRepository) {
+        throw new Error('Favorites repository is not configured.');
+      }
+
+      const favorite = options.favoritesRepository.updateFavorite(id, input);
+
+      if (favorite) {
+        refreshFavoriteCommands();
+      }
+
+      return favorite;
+    },
   };
 }

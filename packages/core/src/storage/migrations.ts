@@ -61,6 +61,40 @@ const STORAGE_MIGRATIONS: readonly StorageMigration[] = [
       );
     `,
   },
+  {
+    id: 2,
+    name: '002_favorites',
+    sql: `
+      CREATE TABLE IF NOT EXISTS favorites (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('file', 'folder', 'url')),
+        title TEXT NOT NULL,
+        path TEXT,
+        url TEXT,
+        keywords TEXT NOT NULL DEFAULT '[]',
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (
+          (
+            kind IN ('file', 'folder')
+            AND path IS NOT NULL
+            AND length(trim(path)) > 0
+            AND url IS NULL
+          )
+          OR (
+            kind = 'url'
+            AND url IS NOT NULL
+            AND length(trim(url)) > 0
+            AND path IS NULL
+          )
+        )
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_favorites_title
+        ON favorites(title COLLATE NOCASE);
+    `,
+  },
 ];
 
 interface MigrationRow {

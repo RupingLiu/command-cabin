@@ -2,3 +2,7 @@ export const FOCUS_SEARCH_INPUT_CHANNEL = 'command-cabin:focus-search-input';
 export const SEARCH_COMMANDS_CHANNEL = 'command-cabin:search-commands';
 export const EXECUTE_COMMAND_CHANNEL = 'command-cabin:execute-command';
 export const HIDE_LAUNCHER_CHANNEL = 'command-cabin:hide-launcher';
+export const LIST_FAVORITES_CHANNEL = 'command-cabin:list-favorites';
+export const ADD_FAVORITE_CHANNEL = 'command-cabin:add-favorite';
+export const UPDATE_FAVORITE_CHANNEL = 'command-cabin:update-favorite';
+export const REMOVE_FAVORITE_CHANNEL = 'command-cabin:remove-favorite';

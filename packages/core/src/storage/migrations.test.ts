@@ -11,7 +11,7 @@ describe('storage migrations', () => {
       const firstRun = runMigrations(database);
       const secondRun = runMigrations(database);
 
-      expect(firstRun.appliedMigrationIds).toEqual([1]);
+      expect(firstRun.appliedMigrationIds).toEqual([1, 2]);
       expect(secondRun.appliedMigrationIds).toEqual([]);
 
       const tableRows = database
@@ -20,7 +20,14 @@ describe('storage migrations', () => {
             SELECT name
             FROM sqlite_master
             WHERE type = 'table'
-              AND name IN ('migrations', 'settings', 'command_history', 'plugins', 'plugin_data')
+              AND name IN (
+                'migrations',
+                'settings',
+                'command_history',
+                'plugins',
+                'plugin_data',
+                'favorites'
+              )
             ORDER BY name
           `,
         )
@@ -28,6 +35,7 @@ describe('storage migrations', () => {
 
       expect(tableRows.map((row) => row.name)).toEqual([
         'command_history',
+        'favorites',
         'migrations',
         'plugin_data',
         'plugins',
@@ -38,7 +46,10 @@ describe('storage migrations', () => {
         .prepare('SELECT id, name FROM migrations ORDER BY id')
         .all() as Array<{ id: number; name: string }>;
 
-      expect(migrationRows).toEqual([{ id: 1, name: '001_initial_storage' }]);
+      expect(migrationRows).toEqual([
+        { id: 1, name: '001_initial_storage' },
+        { id: 2, name: '002_favorites' },
+      ]);
     } finally {
       database.close();
     }
@@ -97,11 +108,11 @@ describe('storage migrations', () => {
         );
 
         INSERT INTO migrations (id, name, applied_at)
-        VALUES (2, '001_initial_storage', '2026-05-15T10:00:00.000Z');
+        VALUES (99, '001_initial_storage', '2026-05-15T10:00:00.000Z');
       `);
 
       expect(() => runMigrations(database)).toThrow(
-        /migration name "001_initial_storage" was applied with id 2 but current definition uses id 1/i,
+        /migration name "001_initial_storage" was applied with id 99 but current definition uses id 1/i,
       );
       expect(
         database
@@ -174,7 +185,7 @@ describe('storage migrations', () => {
 
         INSERT INTO migrations (id, name, applied_at)
         VALUES
-          (2, '002_future', '2026-05-15T10:00:00.000Z'),
+          (99, '099_future', '2026-05-15T10:00:00.000Z'),
           (1, '001_initial_storage', '2026-05-15T10:01:00.000Z');
       `);
 
@@ -198,11 +209,11 @@ describe('storage migrations', () => {
         );
 
         INSERT INTO migrations (id, name, applied_at)
-        VALUES (2, '002_future', '2026-05-15T10:00:00.000Z');
+        VALUES (99, '099_future', '2026-05-15T10:00:00.000Z');
       `);
 
       expect(() => runMigrations(database)).toThrow(
-        /unknown applied migration id 2 with name "002_future"/i,
+        /unknown applied migration id 99 with name "099_future"/i,
       );
     } finally {
       database.close();

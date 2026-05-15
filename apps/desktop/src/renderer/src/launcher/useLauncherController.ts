@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import type { DesktopApi } from '../../../preload/index.js';
+import type { FavoriteCreateRequest, FavoriteListRecord } from '../../../shared/favoritesApi.js';
 import type {
   LauncherCommandExecutionResult,
   LauncherCommandSearchResult,
@@ -85,7 +86,34 @@ const fallbackResults: LauncherResultItem[] = [
   },
 ];
 
+function createFallbackFavoriteRecord(input: FavoriteCreateRequest): FavoriteListRecord {
+  const timestamp = new Date(0).toISOString();
+  const baseRecord = {
+    id: `fallback.favorite.${input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    title: input.title,
+    keywords: [...input.keywords],
+    metadata: input.metadata ?? {},
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+
+  if (input.kind === 'url') {
+    return {
+      ...baseRecord,
+      kind: input.kind,
+      url: input.url,
+    };
+  }
+
+  return {
+    ...baseRecord,
+    kind: input.kind,
+    path: input.path,
+  };
+}
+
 const fallbackDesktopApi: DesktopApi = {
+  addFavorite: async (input) => createFallbackFavoriteRecord(input),
   executeCommand: async (commandId) => ({
     status: 'success',
     actionType: 'run-system',
@@ -103,7 +131,9 @@ const fallbackDesktopApi: DesktopApi = {
     },
   }),
   hideLauncher: async () => undefined,
+  listFavorites: async () => [],
   onFocusSearchInput: () => () => undefined,
+  removeFavorite: async () => false,
   searchCommands: async (query) => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -116,6 +146,7 @@ const fallbackDesktopApi: DesktopApi = {
       return `${result.title} ${subtitle}`.toLowerCase().includes(normalizedQuery);
     });
   },
+  updateFavorite: async () => undefined,
 };
 
 export const initialLauncherState: LauncherState = {

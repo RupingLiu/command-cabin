@@ -1,20 +1,41 @@
-import { createInMemorySettingsStore } from '@command-cabin/core';
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain } from 'electron';
+import {
+  createFavoritesRepository,
+  createHistoryRepository,
+  createInMemorySettingsStore,
+  openCommandCabinDatabase,
+  runMigrations,
+  type CommandCabinDatabase,
+} from '@command-cabin/core';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from 'electron';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createDesktopApplicationController } from './desktopApplication.js';
-import { createLauncherCommandService } from './launcher/launcherCommandService.js';
+import {
+  createLauncherCommandService,
+  type LauncherCommandService,
+} from './launcher/launcherCommandService.js';
 import { createMainWindow } from './window/createMainWindow.js';
 import { resolveWindowEntryPaths } from './window/entryPaths.js';
 import {
+  parseFavoriteCreateRequest,
+  parseFavoriteId,
+  parseFavoriteUpdateRequest,
+} from '../shared/favoritesApi.js';
+import {
+  ADD_FAVORITE_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
+  LIST_FAVORITES_CHANNEL,
+  REMOVE_FAVORITE_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
+  UPDATE_FAVORITE_CHANNEL,
 } from '../shared/ipcChannels.js';
 
 const mainDirectory = fileURLToPath(new URL('.', import.meta.url));
 const settingsStore = createInMemorySettingsStore();
-const launcherCommandService = createLauncherCommandService();
+let commandCabinDatabase: CommandCabinDatabase | undefined;
+let launcherCommandService: LauncherCommandService = createLauncherCommandService();
 
 function getWindowOptions() {
   return {
@@ -25,7 +46,28 @@ function getWindowOptions() {
 }
 
 async function createApplicationWindow(): Promise<void> {
+  launcherCommandService = createPersistentLauncherCommandService();
   await desktopApplication.start();
+}
+
+function createPersistentLauncherCommandService(): LauncherCommandService {
+  commandCabinDatabase = openCommandCabinDatabase({
+    path: join(app.getPath('userData'), 'command-cabin.sqlite'),
+  });
+  runMigrations(commandCabinDatabase);
+
+  return createLauncherCommandService({
+    favoritesRepository: createFavoritesRepository(commandCabinDatabase),
+    historyRepository: createHistoryRepository(commandCabinDatabase),
+    openPath: async (path) => {
+      const errorMessage = await shell.openPath(path);
+
+      if (errorMessage.trim().length > 0) {
+        throw new Error(errorMessage);
+      }
+    },
+    openUrl: (url) => shell.openExternal(url),
+  });
 }
 
 const desktopApplication = createDesktopApplicationController({
@@ -50,6 +92,20 @@ ipcMain.handle(HIDE_LAUNCHER_CHANNEL, (event) => {
   BrowserWindow.fromWebContents(event.sender)?.hide();
 });
 
+ipcMain.handle(LIST_FAVORITES_CHANNEL, () => launcherCommandService.listFavorites());
+
+ipcMain.handle(ADD_FAVORITE_CHANNEL, (_event, input: unknown) =>
+  launcherCommandService.addFavorite(parseFavoriteCreateRequest(input)),
+);
+
+ipcMain.handle(UPDATE_FAVORITE_CHANNEL, (_event, id: unknown, input: unknown) =>
+  launcherCommandService.updateFavorite(parseFavoriteId(id), parseFavoriteUpdateRequest(input)),
+);
+
+ipcMain.handle(REMOVE_FAVORITE_CHANNEL, (_event, id: unknown) =>
+  launcherCommandService.removeFavorite(parseFavoriteId(id)),
+);
+
 app
   .whenReady()
   .then(createApplicationWindow)
@@ -71,4 +127,6 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   desktopApplication.dispose();
   globalShortcut.unregisterAll();
+  commandCabinDatabase?.close();
+  commandCabinDatabase = undefined;
 });

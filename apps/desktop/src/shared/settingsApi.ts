@@ -16,6 +16,10 @@ export interface DataDirectoryResponse {
   path: string;
 }
 
+export interface PluginInstallRequest {
+  pluginRoot: string;
+}
+
 const settingsKeys = new Set([
   'hotkey',
   'hideOnBlur',
@@ -321,11 +325,16 @@ export function parsePluginRecord(value: unknown): PluginRecord {
     value.description === undefined
       ? undefined
       : parseString(value.description, `${context}.description`);
+  const pluginRoot =
+    value.pluginRoot === undefined
+      ? undefined
+      : parseNonEmptyString(value.pluginRoot, `${context}.pluginRoot`);
   const ui = value.ui === undefined ? undefined : parseString(value.ui, `${context}.ui`);
 
   return {
     ...record,
     ...(description === undefined ? {} : { description }),
+    ...(pluginRoot === undefined ? {} : { pluginRoot }),
     ...(ui === undefined ? {} : { ui }),
   };
 }
@@ -348,6 +357,12 @@ export function parsePluginRemovalResult(value: unknown): boolean {
   }
 
   return value;
+}
+
+export function parsePluginInstallRequest(value: unknown): PluginInstallRequest {
+  return {
+    pluginRoot: parseNonEmptyString(value, 'Plugin folder path'),
+  };
 }
 
 export function parseDataDirectoryResponse(value: unknown): DataDirectoryResponse {

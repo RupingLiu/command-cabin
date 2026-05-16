@@ -29,6 +29,7 @@ describe('PluginSettings', () => {
     );
 
     expect(markup).toContain('Plugin Management');
+    expect(markup).toContain('Install local plugin');
     expect(markup).toContain('Text Tools');
     expect(markup).toContain('Disable');
     expect(markup).toContain('Uninstall');

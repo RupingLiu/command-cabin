@@ -11,7 +11,7 @@ describe('storage migrations', () => {
       const firstRun = runMigrations(database);
       const secondRun = runMigrations(database);
 
-      expect(firstRun.appliedMigrationIds).toEqual([1, 2, 3]);
+      expect(firstRun.appliedMigrationIds).toEqual([1, 2, 3, 4]);
       expect(secondRun.appliedMigrationIds).toEqual([]);
 
       const tableRows = database
@@ -52,6 +52,7 @@ describe('storage migrations', () => {
         { id: 1, name: '001_initial_storage' },
         { id: 2, name: '002_favorites' },
         { id: 3, name: '003_clipboard_history' },
+        { id: 4, name: '004_plugin_root' },
       ]);
     } finally {
       database.close();

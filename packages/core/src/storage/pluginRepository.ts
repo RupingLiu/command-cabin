@@ -14,6 +14,7 @@ export interface UpsertPluginInput {
   version: string;
   main: string;
   description?: string;
+  pluginRoot?: string;
   ui?: string;
   enabled?: boolean;
   permissions?: readonly string[];
@@ -31,6 +32,7 @@ export interface PluginRecord {
   installedAt: string;
   updatedAt: string;
   description?: string;
+  pluginRoot?: string;
   ui?: string;
 }
 
@@ -40,6 +42,7 @@ interface PluginRow {
   version: string;
   description: string | null;
   main: string;
+  plugin_root: string | null;
   ui: string | null;
   enabled: 0 | 1;
   permissions: string;
@@ -128,6 +131,7 @@ function mapPluginRow(row: PluginRow): PluginRecord {
   return {
     ...plugin,
     ...(row.description === null ? {} : { description: row.description }),
+    ...(row.plugin_root === null ? {} : { pluginRoot: row.plugin_root }),
     ...(row.ui === null ? {} : { ui: row.ui }),
   };
 }
@@ -150,14 +154,14 @@ export interface PluginRepository {
 export function createPluginRepository(database: CommandCabinDatabase): PluginRepository {
   const selectPlugin = database.prepare<[string], PluginRow>(
     `
-      SELECT id, name, version, description, main, ui, enabled, permissions, installed_at, updated_at
+      SELECT id, name, version, description, main, plugin_root, ui, enabled, permissions, installed_at, updated_at
       FROM plugins
       WHERE id = ?
     `,
   );
   const selectPlugins = database.prepare<[], PluginRow>(
     `
-      SELECT id, name, version, description, main, ui, enabled, permissions, installed_at, updated_at
+      SELECT id, name, version, description, main, plugin_root, ui, enabled, permissions, installed_at, updated_at
       FROM plugins
       ORDER BY name COLLATE NOCASE, id
     `,
@@ -168,6 +172,7 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
     version: string;
     description: string | null;
     main: string;
+    pluginRoot: string | null;
     ui: string | null;
     enabled: 0 | 1;
     permissions: string;
@@ -181,6 +186,7 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
         version,
         description,
         main,
+        plugin_root,
         ui,
         enabled,
         permissions,
@@ -193,6 +199,7 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
         @version,
         @description,
         @main,
+        @pluginRoot,
         @ui,
         @enabled,
         @permissions,
@@ -204,6 +211,7 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
         version = excluded.version,
         description = excluded.description,
         main = excluded.main,
+        plugin_root = excluded.plugin_root,
         ui = excluded.ui,
         enabled = excluded.enabled,
         permissions = excluded.permissions,
@@ -294,6 +302,7 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
         version: input.version,
         description: input.description ?? null,
         main: input.main,
+        pluginRoot: input.pluginRoot ?? existingPlugin?.pluginRoot ?? null,
         ui: input.ui ?? null,
         enabled: enabled ? 1 : 0,
         permissions: stringifyStorageJson(permissionValues, permissionsContext),

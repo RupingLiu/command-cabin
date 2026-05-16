@@ -109,6 +109,14 @@ const STORAGE_MIGRATIONS: readonly StorageMigration[] = [
         ON clipboard_history(copied_at DESC);
     `,
   },
+  {
+    id: 4,
+    name: '004_plugin_root',
+    sql: `
+      ALTER TABLE plugins
+        ADD COLUMN plugin_root TEXT;
+    `,
+  },
 ];
 
 interface MigrationRow {

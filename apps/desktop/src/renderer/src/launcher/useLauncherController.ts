@@ -166,6 +166,21 @@ const fallbackDesktopApi: DesktopApi = {
     theme: 'system',
   }),
   hideLauncher: async () => undefined,
+  installPlugin: async (pluginRoot) => {
+    const timestamp = new Date(0).toISOString();
+
+    return {
+      enabled: true,
+      id: 'com.example.fallback',
+      installedAt: timestamp,
+      main: 'dist/main.js',
+      name: 'Fallback Plugin',
+      permissions: [],
+      pluginRoot,
+      updatedAt: timestamp,
+      version: '0.1.0',
+    };
+  },
   listFavorites: async () => [],
   listPlugins: async () => [],
   onFocusSearchInput: () => () => undefined,

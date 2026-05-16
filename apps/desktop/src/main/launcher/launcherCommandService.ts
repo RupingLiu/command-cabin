@@ -21,7 +21,10 @@ import {
   createSearchEngine,
   type AddFavoriteInput,
   type Command,
+  type CommandActionHandlers,
   type CommandExecutionResult,
+  type CommandPayload,
+  type CommandRegistry,
   type FavoriteRecord,
   type FavoritesRepository,
   type HistoryRepository,
@@ -43,10 +46,14 @@ export interface LauncherCommandService {
 }
 
 export interface LauncherCommandServiceOptions {
+  actionHandlers?: CommandActionHandlers;
+  appCommands?: () => readonly Command[];
   clipboardHistoryRepository?: ClipboardHistoryRepository;
+  commandRegistry?: CommandRegistry;
   commands?: readonly Command[];
   favoritesRepository?: FavoritesRepository;
   historyRepository?: HistoryRepository;
+  openApp?: (payload: CommandPayload) => Promise<void> | void;
   openPath?: (path: string) => Promise<void> | void;
   openUrl?: (url: string) => Promise<void> | void;
   readClipboardText?: () => Promise<string> | string;
@@ -170,7 +177,8 @@ export function createLauncherCommandService(
     ? { commands: optionsOrCommands }
     : optionsOrCommands;
   const commands = options.commands ?? DEMO_COMMANDS;
-  const registry = createCommandRegistry();
+  const registry = options.commandRegistry ?? createCommandRegistry();
+  const appCommandIds = new Set<string>();
   const clipboardHistoryCommandIds = new Set<string>();
   const favoriteCommandIds = new Set<string>();
   let calculatorCommandRegistered = false;
@@ -242,6 +250,27 @@ export function createLauncherCommandService(
           },
         };
       },
+      'open-app': async (command) => {
+        const shortcutPath = command.action.payload.shortcutPath;
+
+        if (typeof shortcutPath !== 'string' || shortcutPath.trim().length === 0) {
+          throw new Error('App shortcut path is missing.');
+        }
+
+        if (!options.openApp) {
+          throw new Error('No opener configured for app commands.');
+        }
+
+        const openedApp = JSON.parse(JSON.stringify(command.action.payload)) as CommandPayload;
+
+        await options.openApp(openedApp);
+
+        return {
+          metadata: {
+            openedApp,
+          },
+        };
+      },
       'run-system': async (command) => {
         const textTransformKind = getTextToolTransformKind(command.id);
 
@@ -277,6 +306,7 @@ export function createLauncherCommandService(
           },
         };
       },
+      ...options.actionHandlers,
     },
   });
 
@@ -299,6 +329,26 @@ export function createLauncherCommandService(
     for (const command of createFavoriteCommands(options.favoritesRepository.listFavorites())) {
       registry.register(command);
       favoriteCommandIds.add(command.id);
+    }
+
+    refreshSearchIndex();
+  }
+
+  function refreshAppCommands(): void {
+    for (const commandId of appCommandIds) {
+      registry.unregister(commandId);
+    }
+
+    appCommandIds.clear();
+
+    if (!options.appCommands) {
+      refreshSearchIndex();
+      return;
+    }
+
+    for (const command of options.appCommands()) {
+      registry.register(command);
+      appCommandIds.add(command.id);
     }
 
     refreshSearchIndex();
@@ -370,6 +420,7 @@ export function createLauncherCommandService(
 
   refreshFavoriteCommands();
   refreshClipboardHistoryCommands();
+  refreshAppCommands();
 
   return {
     addFavorite: (input) => {
@@ -438,6 +489,7 @@ export function createLauncherCommandService(
       return removed;
     },
     searchCommands: (query) => {
+      refreshAppCommands();
       refreshCalculatorCommand(query);
       refreshClipboardHistoryCommands();
 

@@ -12,6 +12,7 @@ export const RELEASE_PLUGIN_HOST_ENTRY_CHANNEL = 'command-cabin:release-plugin-h
 export const GET_SETTINGS_CHANNEL = 'command-cabin:get-settings';
 export const UPDATE_SETTINGS_CHANNEL = 'command-cabin:update-settings';
 export const LIST_PLUGINS_CHANNEL = 'command-cabin:list-plugins';
+export const INSTALL_PLUGIN_CHANNEL = 'command-cabin:install-plugin';
 export const SET_PLUGIN_ENABLED_CHANNEL = 'command-cabin:set-plugin-enabled';
 export const REMOVE_PLUGIN_CHANNEL = 'command-cabin:remove-plugin';
 export const GET_DATA_DIRECTORY_CHANNEL = 'command-cabin:get-data-directory';

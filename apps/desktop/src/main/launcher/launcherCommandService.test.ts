@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  createCommandRegistry,
   createFavoritesRepository,
   createHistoryRepository,
+  createPluginRuntime,
   openInMemoryCommandCabinDatabase,
   runMigrations,
+  type CommandPayload,
 } from '@command-cabin/core';
 
 import { createLauncherCommandService } from './launcherCommandService.js';
@@ -313,5 +316,123 @@ describe('launcher command service', () => {
     } finally {
       database.close();
     }
+  });
+
+  it('searches indexed app commands and opens app shortcuts', async () => {
+    const openedApps: CommandPayload[] = [];
+    const service = createLauncherCommandService({
+      appCommands: () => [
+        {
+          id: 'app.notepad',
+          source: 'app',
+          title: 'Notepad',
+          subtitle: 'C:\\Windows\\System32\\notepad.exe',
+          keywords: ['notepad'],
+          action: {
+            type: 'open-app',
+            payload: {
+              executablePath: 'C:\\Windows\\System32\\notepad.exe',
+              shortcutPath:
+                'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Notepad.lnk',
+            },
+          },
+        },
+      ],
+      commands: [],
+      openApp: (payload) => {
+        openedApps.push(payload);
+      },
+    });
+
+    const [appResult] = service.searchCommands('notepad');
+
+    expect(appResult).toMatchObject({
+      id: 'app.notepad',
+      source: 'app',
+      title: 'Notepad',
+    });
+    await expect(service.executeCommand('app.notepad')).resolves.toMatchObject({
+      actionType: 'open-app',
+      commandId: 'app.notepad',
+      metadata: {
+        openedApp: {
+          executablePath: 'C:\\Windows\\System32\\notepad.exe',
+          shortcutPath: 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Notepad.lnk',
+        },
+      },
+      status: 'success',
+    });
+    expect(openedApps).toEqual([
+      {
+        executablePath: 'C:\\Windows\\System32\\notepad.exe',
+        shortcutPath: 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Notepad.lnk',
+      },
+    ]);
+  });
+
+  it('executes plugin commands through the shared command registry and runtime handler', async () => {
+    const registry = createCommandRegistry();
+    const runtime = createPluginRuntime({
+      commandRegistry: registry,
+      readManifest: () => ({
+        id: 'com.example.echo',
+        name: 'Echo Plugin',
+        version: '0.1.0',
+        description: 'Echo test plugin',
+        main: 'dist/main.js',
+        permissions: [],
+        commands: [
+          {
+            id: 'ping',
+            title: 'Ping Plugin',
+            keywords: ['ping'],
+          },
+        ],
+      }),
+      resolveMainPath: () => ({
+        ok: true,
+        path: 'C:\\Plugins\\Echo\\dist\\main.js',
+      }),
+      moduleLoader: () => ({
+        activate: () => undefined,
+        commands: {
+          ping: () => ({
+            metadata: {
+              pong: true,
+            },
+          }),
+        },
+      }),
+    });
+    const service = createLauncherCommandService({
+      actionHandlers: {
+        'run-plugin': runtime.createRunPluginCommandHandler(),
+      },
+      commandRegistry: registry,
+      commands: [],
+    });
+
+    await runtime.enablePlugin('C:\\Plugins\\Echo');
+
+    const [pluginResult] = service.searchCommands('ping');
+
+    expect(pluginResult).toMatchObject({
+      id: 'com.example.echo.ping',
+      source: 'plugin',
+      title: 'Ping Plugin',
+    });
+    await expect(service.executeCommand('com.example.echo.ping')).resolves.toMatchObject({
+      actionType: 'run-plugin',
+      commandId: 'com.example.echo.ping',
+      metadata: {
+        commandId: 'ping',
+        pluginId: 'com.example.echo',
+        pluginMetadata: {
+          pong: true,
+        },
+        status: 'success',
+      },
+      status: 'success',
+    });
   });
 });

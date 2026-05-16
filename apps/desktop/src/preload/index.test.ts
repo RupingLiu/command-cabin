@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
+  INSTALL_PLUGIN_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
@@ -85,6 +86,19 @@ describe('preload desktopApi settings bridge', () => {
     electronMock.invoke.mockResolvedValueOnce([plugin]);
     await expect(api.listPlugins()).resolves.toEqual([plugin]);
     expect(electronMock.invoke).toHaveBeenLastCalledWith(LIST_PLUGINS_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce({
+      ...plugin,
+      pluginRoot: 'C:\\Plugins\\TextTools',
+    });
+    await expect(api.installPlugin('C:\\Plugins\\TextTools')).resolves.toMatchObject({
+      id: plugin.id,
+      pluginRoot: 'C:\\Plugins\\TextTools',
+    });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(
+      INSTALL_PLUGIN_CHANNEL,
+      'C:\\Plugins\\TextTools',
+    );
 
     electronMock.invoke.mockResolvedValueOnce({ ...plugin, enabled: false });
     await expect(api.setPluginEnabled(plugin.id, false)).resolves.toMatchObject({

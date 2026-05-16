@@ -766,6 +766,16 @@ select {
   gap: 7px;
 }
 
+.plugin-settings__install {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.plugin-settings__install input {
+  min-width: 0;
+}
+
 .plugin-settings__item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
@@ -821,6 +831,7 @@ select {
 
 .data-settings button,
 .hotkey-settings button,
+.plugin-settings__install button,
 .clipboard-history-settings button {
   justify-self: start;
 }

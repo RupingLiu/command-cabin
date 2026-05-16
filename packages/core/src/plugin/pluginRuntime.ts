@@ -830,13 +830,25 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
       const result = await executePluginCommand(command);
 
       if (result.status === 'success') {
-        return {
-          metadata: {
+        const state = pluginsById.get(result.pluginId);
+        const metadata: CommandExecutionMetadata = {
+          pluginId: result.pluginId,
+          commandId: result.localCommandId,
+          status: 'success',
+          pluginMetadata: result.metadata,
+        };
+
+        if (state?.manifest.ui !== undefined) {
+          metadata.pluginPage = {
+            name: state.manifest.name,
             pluginId: result.pluginId,
-            commandId: result.localCommandId,
-            status: 'success',
-            pluginMetadata: result.metadata,
-          },
+            pluginRoot: state.pluginRoot,
+            uiPath: state.manifest.ui,
+          };
+        }
+
+        return {
+          metadata,
         };
       }
 

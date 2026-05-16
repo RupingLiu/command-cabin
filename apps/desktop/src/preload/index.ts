@@ -9,6 +9,7 @@ import {
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
+  INSTALL_PLUGIN_CHANNEL,
   LIST_FAVORITES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
@@ -40,6 +41,8 @@ import {
 } from '../shared/launcherApi.js';
 import {
   parseDataDirectoryResponse,
+  parsePluginInstallRequest,
+  parsePluginRecord,
   parsePluginRecords,
   parsePluginRemovalResult,
   parseSettings,
@@ -102,6 +105,7 @@ export interface DesktopApi {
   getDataDirectory: () => Promise<DataDirectoryResponse>;
   getSettings: () => Promise<SettingsReadResponse>;
   hideLauncher: () => Promise<void>;
+  installPlugin: (pluginRoot: string) => Promise<PluginListRecord>;
   listFavorites: () => Promise<FavoriteListRecord[]>;
   listPlugins: () => Promise<PluginListRecord[]>;
   onFocusSearchInput: (listener: () => void) => () => void;
@@ -209,6 +213,13 @@ const desktopApi = {
   }),
   getSettings: async () => parseSettings(await ipcRenderer.invoke(GET_SETTINGS_CHANNEL)),
   hideLauncher: () => ipcRenderer.invoke(HIDE_LAUNCHER_CHANNEL) as Promise<void>,
+  installPlugin: async (pluginRoot) =>
+    parsePluginRecord(
+      await ipcRenderer.invoke(
+        INSTALL_PLUGIN_CHANNEL,
+        parsePluginInstallRequest(pluginRoot).pluginRoot,
+      ),
+    ),
   listFavorites: async () => parseFavoriteRecords(await ipcRenderer.invoke(LIST_FAVORITES_CHANNEL)),
   listPlugins: async () => parsePluginRecords(await ipcRenderer.invoke(LIST_PLUGINS_CHANNEL)),
   onFocusSearchInput: (listener) => {

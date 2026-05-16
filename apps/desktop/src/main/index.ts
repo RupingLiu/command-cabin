@@ -5,26 +5,37 @@ import {
   type ClipboardHistoryRepository,
 } from '@command-cabin/built-in-plugin-clipboard-history';
 import {
+  createAppIndexer,
+  createCommandRegistry,
   createFavoritesRepository,
   createHistoryRepository,
+  createIndexCache,
   createInMemorySettingsStore,
+  createPluginRuntime,
   createPluginRepository,
   createSettingsRepository,
   openCommandCabinDatabase,
   runMigrations,
+  type AppIndexer,
   type CommandCabinDatabase,
   type CommandCabinSettingsStore,
+  type CommandPayload,
+  type PluginRuntime,
   type PluginRepository,
 } from '@command-cabin/core';
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createDesktopApplicationController } from './desktopApplication.js';
 import {
   createLauncherCommandService,
   type LauncherCommandService,
 } from './launcher/launcherCommandService.js';
+import {
+  createDesktopPluginService,
+  type DesktopPluginService,
+} from './plugins/desktopPluginService.js';
 import { createMainWindow } from './window/createMainWindow.js';
 import { resolveWindowEntryPaths } from './window/entryPaths.js';
 import {
@@ -43,6 +54,7 @@ import {
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
+  INSTALL_PLUGIN_CHANNEL,
   LIST_FAVORITES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
@@ -55,7 +67,7 @@ import {
   UPDATE_SETTINGS_CHANNEL,
   UPDATE_FAVORITE_CHANNEL,
 } from '../shared/ipcChannels.js';
-import { parseSettingsPatch } from '../shared/settingsApi.js';
+import { parsePluginInstallRequest, parseSettingsPatch } from '../shared/settingsApi.js';
 import { updateSettingsWithHotkeyRegistration } from './settings/updateSettingsWithHotkeyRegistration.js';
 
 const mainDirectory = fileURLToPath(new URL('.', import.meta.url));
@@ -65,9 +77,12 @@ const pluginWebviewPolicyStore = createPluginWebviewPolicyStore({
 });
 let settingsStore: CommandCabinSettingsStore = createInMemorySettingsStore();
 let commandCabinDatabase: CommandCabinDatabase | undefined;
+let appIndexer: AppIndexer | undefined;
 let clipboardHistoryRuntime: ClipboardHistoryPluginRuntime | undefined;
+let desktopPluginService: DesktopPluginService | undefined;
 let launcherCommandService: LauncherCommandService = createLauncherCommandService();
 let pluginRepository: PluginRepository | undefined;
+let pluginRuntime: PluginRuntime | undefined;
 let isShutdownResuming = false;
 
 function getWindowOptions() {
@@ -80,13 +95,15 @@ function getWindowOptions() {
 }
 
 async function createApplicationWindow(): Promise<void> {
-  launcherCommandService = createPersistentLauncherCommandService();
+  launcherCommandService = await createPersistentLauncherCommandService();
   await desktopApplication.start();
 }
 
-function createPersistentLauncherCommandService(): LauncherCommandService {
+async function createPersistentLauncherCommandService(): Promise<LauncherCommandService> {
+  const userDataPath = app.getPath('userData');
+
   commandCabinDatabase = openCommandCabinDatabase({
-    path: join(app.getPath('userData'), 'command-cabin.sqlite'),
+    path: join(userDataPath, 'command-cabin.sqlite'),
   });
   runMigrations(commandCabinDatabase);
   settingsStore = createSettingsRepository(commandCabinDatabase);
@@ -94,11 +111,67 @@ function createPersistentLauncherCommandService(): LauncherCommandService {
   const clipboardHistoryRepository = createClipboardHistoryRepository(commandCabinDatabase);
   clipboardHistoryRuntime = createPersistentClipboardHistoryRuntime(clipboardHistoryRepository);
   clipboardHistoryRuntime.watcher.start();
+  const commandRegistry = createCommandRegistry();
+
+  appIndexer = createAppIndexer({
+    cache: createIndexCache({
+      cacheFilePath: join(userDataPath, 'app-index.json'),
+    }),
+    onRefreshError: (error) => {
+      console.error('App index refresh failed.', error);
+    },
+    refreshIntervalMs: 30 * 60 * 1000,
+  });
+
+  try {
+    if (!(await appIndexer.load())) {
+      await appIndexer.refresh();
+    }
+  } catch (error) {
+    console.error('Initial app indexing failed.', error);
+  }
+
+  appIndexer.startAutoRefresh();
+
+  pluginRuntime = createPluginRuntime({
+    clipboard: {
+      readText: async () => clipboard.readText(),
+      writeText: async (request) => {
+        clipboard.writeText(request.text);
+      },
+    },
+    commandRegistry,
+    logSink: (entry) => {
+      const message = `[plugin:${entry.pluginId ?? 'unknown'}] ${entry.message}`;
+
+      if (entry.level === 'error') {
+        console.error(message, entry.error ?? entry.details ?? '');
+        return;
+      }
+
+      console.log(message, entry.details ?? '');
+    },
+    moduleLoader: async ({ mainPath }) => import(pathToFileURL(mainPath).href),
+  });
+  desktopPluginService = createDesktopPluginService({
+    onPluginLoadError: (plugin, error) => {
+      console.error(`Plugin "${plugin.id}" was disabled after load failure.`, error);
+    },
+    repository: pluginRepository,
+    runtime: pluginRuntime,
+  });
+  await desktopPluginService.loadEnabledPlugins();
 
   return createLauncherCommandService({
+    actionHandlers: {
+      'run-plugin': pluginRuntime.createRunPluginCommandHandler(),
+    },
+    appCommands: () => appIndexer?.getCommands() ?? [],
     clipboardHistoryRepository,
+    commandRegistry,
     favoritesRepository: createFavoritesRepository(commandCabinDatabase),
     historyRepository: createHistoryRepository(commandCabinDatabase),
+    openApp: openAppCommand,
     openPath: async (path) => {
       const errorMessage = await shell.openPath(path);
 
@@ -112,6 +185,20 @@ function createPersistentLauncherCommandService(): LauncherCommandService {
       clipboard.writeText(text);
     },
   });
+}
+
+async function openAppCommand(payload: CommandPayload): Promise<void> {
+  const shortcutPath = payload.shortcutPath;
+
+  if (typeof shortcutPath !== 'string' || shortcutPath.trim().length === 0) {
+    throw new Error('App shortcut path is missing.');
+  }
+
+  const errorMessage = await shell.openPath(shortcutPath);
+
+  if (errorMessage.trim().length > 0) {
+    throw new Error(errorMessage);
+  }
 }
 
 function createPersistentClipboardHistoryRuntime(
@@ -129,9 +216,22 @@ function createPersistentClipboardHistoryRuntime(
 async function stopClipboardHistoryAndCloseDatabase(): Promise<void> {
   const runtime = clipboardHistoryRuntime;
   clipboardHistoryRuntime = undefined;
+  const runtimePlugins = pluginRuntime;
+  pluginRuntime = undefined;
+  desktopPluginService = undefined;
+  appIndexer?.stopAutoRefresh();
+  appIndexer = undefined;
 
   if (runtime) {
     await runtime.watcher.stop();
+  }
+
+  if (runtimePlugins) {
+    for (const plugin of runtimePlugins.listPlugins()) {
+      if (plugin.status === 'enabled') {
+        await runtimePlugins.disablePlugin(plugin.pluginId);
+      }
+    }
   }
 
   commandCabinDatabase?.close();
@@ -190,9 +290,13 @@ ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
   });
 });
 
-ipcMain.handle(LIST_PLUGINS_CHANNEL, () => pluginRepository?.listPlugins() ?? []);
+ipcMain.handle(LIST_PLUGINS_CHANNEL, () => desktopPluginService?.listPlugins() ?? []);
 
-ipcMain.handle(SET_PLUGIN_ENABLED_CHANNEL, (_event, id: unknown, enabled: unknown) => {
+ipcMain.handle(INSTALL_PLUGIN_CHANNEL, (_event, input: unknown) =>
+  desktopPluginService?.installPlugin(parsePluginInstallRequest(input).pluginRoot),
+);
+
+ipcMain.handle(SET_PLUGIN_ENABLED_CHANNEL, async (_event, id: unknown, enabled: unknown) => {
   if (typeof id !== 'string' || id.trim().length === 0) {
     throw new Error('Plugin id must be a non-empty string.');
   }
@@ -200,15 +304,15 @@ ipcMain.handle(SET_PLUGIN_ENABLED_CHANNEL, (_event, id: unknown, enabled: unknow
     throw new Error('Plugin enabled state must be a boolean.');
   }
 
-  return pluginRepository?.setPluginEnabled(id.trim(), enabled);
+  return desktopPluginService?.setPluginEnabled(id.trim(), enabled);
 });
 
-ipcMain.handle(REMOVE_PLUGIN_CHANNEL, (_event, id: unknown) => {
+ipcMain.handle(REMOVE_PLUGIN_CHANNEL, async (_event, id: unknown) => {
   if (typeof id !== 'string' || id.trim().length === 0) {
     throw new Error('Plugin id must be a non-empty string.');
   }
 
-  return pluginRepository?.removePlugin(id.trim()) ?? false;
+  return (await desktopPluginService?.removePlugin(id.trim())) ?? false;
 });
 
 ipcMain.handle(GET_DATA_DIRECTORY_CHANNEL, () => ({
@@ -226,9 +330,29 @@ ipcMain.handle(OPEN_DATA_DIRECTORY_CHANNEL, async () => {
   return { path };
 });
 
-ipcMain.handle(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) =>
-  pluginWebviewPolicyStore.register(input),
-);
+ipcMain.handle(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) => {
+  const pluginId =
+    typeof input === 'object' && input !== null && 'pluginId' in input
+      ? (input as { pluginId?: unknown }).pluginId
+      : undefined;
+
+  if (typeof pluginId !== 'string' || pluginId.trim().length === 0) {
+    throw new Error('Plugin host entry plugin id must be a non-empty string.');
+  }
+
+  const plugin = pluginRuntime?.getPlugin(pluginId.trim());
+
+  if (!plugin || plugin.status !== 'enabled' || plugin.manifest.ui === undefined) {
+    throw new Error('Plugin page is not available.');
+  }
+
+  return pluginWebviewPolicyStore.register({
+    name: plugin.manifest.name,
+    pluginId: plugin.pluginId,
+    pluginRoot: plugin.pluginRoot,
+    uiPath: plugin.manifest.ui,
+  });
+});
 
 ipcMain.handle(RELEASE_PLUGIN_HOST_ENTRY_CHANNEL, (_event, launchToken: unknown) => {
   if (typeof launchToken !== 'string' || launchToken.trim().length === 0) {

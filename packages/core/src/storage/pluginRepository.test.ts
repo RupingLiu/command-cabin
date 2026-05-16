@@ -18,6 +18,7 @@ describe('SQLite plugin repository', () => {
         version: '0.1.0',
         description: 'Common text transformations',
         main: 'dist/main.js',
+        pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
         ui: 'dist/index.html',
         permissions: ['clipboard.read', 'clipboard.write'],
       });
@@ -28,6 +29,7 @@ describe('SQLite plugin repository', () => {
         version: '0.1.0',
         description: 'Common text transformations',
         main: 'dist/main.js',
+        pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
         ui: 'dist/index.html',
         enabled: true,
         permissions: ['clipboard.read', 'clipboard.write'],

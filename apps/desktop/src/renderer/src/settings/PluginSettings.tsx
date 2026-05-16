@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PluginListRecord } from '../../../shared/settingsApi.js';
 
 export interface PluginSettingsApi {
+  installPlugin: (pluginRoot: string) => Promise<PluginListRecord>;
   listPlugins: () => Promise<PluginListRecord[]>;
   removePlugin: (id: string) => Promise<boolean>;
   setPluginEnabled: (id: string, enabled: boolean) => Promise<PluginListRecord | undefined>;
@@ -41,6 +42,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
     plugins: [],
   });
   const currentState = state ?? internalState;
+  const [pluginRoot, setPluginRoot] = useState('');
 
   const loadPlugins = useCallback(async () => {
     if (!pluginApi || state) {
@@ -114,6 +116,39 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
         <h2>Plugin Management</h2>
         <span>{currentState.plugins.length}</span>
       </header>
+      <form
+        className="plugin-settings__install"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const trimmedPluginRoot = pluginRoot.trim();
+
+          if (trimmedPluginRoot.length === 0) {
+            setInternalState((current) => ({
+              ...current,
+              errorMessage: 'Plugin folder path is required.',
+            }));
+            return;
+          }
+
+          void runPluginOperation('install', () => pluginApi!.installPlugin(trimmedPluginRoot));
+          setPluginRoot('');
+        }}
+      >
+        <input
+          aria-label="Local plugin folder path"
+          placeholder="C:\\CommandCabin\\plugins\\example"
+          type="text"
+          value={pluginRoot}
+          onChange={(event) => setPluginRoot(event.currentTarget.value)}
+        />
+        <button
+          aria-busy={currentState.operationPluginId === 'install'}
+          disabled={currentState.operationPluginId === 'install'}
+          type="submit"
+        >
+          Install local plugin
+        </button>
+      </form>
       {currentState.errorMessage ? (
         <p className="settings-section__error" role="alert">
           {currentState.errorMessage}

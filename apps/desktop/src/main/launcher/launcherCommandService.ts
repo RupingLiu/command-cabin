@@ -8,6 +8,13 @@ import {
   type ClipboardHistoryRepository,
 } from '@command-cabin/built-in-plugin-clipboard-history';
 import {
+  TEXT_TOOLS_PLUGIN_ID,
+  applyTextTransform,
+  createTextToolCommands,
+  getTextToolTransformKind,
+  isTextToolCommandId,
+} from '@command-cabin/built-in-plugin-text-tools';
+import {
   createFavoriteCommands,
   createCommandExecutor,
   createCommandRegistry,
@@ -42,6 +49,7 @@ export interface LauncherCommandServiceOptions {
   historyRepository?: HistoryRepository;
   openPath?: (path: string) => Promise<void> | void;
   openUrl?: (url: string) => Promise<void> | void;
+  readClipboardText?: () => Promise<string> | string;
   writeClipboardText?: (text: string) => Promise<void> | void;
 }
 
@@ -147,6 +155,14 @@ function assertNoReservedCalculatorCommandIds(commands: readonly Command[]): voi
   }
 }
 
+function assertNoReservedTextToolCommandIds(commands: readonly Command[]): void {
+  for (const command of commands) {
+    if (isTextToolCommandId(command.id)) {
+      throw new Error(`Command id is reserved for the built-in text tools: ${command.id}`);
+    }
+  }
+}
+
 export function createLauncherCommandService(
   optionsOrCommands: readonly Command[] | LauncherCommandServiceOptions = {},
 ): LauncherCommandService {
@@ -160,8 +176,13 @@ export function createLauncherCommandService(
   let calculatorCommandRegistered = false;
 
   assertNoReservedCalculatorCommandIds(commands);
+  assertNoReservedTextToolCommandIds(commands);
 
   for (const command of commands) {
+    registry.register(command);
+  }
+
+  for (const command of createTextToolCommands()) {
     registry.register(command);
   }
 
@@ -221,12 +242,41 @@ export function createLauncherCommandService(
           },
         };
       },
-      'run-system': (command) => ({
-        metadata: {
-          handled: true,
-          systemCommand: String(command.action.payload.command ?? command.id),
-        },
-      }),
+      'run-system': async (command) => {
+        const textTransformKind = getTextToolTransformKind(command.id);
+
+        if (textTransformKind !== undefined) {
+          if (command.pluginId !== TEXT_TOOLS_PLUGIN_ID) {
+            throw new Error('Invalid text tools command registration.');
+          }
+
+          if (!options.readClipboardText) {
+            throw new Error('No clipboard reader configured for text tools.');
+          }
+
+          if (!options.writeClipboardText) {
+            throw new Error('No clipboard writer configured for text tools.');
+          }
+
+          const inputText = await options.readClipboardText();
+          const outputText = applyTextTransform(textTransformKind, inputText);
+
+          await options.writeClipboardText(outputText);
+
+          return {
+            metadata: {
+              textTransform: textTransformKind,
+            },
+          };
+        }
+
+        return {
+          metadata: {
+            handled: true,
+            systemCommand: String(command.action.payload.command ?? command.id),
+          },
+        };
+      },
     },
   });
 

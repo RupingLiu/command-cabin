@@ -23,6 +23,9 @@
     },
     {
       "path": "../../packages/built-in-plugins/clipboard-history"
+    },
+    {
+      "path": "../../packages/built-in-plugins/text-tools"
     }
   ]
 }

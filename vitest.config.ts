@@ -14,6 +14,9 @@ export default defineConfig({
       '@command-cabin/built-in-plugin-clipboard-history': fileURLToPath(
         new URL('./packages/built-in-plugins/clipboard-history/src/index.ts', import.meta.url),
       ),
+      '@command-cabin/built-in-plugin-text-tools': fileURLToPath(
+        new URL('./packages/built-in-plugins/text-tools/src/index.ts', import.meta.url),
+      ),
     },
   },
   test: {

@@ -35,6 +35,9 @@ importers:
       '@command-cabin/built-in-plugin-clipboard-history':
         specifier: workspace:*
         version: link:../../packages/built-in-plugins/clipboard-history
+      '@command-cabin/built-in-plugin-text-tools':
+        specifier: workspace:*
+        version: link:../../packages/built-in-plugins/text-tools
       '@command-cabin/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -74,6 +77,12 @@ importers:
         version: link:../../core
 
   packages/built-in-plugins/clipboard-history:
+    dependencies:
+      '@command-cabin/core':
+        specifier: workspace:*
+        version: link:../../core
+
+  packages/built-in-plugins/text-tools:
     dependencies:
       '@command-cabin/core':
         specifier: workspace:*

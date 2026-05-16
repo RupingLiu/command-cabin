@@ -1,0 +1,27 @@
+{
+  "name": "@command-cabin/built-in-plugin-text-tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Built-in clipboard text transformation commands for CommandCabin.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --root ../../.. tests/unit/textTools.test.ts",
+    "lint": "eslint .",
+    "format": "prettier . --check --ignore-path ../../../.prettierignore"
+  },
+  "dependencies": {
+    "@command-cabin/core": "workspace:*"
+  }
+}

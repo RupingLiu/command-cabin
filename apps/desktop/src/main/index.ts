@@ -91,6 +91,7 @@ function createPersistentLauncherCommandService(): LauncherCommandService {
       }
     },
     openUrl: (url) => shell.openExternal(url),
+    readClipboardText: () => clipboard.readText(),
     writeClipboardText: (text) => {
       clipboard.writeText(text);
     },

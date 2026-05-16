@@ -26,6 +26,7 @@ export interface PluginPageLaunchApi {
 
 export interface LauncherControllerOptions {
   onOpenPluginPage?: ((plugin: PluginHostEntry) => void) | undefined;
+  onOpenSettings?: (() => void) | undefined;
 }
 
 export const LAUNCHER_SEARCH_INPUT_ID = 'launcher-search-input';
@@ -147,9 +148,30 @@ const fallbackDesktopApi: DesktopApi = {
       node: 'Node',
     },
   }),
+  getDataDirectory: async () => ({
+    path: '',
+  }),
+  getSettings: async () => ({
+    hideOnBlur: true,
+    hotkey: 'Alt+Space',
+    language: 'zh-CN',
+    launchAtLogin: false,
+    search: {
+      appBoost: 1.2,
+      fileBoost: 0.9,
+      historyBoost: 1.4,
+      maxResults: 20,
+      pluginBoost: 1,
+    },
+    theme: 'system',
+  }),
   hideLauncher: async () => undefined,
   listFavorites: async () => [],
+  listPlugins: async () => [],
   onFocusSearchInput: () => () => undefined,
+  openDataDirectory: async () => ({
+    path: '',
+  }),
   pluginHost: {
     createEntry: async (input) => {
       const pluginRootPath = input.pluginRoot.replace(/\\/g, '/');
@@ -178,6 +200,7 @@ const fallbackDesktopApi: DesktopApi = {
     releaseEntry: async () => false,
   },
   removeFavorite: async () => false,
+  removePlugin: async () => false,
   searchCommands: async (query) => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -190,7 +213,22 @@ const fallbackDesktopApi: DesktopApi = {
       return `${result.title} ${subtitle}`.toLowerCase().includes(normalizedQuery);
     });
   },
+  setPluginEnabled: async () => undefined,
   updateFavorite: async () => undefined,
+  updateSettings: async (patch) => ({
+    hideOnBlur: patch.hideOnBlur ?? true,
+    hotkey: patch.hotkey ?? 'Alt+Space',
+    language: patch.language ?? 'zh-CN',
+    launchAtLogin: patch.launchAtLogin ?? false,
+    search: {
+      appBoost: patch.search?.appBoost ?? 1.2,
+      fileBoost: patch.search?.fileBoost ?? 0.9,
+      historyBoost: patch.search?.historyBoost ?? 1.4,
+      maxResults: patch.search?.maxResults ?? 20,
+      pluginBoost: patch.search?.pluginBoost ?? 1,
+    },
+    theme: patch.theme ?? 'system',
+  }),
 };
 
 export const initialLauncherState: LauncherState = {
@@ -354,6 +392,18 @@ export function openPluginPageFromExecutionResult(
   });
 }
 
+export type SystemExecutionAction = 'open-settings';
+
+export function getSystemExecutionAction(
+  result: LauncherCommandExecutionResult,
+): SystemExecutionAction | undefined {
+  if (result.status !== 'success' || result.actionType !== 'run-system') {
+    return undefined;
+  }
+
+  return result.metadata.systemCommand === 'open-settings' ? 'open-settings' : undefined;
+}
+
 export function launcherReducer(state: LauncherState, action: LauncherAction): LauncherState {
   switch (action.type) {
     case 'query-changed':
@@ -452,7 +502,7 @@ function getExecutionErrorMessage(result: LauncherCommandExecutionResult): strin
 }
 
 export function useLauncherController(options: LauncherControllerOptions = {}) {
-  const { onOpenPluginPage } = options;
+  const { onOpenPluginPage, onOpenSettings } = options;
   const desktopApi = useMemo(getDesktopApi, []);
   const [state, dispatch] = useReducer(launcherReducer, initialLauncherState);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -517,6 +567,11 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
       dispatch({
         type: 'execution-succeeded',
       });
+      if (getSystemExecutionAction(executionResult) === 'open-settings') {
+        onOpenSettings?.();
+        return;
+      }
+
       if (
         await openPluginPageFromExecutionResult(
           executionResult,
@@ -536,7 +591,7 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     } finally {
       executionInFlightRef.current = false;
     }
-  }, [desktopApi, executableSelectedResult, onOpenPluginPage]);
+  }, [desktopApi, executableSelectedResult, onOpenPluginPage, onOpenSettings]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {

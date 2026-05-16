@@ -8,7 +8,7 @@ import {
   type PluginHostEntry,
   type PluginHostFailure,
 } from '../plugin-host/PluginHost.js';
-import { ClipboardHistorySettings } from '../settings/ClipboardHistorySettings.js';
+import { SettingsPage } from '../settings/SettingsPage.js';
 
 export interface AppState {
   activePlugin: PluginHostEntry | undefined;
@@ -77,25 +77,6 @@ export function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-function SettingsView({ onReturnToLauncher }: { onReturnToLauncher: () => void }) {
-  return (
-    <main className="settings-shell">
-      <section className="settings-frame" aria-label="CommandCabin settings">
-        <header className="settings-titlebar">
-          <div>
-            <p className="launcher-kicker">Settings</p>
-            <h1>CommandCabin</h1>
-          </div>
-          <button className="settings-back" type="button" onClick={onReturnToLauncher}>
-            Back
-          </button>
-        </header>
-        <ClipboardHistorySettings />
-      </section>
-    </main>
-  );
-}
-
 export function AppView({
   onClosePlugin,
   onOpenPluginPage,
@@ -115,7 +96,7 @@ export function AppView({
   }
 
   if (state.view === 'settings') {
-    return <SettingsView onReturnToLauncher={onReturnToLauncher} />;
+    return <SettingsPage onReturnToLauncher={onReturnToLauncher} />;
   }
 
   return <LauncherPage onOpenPluginPage={onOpenPluginPage} onOpenSettings={onOpenSettings} />;

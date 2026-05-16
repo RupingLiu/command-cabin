@@ -120,4 +120,50 @@ describe('createDesktopApplicationController', () => {
     expect(hiddenWindow.show).toHaveBeenCalledOnce();
     expect(hiddenWindow.focus).toHaveBeenCalledOnce();
   });
+
+  it('re-registers the global hotkey when settings change', async () => {
+    const window = new MockLauncherWindow(false);
+    let currentHotkey = 'Alt+Space';
+    const hotkeyRegistry = {
+      register: vi.fn(() => true),
+      unregister: vi.fn(),
+    };
+    const controller = createDesktopApplicationController({
+      createWindow: vi.fn(async () => window),
+      getSettings: () => ({
+        hideOnBlur: true,
+        hotkey: currentHotkey,
+      }),
+      hotkeyRegistry,
+    });
+
+    await controller.start();
+    currentHotkey = 'Ctrl+Alt+K';
+    expect(controller.tryRegisterGlobalHotkey(currentHotkey)).toBe(true);
+
+    expect(hotkeyRegistry.unregister).toHaveBeenCalledWith('Alt+Space');
+    expect(hotkeyRegistry.register).toHaveBeenNthCalledWith(2, 'Ctrl+Alt+K', expect.any(Function));
+  });
+
+  it('keeps the old working hotkey when the new registration fails', async () => {
+    const window = new MockLauncherWindow(false);
+    const hotkeyRegistry = {
+      register: vi.fn((accelerator: string) => accelerator === 'Alt+Space'),
+      unregister: vi.fn(),
+    };
+    const controller = createDesktopApplicationController({
+      createWindow: vi.fn(async () => window),
+      getSettings: () => ({
+        hideOnBlur: true,
+        hotkey: 'Alt+Space',
+      }),
+      hotkeyRegistry,
+    });
+
+    await controller.start();
+
+    expect(controller.tryRegisterGlobalHotkey('Ctrl+Alt+K')).toBe(false);
+    expect(hotkeyRegistry.unregister).not.toHaveBeenCalled();
+    expect(hotkeyRegistry.register).toHaveBeenNthCalledWith(2, 'Ctrl+Alt+K', expect.any(Function));
+  });
 });

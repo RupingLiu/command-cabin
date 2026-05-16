@@ -24,6 +24,7 @@ export function LauncherPage({ onOpenPluginPage, onOpenSettings }: LauncherPageP
     state,
   } = useLauncherController({
     onOpenPluginPage,
+    onOpenSettings,
   });
   const isBusy = state.status === 'loading' || state.status === 'executing';
 

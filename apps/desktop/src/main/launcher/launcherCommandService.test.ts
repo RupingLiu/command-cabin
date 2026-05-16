@@ -37,6 +37,19 @@ describe('launcher command service', () => {
     });
   });
 
+  it('marks the open settings command for renderer-side routing', async () => {
+    const service = createLauncherCommandService();
+
+    await expect(service.executeCommand('system.open-settings')).resolves.toMatchObject({
+      actionType: 'run-system',
+      commandId: 'system.open-settings',
+      metadata: {
+        systemCommand: 'open-settings',
+      },
+      status: 'success',
+    });
+  });
+
   it('returns a calculator result for math queries and copies it on execution', async () => {
     const copiedText: string[] = [];
     const service = createLauncherCommandService({

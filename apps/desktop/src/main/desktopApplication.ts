@@ -41,6 +41,7 @@ export interface DesktopApplicationController {
   handleActivate: () => Promise<void>;
   start: () => Promise<void>;
   toggleLauncherWindow: () => Promise<void>;
+  tryRegisterGlobalHotkey: (accelerator: string) => boolean;
 }
 
 interface LauncherState {
@@ -158,6 +159,28 @@ export function createDesktopApplicationController({
     });
   };
 
+  const tryRegisterGlobalHotkey = (accelerator: string): boolean => {
+    if (hotkeyRegistration?.accelerator === accelerator && hotkeyRegistration.registered) {
+      return true;
+    }
+
+    const nextRegistration = registerGlobalHotkey({
+      accelerator,
+      logger,
+      notifyConflict: notifyHotkeyConflict,
+      onTriggered: toggleLauncherWindow,
+      registry: hotkeyRegistry,
+    });
+
+    if (!nextRegistration.registered) {
+      return false;
+    }
+
+    hotkeyRegistration?.dispose();
+    hotkeyRegistration = nextRegistration;
+    return true;
+  };
+
   return {
     dispose: () => {
       hotkeyRegistration?.dispose();
@@ -175,5 +198,6 @@ export function createDesktopApplicationController({
       registerHotkey();
     },
     toggleLauncherWindow,
+    tryRegisterGlobalHotkey,
   };
 }

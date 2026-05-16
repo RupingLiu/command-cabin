@@ -8,9 +8,13 @@ import {
   createFavoritesRepository,
   createHistoryRepository,
   createInMemorySettingsStore,
+  createPluginRepository,
+  createSettingsRepository,
   openCommandCabinDatabase,
   runMigrations,
   type CommandCabinDatabase,
+  type CommandCabinSettingsStore,
+  type PluginRepository,
 } from '@command-cabin/core';
 import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
@@ -36,24 +40,34 @@ import {
   ADD_FAVORITE_CHANNEL,
   CLEAR_CLIPBOARD_HISTORY_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
+  GET_DATA_DIRECTORY_CHANNEL,
+  GET_SETTINGS_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
   LIST_FAVORITES_CHANNEL,
+  LIST_PLUGINS_CHANNEL,
+  OPEN_DATA_DIRECTORY_CHANNEL,
   REMOVE_FAVORITE_CHANNEL,
+  REMOVE_PLUGIN_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
+  SET_PLUGIN_ENABLED_CHANNEL,
+  UPDATE_SETTINGS_CHANNEL,
   UPDATE_FAVORITE_CHANNEL,
 } from '../shared/ipcChannels.js';
+import { parseSettingsPatch } from '../shared/settingsApi.js';
+import { updateSettingsWithHotkeyRegistration } from './settings/updateSettingsWithHotkeyRegistration.js';
 
 const mainDirectory = fileURLToPath(new URL('.', import.meta.url));
 const windowEntryPaths = resolveWindowEntryPaths(mainDirectory);
 const pluginWebviewPolicyStore = createPluginWebviewPolicyStore({
   expectedPreloadPath: getPluginBridgePreloadPath(windowEntryPaths.preloadPath),
 });
-const settingsStore = createInMemorySettingsStore();
+let settingsStore: CommandCabinSettingsStore = createInMemorySettingsStore();
 let commandCabinDatabase: CommandCabinDatabase | undefined;
 let clipboardHistoryRuntime: ClipboardHistoryPluginRuntime | undefined;
 let launcherCommandService: LauncherCommandService = createLauncherCommandService();
+let pluginRepository: PluginRepository | undefined;
 let isShutdownResuming = false;
 
 function getWindowOptions() {
@@ -75,6 +89,8 @@ function createPersistentLauncherCommandService(): LauncherCommandService {
     path: join(app.getPath('userData'), 'command-cabin.sqlite'),
   });
   runMigrations(commandCabinDatabase);
+  settingsStore = createSettingsRepository(commandCabinDatabase);
+  pluginRepository = createPluginRepository(commandCabinDatabase);
   const clipboardHistoryRepository = createClipboardHistoryRepository(commandCabinDatabase);
   clipboardHistoryRuntime = createPersistentClipboardHistoryRuntime(clipboardHistoryRepository);
   clipboardHistoryRuntime.watcher.start();
@@ -120,6 +136,8 @@ async function stopClipboardHistoryAndCloseDatabase(): Promise<void> {
 
   commandCabinDatabase?.close();
   commandCabinDatabase = undefined;
+  pluginRepository = undefined;
+  settingsStore = createInMemorySettingsStore();
 }
 
 const desktopApplication = createDesktopApplicationController({
@@ -161,6 +179,52 @@ ipcMain.handle(REMOVE_FAVORITE_CHANNEL, (_event, id: unknown) =>
 ipcMain.handle(CLEAR_CLIPBOARD_HISTORY_CHANNEL, () =>
   launcherCommandService.clearClipboardHistory(),
 );
+
+ipcMain.handle(GET_SETTINGS_CHANNEL, () => settingsStore.getSettings());
+
+ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
+  return updateSettingsWithHotkeyRegistration({
+    settingsPatch: parseSettingsPatch(input),
+    settingsStore,
+    tryRegisterHotkey: desktopApplication.tryRegisterGlobalHotkey,
+  });
+});
+
+ipcMain.handle(LIST_PLUGINS_CHANNEL, () => pluginRepository?.listPlugins() ?? []);
+
+ipcMain.handle(SET_PLUGIN_ENABLED_CHANNEL, (_event, id: unknown, enabled: unknown) => {
+  if (typeof id !== 'string' || id.trim().length === 0) {
+    throw new Error('Plugin id must be a non-empty string.');
+  }
+  if (typeof enabled !== 'boolean') {
+    throw new Error('Plugin enabled state must be a boolean.');
+  }
+
+  return pluginRepository?.setPluginEnabled(id.trim(), enabled);
+});
+
+ipcMain.handle(REMOVE_PLUGIN_CHANNEL, (_event, id: unknown) => {
+  if (typeof id !== 'string' || id.trim().length === 0) {
+    throw new Error('Plugin id must be a non-empty string.');
+  }
+
+  return pluginRepository?.removePlugin(id.trim()) ?? false;
+});
+
+ipcMain.handle(GET_DATA_DIRECTORY_CHANNEL, () => ({
+  path: app.getPath('userData'),
+}));
+
+ipcMain.handle(OPEN_DATA_DIRECTORY_CHANNEL, async () => {
+  const path = app.getPath('userData');
+  const errorMessage = await shell.openPath(path);
+
+  if (errorMessage.trim().length > 0) {
+    throw new Error(errorMessage);
+  }
+
+  return { path };
+});
 
 ipcMain.handle(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) =>
   pluginWebviewPolicyStore.register(input),

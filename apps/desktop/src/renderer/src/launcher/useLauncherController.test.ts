@@ -4,6 +4,7 @@ import {
   getExecutableSelectedResult,
   getLauncherKeyIntent,
   getPluginPageLaunchRequest,
+  getSystemExecutionAction,
   openPluginPageFromExecutionResult,
   launcherReducer,
   type LauncherResultItem,
@@ -303,5 +304,33 @@ describe('launcher plugin page launch requests', () => {
       partition: 'command-cabin-plugin:com-example-text-tools:launch-1',
       pluginId: 'com.example.text-tools',
     });
+  });
+});
+
+describe('launcher system execution actions', () => {
+  it('maps open-settings execution metadata to a renderer settings action', () => {
+    expect(
+      getSystemExecutionAction({
+        status: 'success',
+        actionType: 'run-system',
+        commandId: 'system.open-settings',
+        metadata: {
+          systemCommand: 'open-settings',
+        },
+      }),
+    ).toBe('open-settings');
+  });
+
+  it('ignores unrelated system execution metadata', () => {
+    expect(
+      getSystemExecutionAction({
+        status: 'success',
+        actionType: 'run-system',
+        commandId: 'system.reload-launcher',
+        metadata: {
+          systemCommand: 'reload-launcher',
+        },
+      }),
+    ).toBeUndefined();
   });
 });

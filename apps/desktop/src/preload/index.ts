@@ -6,12 +6,19 @@ import {
   CLEAR_CLIPBOARD_HISTORY_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
   FOCUS_SEARCH_INPUT_CHANNEL,
+  GET_DATA_DIRECTORY_CHANNEL,
+  GET_SETTINGS_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
   LIST_FAVORITES_CHANNEL,
+  LIST_PLUGINS_CHANNEL,
+  OPEN_DATA_DIRECTORY_CHANNEL,
   REMOVE_FAVORITE_CHANNEL,
+  REMOVE_PLUGIN_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
+  SET_PLUGIN_ENABLED_CHANNEL,
+  UPDATE_SETTINGS_CHANNEL,
   UPDATE_FAVORITE_CHANNEL,
 } from '../shared/ipcChannels.js';
 import {
@@ -31,6 +38,19 @@ import {
   type LauncherCommandExecutionResult,
   type LauncherCommandSearchResult,
 } from '../shared/launcherApi.js';
+import {
+  parseDataDirectoryResponse,
+  parsePluginRecords,
+  parsePluginRemovalResult,
+  parseSettings,
+  parseSettingsPatch,
+  parseUpdatedPluginRecord,
+  type DataDirectoryResponse,
+  type PluginListRecord,
+  type SettingsReadResponse,
+  type SettingsUpdateRequest,
+  type SettingsUpdateResponse,
+} from '../shared/settingsApi.js';
 
 const PLUGIN_BRIDGE_CHANNEL = 'command-cabin:plugin-bridge';
 const PLUGIN_BRIDGE_METHODS = Object.freeze(['close', 'reportError'] as const);
@@ -79,16 +99,23 @@ export interface DesktopApi {
   clearClipboardHistory: () => Promise<number>;
   executeCommand: (commandId: string) => Promise<LauncherCommandExecutionResult>;
   getAppInfo: () => DesktopAppInfo;
+  getDataDirectory: () => Promise<DataDirectoryResponse>;
+  getSettings: () => Promise<SettingsReadResponse>;
   hideLauncher: () => Promise<void>;
   listFavorites: () => Promise<FavoriteListRecord[]>;
+  listPlugins: () => Promise<PluginListRecord[]>;
   onFocusSearchInput: (listener: () => void) => () => void;
+  openDataDirectory: () => Promise<DataDirectoryResponse>;
   pluginHost: PluginHostPreloadApi;
   removeFavorite: (id: string) => Promise<boolean>;
+  removePlugin: (id: string) => Promise<boolean>;
   searchCommands: (query: string) => Promise<LauncherCommandSearchResult[]>;
+  setPluginEnabled: (id: string, enabled: boolean) => Promise<PluginListRecord | undefined>;
   updateFavorite: (
     id: string,
     input: FavoriteUpdateRequest,
   ) => Promise<FavoriteListRecord | undefined>;
+  updateSettings: (patch: SettingsUpdateRequest) => Promise<SettingsUpdateResponse>;
 }
 
 const pluginBridgePreloadPath = join(__dirname, 'pluginBridge.cjs');
@@ -170,6 +197,8 @@ const desktopApi = {
     parseLauncherCommandExecutionResult(
       await ipcRenderer.invoke(EXECUTE_COMMAND_CHANNEL, commandId),
     ),
+  getDataDirectory: async () =>
+    parseDataDirectoryResponse(await ipcRenderer.invoke(GET_DATA_DIRECTORY_CHANNEL)),
   getAppInfo: () => ({
     name: 'CommandCabin',
     versions: {
@@ -178,8 +207,10 @@ const desktopApi = {
       node: process.versions.node,
     },
   }),
+  getSettings: async () => parseSettings(await ipcRenderer.invoke(GET_SETTINGS_CHANNEL)),
   hideLauncher: () => ipcRenderer.invoke(HIDE_LAUNCHER_CHANNEL) as Promise<void>,
   listFavorites: async () => parseFavoriteRecords(await ipcRenderer.invoke(LIST_FAVORITES_CHANNEL)),
+  listPlugins: async () => parsePluginRecords(await ipcRenderer.invoke(LIST_PLUGINS_CHANNEL)),
   onFocusSearchInput: (listener) => {
     const handleFocusSearchInput = () => {
       listener();
@@ -191,6 +222,8 @@ const desktopApi = {
       ipcRenderer.removeListener(FOCUS_SEARCH_INPUT_CHANNEL, handleFocusSearchInput);
     };
   },
+  openDataDirectory: async () =>
+    parseDataDirectoryResponse(await ipcRenderer.invoke(OPEN_DATA_DIRECTORY_CHANNEL)),
   pluginHost: {
     createEntry: async (input) =>
       parsePluginHostEntry(
@@ -217,8 +250,20 @@ const desktopApi = {
     parseFavoriteRemovalResult(
       await ipcRenderer.invoke(REMOVE_FAVORITE_CHANNEL, parseFavoriteId(id)),
     ),
+  removePlugin: async (id) =>
+    parsePluginRemovalResult(
+      await ipcRenderer.invoke(REMOVE_PLUGIN_CHANNEL, parseNonEmptyString(id, 'Plugin id')),
+    ),
   searchCommands: async (query) =>
     parseLauncherCommandSearchResults(await ipcRenderer.invoke(SEARCH_COMMANDS_CHANNEL, query)),
+  setPluginEnabled: async (id, enabled) =>
+    parseUpdatedPluginRecord(
+      await ipcRenderer.invoke(
+        SET_PLUGIN_ENABLED_CHANNEL,
+        parseNonEmptyString(id, 'Plugin id'),
+        parseBoolean(enabled, 'Plugin enabled state'),
+      ),
+    ),
   updateFavorite: async (id, input) => {
     const updatedFavorite = await ipcRenderer.invoke(
       UPDATE_FAVORITE_CHANNEL,
@@ -228,6 +273,8 @@ const desktopApi = {
 
     return updatedFavorite === undefined ? undefined : parseFavoriteRecord(updatedFavorite);
   },
+  updateSettings: async (patch) =>
+    parseSettings(await ipcRenderer.invoke(UPDATE_SETTINGS_CHANNEL, parseSettingsPatch(patch))),
 } satisfies DesktopApi;
 
 contextBridge.exposeInMainWorld('desktopApi', desktopApi);

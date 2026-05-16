@@ -32,6 +32,9 @@ importers:
       '@command-cabin/built-in-plugin-calculator':
         specifier: workspace:*
         version: link:../../packages/built-in-plugins/calculator
+      '@command-cabin/built-in-plugin-clipboard-history':
+        specifier: workspace:*
+        version: link:../../packages/built-in-plugins/clipboard-history
       '@command-cabin/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -65,6 +68,12 @@ importers:
         version: 7.1.10(@types/node@20.19.0)(lightningcss@1.32.0)
 
   packages/built-in-plugins/calculator:
+    dependencies:
+      '@command-cabin/core':
+        specifier: workspace:*
+        version: link:../../core
+
+  packages/built-in-plugins/clipboard-history:
     dependencies:
       '@command-cabin/core':
         specifier: workspace:*

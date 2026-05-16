@@ -130,6 +130,7 @@ function createFallbackFavoriteRecord(input: FavoriteCreateRequest): FavoriteLis
 
 const fallbackDesktopApi: DesktopApi = {
   addFavorite: async (input) => createFallbackFavoriteRecord(input),
+  clearClipboardHistory: async () => 0,
   executeCommand: async (commandId) => ({
     status: 'success',
     actionType: 'run-system',

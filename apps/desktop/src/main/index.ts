@@ -1,4 +1,10 @@
 import {
+  createClipboardHistoryPluginRuntime,
+  createClipboardHistoryRepository,
+  type ClipboardHistoryPluginRuntime,
+  type ClipboardHistoryRepository,
+} from '@command-cabin/built-in-plugin-clipboard-history';
+import {
   createFavoritesRepository,
   createHistoryRepository,
   createInMemorySettingsStore,
@@ -28,6 +34,7 @@ import {
 } from '../shared/favoritesApi.js';
 import {
   ADD_FAVORITE_CHANNEL,
+  CLEAR_CLIPBOARD_HISTORY_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
   LIST_FAVORITES_CHANNEL,
@@ -45,7 +52,9 @@ const pluginWebviewPolicyStore = createPluginWebviewPolicyStore({
 });
 const settingsStore = createInMemorySettingsStore();
 let commandCabinDatabase: CommandCabinDatabase | undefined;
+let clipboardHistoryRuntime: ClipboardHistoryPluginRuntime | undefined;
 let launcherCommandService: LauncherCommandService = createLauncherCommandService();
+let isShutdownResuming = false;
 
 function getWindowOptions() {
   return {
@@ -66,8 +75,12 @@ function createPersistentLauncherCommandService(): LauncherCommandService {
     path: join(app.getPath('userData'), 'command-cabin.sqlite'),
   });
   runMigrations(commandCabinDatabase);
+  const clipboardHistoryRepository = createClipboardHistoryRepository(commandCabinDatabase);
+  clipboardHistoryRuntime = createPersistentClipboardHistoryRuntime(clipboardHistoryRepository);
+  clipboardHistoryRuntime.watcher.start();
 
   return createLauncherCommandService({
+    clipboardHistoryRepository,
     favoritesRepository: createFavoritesRepository(commandCabinDatabase),
     historyRepository: createHistoryRepository(commandCabinDatabase),
     openPath: async (path) => {
@@ -82,6 +95,30 @@ function createPersistentLauncherCommandService(): LauncherCommandService {
       clipboard.writeText(text);
     },
   });
+}
+
+function createPersistentClipboardHistoryRuntime(
+  repository: ClipboardHistoryRepository,
+): ClipboardHistoryPluginRuntime {
+  return createClipboardHistoryPluginRuntime({
+    onError: (error) => {
+      console.error('Clipboard history watcher failed.', error);
+    },
+    readText: () => clipboard.readText(),
+    repository,
+  });
+}
+
+async function stopClipboardHistoryAndCloseDatabase(): Promise<void> {
+  const runtime = clipboardHistoryRuntime;
+  clipboardHistoryRuntime = undefined;
+
+  if (runtime) {
+    await runtime.watcher.stop();
+  }
+
+  commandCabinDatabase?.close();
+  commandCabinDatabase = undefined;
 }
 
 const desktopApplication = createDesktopApplicationController({
@@ -120,6 +157,10 @@ ipcMain.handle(REMOVE_FAVORITE_CHANNEL, (_event, id: unknown) =>
   launcherCommandService.removeFavorite(parseFavoriteId(id)),
 );
 
+ipcMain.handle(CLEAR_CLIPBOARD_HISTORY_CHANNEL, () =>
+  launcherCommandService.clearClipboardHistory(),
+);
+
 ipcMain.handle(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) =>
   pluginWebviewPolicyStore.register(input),
 );
@@ -150,9 +191,26 @@ app.on('window-all-closed', () => {
   }
 });
 
+app.on('before-quit', (event) => {
+  if (isShutdownResuming || !clipboardHistoryRuntime) {
+    return;
+  }
+
+  event.preventDefault();
+  isShutdownResuming = true;
+  void stopClipboardHistoryAndCloseDatabase()
+    .catch((error: unknown) => {
+      console.error('Failed to stop clipboard history cleanly.', error);
+    })
+    .finally(() => {
+      app.quit();
+    });
+});
+
 app.on('will-quit', () => {
   desktopApplication.dispose();
   globalShortcut.unregisterAll();
-  commandCabinDatabase?.close();
-  commandCabinDatabase = undefined;
+  if (clipboardHistoryRuntime || commandCabinDatabase) {
+    void stopClipboardHistoryAndCloseDatabase();
+  }
 });

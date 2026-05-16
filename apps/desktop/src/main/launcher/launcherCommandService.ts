@@ -4,6 +4,10 @@ import {
   createCalculatorResultCommand,
 } from '@command-cabin/built-in-plugin-calculator';
 import {
+  createClipboardHistoryCommands,
+  type ClipboardHistoryRepository,
+} from '@command-cabin/built-in-plugin-clipboard-history';
+import {
   createFavoriteCommands,
   createCommandExecutor,
   createCommandRegistry,
@@ -23,6 +27,7 @@ import type { LauncherCommandSearchResult } from '../../shared/launcherApi.js';
 
 export interface LauncherCommandService {
   addFavorite: (input: AddFavoriteInput) => FavoriteRecord;
+  clearClipboardHistory: () => number;
   executeCommand: (commandId: string) => Promise<CommandExecutionResult>;
   listFavorites: () => FavoriteRecord[];
   removeFavorite: (id: string) => boolean;
@@ -31,6 +36,7 @@ export interface LauncherCommandService {
 }
 
 export interface LauncherCommandServiceOptions {
+  clipboardHistoryRepository?: ClipboardHistoryRepository;
   commands?: readonly Command[];
   favoritesRepository?: FavoritesRepository;
   historyRepository?: HistoryRepository;
@@ -149,6 +155,7 @@ export function createLauncherCommandService(
     : optionsOrCommands;
   const commands = options.commands ?? DEMO_COMMANDS;
   const registry = createCommandRegistry();
+  const clipboardHistoryCommandIds = new Set<string>();
   const favoriteCommandIds = new Set<string>();
   let calculatorCommandRegistered = false;
 
@@ -247,6 +254,28 @@ export function createLauncherCommandService(
     refreshSearchIndex();
   }
 
+  function refreshClipboardHistoryCommands(): void {
+    for (const commandId of clipboardHistoryCommandIds) {
+      registry.unregister(commandId);
+    }
+
+    clipboardHistoryCommandIds.clear();
+
+    if (!options.clipboardHistoryRepository) {
+      refreshSearchIndex();
+      return;
+    }
+
+    for (const command of createClipboardHistoryCommands(
+      options.clipboardHistoryRepository.listRecent(200),
+    )) {
+      registry.register(command);
+      clipboardHistoryCommandIds.add(command.id);
+    }
+
+    refreshSearchIndex();
+  }
+
   function refreshCalculatorCommand(query: string): void {
     if (calculatorCommandRegistered) {
       registry.unregister(CALCULATOR_RESULT_COMMAND_ID);
@@ -290,6 +319,7 @@ export function createLauncherCommandService(
   }
 
   refreshFavoriteCommands();
+  refreshClipboardHistoryCommands();
 
   return {
     addFavorite: (input) => {
@@ -300,6 +330,15 @@ export function createLauncherCommandService(
       const favorite = options.favoritesRepository.addFavorite(input);
       refreshFavoriteCommands();
       return favorite;
+    },
+    clearClipboardHistory: () => {
+      if (!options.clipboardHistoryRepository) {
+        return 0;
+      }
+
+      const removed = options.clipboardHistoryRepository.clear();
+      refreshClipboardHistoryCommands();
+      return removed;
     },
     executeCommand: async (commandId) => {
       const command = registry.get(commandId);
@@ -350,6 +389,7 @@ export function createLauncherCommandService(
     },
     searchCommands: (query) => {
       refreshCalculatorCommand(query);
+      refreshClipboardHistoryCommands();
 
       const searchOptions: SearchOptions = {
         includeAllOnEmptyQuery: true,

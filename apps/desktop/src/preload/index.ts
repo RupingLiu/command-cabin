@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import {
   ADD_FAVORITE_CHANNEL,
+  CLEAR_CLIPBOARD_HISTORY_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
   FOCUS_SEARCH_INPUT_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
@@ -75,6 +76,7 @@ export interface DesktopAppInfo {
 
 export interface DesktopApi {
   addFavorite: (input: FavoriteCreateRequest) => Promise<FavoriteListRecord>;
+  clearClipboardHistory: () => Promise<number>;
   executeCommand: (commandId: string) => Promise<LauncherCommandExecutionResult>;
   getAppInfo: () => DesktopAppInfo;
   hideLauncher: () => Promise<void>;
@@ -146,10 +148,23 @@ function parseBoolean(value: unknown, context: string): boolean {
   return value;
 }
 
+function parseNonNegativeInteger(value: unknown, context: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${context} must be a non-negative integer.`);
+  }
+
+  return value;
+}
+
 const desktopApi = {
   addFavorite: async (input) =>
     parseFavoriteRecord(
       await ipcRenderer.invoke(ADD_FAVORITE_CHANNEL, parseFavoriteCreateRequest(input)),
+    ),
+  clearClipboardHistory: async () =>
+    parseNonNegativeInteger(
+      await ipcRenderer.invoke(CLEAR_CLIPBOARD_HISTORY_CHANNEL),
+      'Clipboard history clear response',
     ),
   executeCommand: async (commandId) =>
     parseLauncherCommandExecutionResult(

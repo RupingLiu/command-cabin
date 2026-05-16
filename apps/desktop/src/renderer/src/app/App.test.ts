@@ -17,6 +17,24 @@ function createPluginEntry(): PluginHostEntry {
 }
 
 describe('App plugin host routing', () => {
+  it('opens and closes the reachable settings view from app state', () => {
+    const settingsOpen = appReducer(initialAppState, {
+      type: 'open-settings',
+    });
+
+    expect(settingsOpen).toEqual({
+      activePlugin: undefined,
+      lastPluginFailure: undefined,
+      view: 'settings',
+    });
+
+    expect(
+      appReducer(settingsOpen, {
+        type: 'open-launcher',
+      }),
+    ).toEqual(initialAppState);
+  });
+
   it('opens and closes a plugin host from launcher state', () => {
     const plugin = createPluginEntry();
     const opened = appReducer(initialAppState, {
@@ -27,6 +45,7 @@ describe('App plugin host routing', () => {
     expect(opened).toEqual({
       activePlugin: plugin,
       lastPluginFailure: undefined,
+      view: 'launcher',
     });
 
     expect(
@@ -55,6 +74,7 @@ describe('App plugin host routing', () => {
     ).toEqual({
       activePlugin: undefined,
       lastPluginFailure: failure,
+      view: 'launcher',
     });
   });
 
@@ -65,7 +85,9 @@ describe('App plugin host routing', () => {
         state: initialAppState,
         onClosePlugin: vi.fn(),
         onOpenPluginPage: vi.fn(),
+        onOpenSettings: vi.fn(),
         onPluginHostFailure: vi.fn(),
+        onReturnToLauncher: vi.fn(),
       }),
     );
     const pluginMarkup = renderToStaticMarkup(
@@ -76,12 +98,34 @@ describe('App plugin host routing', () => {
         },
         onClosePlugin: vi.fn(),
         onOpenPluginPage: vi.fn(),
+        onOpenSettings: vi.fn(),
         onPluginHostFailure: vi.fn(),
+        onReturnToLauncher: vi.fn(),
       }),
     );
 
     expect(launcherMarkup).toContain('Desktop Launcher');
     expect(pluginMarkup).toContain('plugin-host-webview');
     expect(pluginMarkup).toContain('file:///C:/CommandCabin/plugins/text-tools/ui/index.html');
+  });
+
+  it('renders the clipboard history clear control in the reachable settings view', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AppView, {
+        state: {
+          ...initialAppState,
+          view: 'settings',
+        },
+        onClosePlugin: vi.fn(),
+        onOpenPluginPage: vi.fn(),
+        onOpenSettings: vi.fn(),
+        onPluginHostFailure: vi.fn(),
+        onReturnToLauncher: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('Settings');
+    expect(markup).toContain('Clipboard History');
+    expect(markup).toContain('Clear history');
   });
 });

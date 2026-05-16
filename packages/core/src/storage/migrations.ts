@@ -95,6 +95,20 @@ const STORAGE_MIGRATIONS: readonly StorageMigration[] = [
         ON favorites(title COLLATE NOCASE);
     `,
   },
+  {
+    id: 3,
+    name: '003_clipboard_history',
+    sql: `
+      CREATE TABLE IF NOT EXISTS clipboard_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        text TEXT NOT NULL UNIQUE,
+        copied_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_clipboard_history_copied_at
+        ON clipboard_history(copied_at DESC);
+    `,
+  },
 ];
 
 interface MigrationRow {

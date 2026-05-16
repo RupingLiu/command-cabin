@@ -4,10 +4,11 @@ import { useLauncherController } from './useLauncherController.js';
 import type { PluginHostEntry } from '../plugin-host/PluginHost.js';
 
 export interface LauncherPageProps {
+  onOpenSettings?: () => void;
   onOpenPluginPage?: (plugin: PluginHostEntry) => void;
 }
 
-export function LauncherPage({ onOpenPluginPage }: LauncherPageProps) {
+export function LauncherPage({ onOpenPluginPage, onOpenSettings }: LauncherPageProps) {
   const {
     activeDescendantId,
     appInfo,
@@ -34,7 +35,12 @@ export function LauncherPage({ onOpenPluginPage }: LauncherPageProps) {
             <p className="launcher-kicker">Desktop Launcher</p>
             <h1>{appInfo.name}</h1>
           </div>
-          <p className="runtime-pill">Electron {appInfo.versions.electron}</p>
+          <div className="launcher-titlebar__actions">
+            <button className="launcher-settings-button" type="button" onClick={onOpenSettings}>
+              Settings
+            </button>
+            <p className="runtime-pill">Electron {appInfo.versions.electron}</p>
+          </div>
         </header>
 
         <SearchInput

@@ -11,7 +11,7 @@ describe('storage migrations', () => {
       const firstRun = runMigrations(database);
       const secondRun = runMigrations(database);
 
-      expect(firstRun.appliedMigrationIds).toEqual([1, 2]);
+      expect(firstRun.appliedMigrationIds).toEqual([1, 2, 3]);
       expect(secondRun.appliedMigrationIds).toEqual([]);
 
       const tableRows = database
@@ -26,7 +26,8 @@ describe('storage migrations', () => {
                 'command_history',
                 'plugins',
                 'plugin_data',
-                'favorites'
+                'favorites',
+                'clipboard_history'
               )
             ORDER BY name
           `,
@@ -34,6 +35,7 @@ describe('storage migrations', () => {
         .all() as Array<{ name: string }>;
 
       expect(tableRows.map((row) => row.name)).toEqual([
+        'clipboard_history',
         'command_history',
         'favorites',
         'migrations',
@@ -49,6 +51,7 @@ describe('storage migrations', () => {
       expect(migrationRows).toEqual([
         { id: 1, name: '001_initial_storage' },
         { id: 2, name: '002_favorites' },
+        { id: 3, name: '003_clipboard_history' },
       ]);
     } finally {
       database.close();

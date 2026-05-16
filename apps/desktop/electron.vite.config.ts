@@ -19,7 +19,10 @@ export default defineConfig({
   preload: {
     build: {
       rollupOptions: {
-        input: resolve(projectRoot, 'src/preload/index.ts'),
+        input: {
+          index: resolve(projectRoot, 'src/preload/index.ts'),
+          pluginBridge: resolve(projectRoot, 'src/preload/pluginBridge.ts'),
+        },
         output: {
           entryFileNames: '[name].cjs',
           format: 'cjs',

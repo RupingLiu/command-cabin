@@ -18,6 +18,10 @@ import {
 import { createMainWindow } from './window/createMainWindow.js';
 import { resolveWindowEntryPaths } from './window/entryPaths.js';
 import {
+  createPluginWebviewPolicyStore,
+  getPluginBridgePreloadPath,
+} from './window/webviewGuard.js';
+import {
   parseFavoriteCreateRequest,
   parseFavoriteId,
   parseFavoriteUpdateRequest,
@@ -28,11 +32,17 @@ import {
   HIDE_LAUNCHER_CHANNEL,
   LIST_FAVORITES_CHANNEL,
   REMOVE_FAVORITE_CHANNEL,
+  REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
+  RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
   UPDATE_FAVORITE_CHANNEL,
 } from '../shared/ipcChannels.js';
 
 const mainDirectory = fileURLToPath(new URL('.', import.meta.url));
+const windowEntryPaths = resolveWindowEntryPaths(mainDirectory);
+const pluginWebviewPolicyStore = createPluginWebviewPolicyStore({
+  expectedPreloadPath: getPluginBridgePreloadPath(windowEntryPaths.preloadPath),
+});
 const settingsStore = createInMemorySettingsStore();
 let commandCabinDatabase: CommandCabinDatabase | undefined;
 let launcherCommandService: LauncherCommandService = createLauncherCommandService();
@@ -40,7 +50,8 @@ let launcherCommandService: LauncherCommandService = createLauncherCommandServic
 function getWindowOptions() {
   return {
     isPackaged: app.isPackaged,
-    ...resolveWindowEntryPaths(mainDirectory),
+    ...windowEntryPaths,
+    pluginWebviewPolicyStore,
     rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
   };
 }
@@ -105,6 +116,18 @@ ipcMain.handle(UPDATE_FAVORITE_CHANNEL, (_event, id: unknown, input: unknown) =>
 ipcMain.handle(REMOVE_FAVORITE_CHANNEL, (_event, id: unknown) =>
   launcherCommandService.removeFavorite(parseFavoriteId(id)),
 );
+
+ipcMain.handle(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) =>
+  pluginWebviewPolicyStore.register(input),
+);
+
+ipcMain.handle(RELEASE_PLUGIN_HOST_ENTRY_CHANNEL, (_event, launchToken: unknown) => {
+  if (typeof launchToken !== 'string' || launchToken.trim().length === 0) {
+    return false;
+  }
+
+  return pluginWebviewPolicyStore.release(launchToken);
+});
 
 app
   .whenReady()

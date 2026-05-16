@@ -6,11 +6,27 @@ import type {
   LauncherCommandExecutionResult,
   LauncherCommandSearchResult,
 } from '../../../shared/launcherApi.js';
+import type { PluginHostEntry } from '../plugin-host/PluginHost.js';
 
 export type LauncherResultItem = LauncherCommandSearchResult;
 export type LauncherStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error' | 'executing';
 export type LauncherSelectionDirection = 'next' | 'previous';
 export type LauncherKeyIntent = 'select-next' | 'select-previous' | 'execute' | 'hide';
+
+export interface PluginPageLaunchRequest {
+  name: string;
+  pluginId: string;
+  pluginRoot: string;
+  uiPath: string;
+}
+
+export interface PluginPageLaunchApi {
+  createEntry: (input: PluginPageLaunchRequest) => Promise<PluginHostEntry>;
+}
+
+export interface LauncherControllerOptions {
+  onOpenPluginPage?: ((plugin: PluginHostEntry) => void) | undefined;
+}
 
 export const LAUNCHER_SEARCH_INPUT_ID = 'launcher-search-input';
 export const LAUNCHER_RESULT_LISTBOX_ID = 'launcher-results-listbox';
@@ -133,6 +149,33 @@ const fallbackDesktopApi: DesktopApi = {
   hideLauncher: async () => undefined,
   listFavorites: async () => [],
   onFocusSearchInput: () => () => undefined,
+  pluginHost: {
+    createEntry: async (input) => {
+      const pluginRootPath = input.pluginRoot.replace(/\\/g, '/');
+      const normalizedRootPath = pluginRootPath.startsWith('/')
+        ? pluginRootPath
+        : `/${pluginRootPath}`;
+      const allowedBaseUrl = `file://${
+        normalizedRootPath.endsWith('/') ? normalizedRootPath : `${normalizedRootPath}/`
+      }`;
+      const uiPath = input.uiPath.replace(/\\/g, '/').replace(/^\/+/, '');
+
+      return {
+        allowedBaseUrl,
+        entryUrl: `${allowedBaseUrl}${uiPath}`,
+        launchToken: 'fallback-launch-token',
+        name: input.name,
+        partition: `command-cabin-plugin:${input.pluginId.replace(/[^a-zA-Z0-9_-]/g, '-')}:fallback-launch-token`,
+        pluginId: input.pluginId,
+      };
+    },
+    getBridgeInfo: () => ({
+      channel: 'command-cabin:plugin-bridge',
+      methods: ['close', 'reportError'],
+    }),
+    getPluginBridgePreloadPath: () => '',
+    releaseEntry: async () => false,
+  },
   removeFavorite: async () => false,
   searchCommands: async (query) => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -176,6 +219,25 @@ function formatUnknownError(error: unknown, fallbackMessage: string): string {
   }
 
   return fallbackMessage;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function parseNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const stringValue = value.trim();
+
+  return stringValue.length > 0 ? stringValue : undefined;
 }
 
 function getSelectedIndexForResults(results: readonly LauncherResultItem[]): number {
@@ -238,6 +300,57 @@ export function getLauncherKeyIntent(key: string): LauncherKeyIntent | undefined
     default:
       return undefined;
   }
+}
+
+export function getPluginPageLaunchRequest(
+  result: LauncherCommandExecutionResult,
+): PluginPageLaunchRequest | undefined {
+  if (result.status !== 'success' || result.actionType !== 'run-plugin') {
+    return undefined;
+  }
+
+  const pluginPage = result.metadata.pluginPage;
+
+  if (!isRecord(pluginPage)) {
+    return undefined;
+  }
+
+  const name = parseNonEmptyString(pluginPage.name);
+  const pluginId = parseNonEmptyString(pluginPage.pluginId);
+  const pluginRoot = parseNonEmptyString(pluginPage.pluginRoot);
+  const uiPath = parseNonEmptyString(pluginPage.uiPath);
+
+  if (!name || !pluginId || !pluginRoot || !uiPath) {
+    return undefined;
+  }
+
+  return {
+    name,
+    pluginId,
+    pluginRoot,
+    uiPath,
+  };
+}
+
+export function openPluginPageFromExecutionResult(
+  result: LauncherCommandExecutionResult,
+  pluginHost: PluginPageLaunchApi,
+  onOpenPluginPage: ((plugin: PluginHostEntry) => void) | undefined,
+): Promise<boolean> {
+  if (!onOpenPluginPage) {
+    return Promise.resolve(false);
+  }
+
+  const launchRequest = getPluginPageLaunchRequest(result);
+
+  if (!launchRequest) {
+    return Promise.resolve(false);
+  }
+
+  return pluginHost.createEntry(launchRequest).then((entry) => {
+    onOpenPluginPage(entry);
+    return true;
+  });
 }
 
 export function launcherReducer(state: LauncherState, action: LauncherAction): LauncherState {
@@ -337,7 +450,8 @@ function getExecutionErrorMessage(result: LauncherCommandExecutionResult): strin
   return result.error.message;
 }
 
-export function useLauncherController() {
+export function useLauncherController(options: LauncherControllerOptions = {}) {
+  const { onOpenPluginPage } = options;
   const desktopApi = useMemo(getDesktopApi, []);
   const [state, dispatch] = useReducer(launcherReducer, initialLauncherState);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -402,6 +516,16 @@ export function useLauncherController() {
       dispatch({
         type: 'execution-succeeded',
       });
+      if (
+        await openPluginPageFromExecutionResult(
+          executionResult,
+          desktopApi.pluginHost,
+          onOpenPluginPage,
+        )
+      ) {
+        return;
+      }
+
       await desktopApi.hideLauncher();
     } catch (error) {
       dispatch({
@@ -411,7 +535,7 @@ export function useLauncherController() {
     } finally {
       executionInFlightRef.current = false;
     }
-  }, [desktopApi, executableSelectedResult]);
+  }, [desktopApi, executableSelectedResult, onOpenPluginPage]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {

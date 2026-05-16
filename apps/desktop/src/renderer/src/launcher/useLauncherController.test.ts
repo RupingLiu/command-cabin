@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   getExecutableSelectedResult,
   getLauncherKeyIntent,
+  getPluginPageLaunchRequest,
+  openPluginPageFromExecutionResult,
   launcherReducer,
   type LauncherResultItem,
   type LauncherState,
@@ -196,5 +198,110 @@ describe('launcher keyboard intent', () => {
 
   it('ignores unrelated keys', () => {
     expect(getLauncherKeyIntent('Tab')).toBeUndefined();
+  });
+});
+
+describe('launcher plugin page launch requests', () => {
+  it('extracts a validated plugin page request from a successful plugin execution result', () => {
+    expect(
+      getPluginPageLaunchRequest({
+        status: 'success',
+        actionType: 'run-plugin',
+        commandId: 'com.example.text-tools.open-ui',
+        metadata: {
+          pluginPage: {
+            name: 'Text Tools',
+            pluginId: 'com.example.text-tools',
+            pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+            uiPath: 'ui/index.html',
+          },
+        },
+      }),
+    ).toEqual({
+      name: 'Text Tools',
+      pluginId: 'com.example.text-tools',
+      pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+      uiPath: 'ui/index.html',
+    });
+  });
+
+  it('ignores non-plugin executions and malformed plugin page metadata', () => {
+    expect(
+      getPluginPageLaunchRequest({
+        status: 'success',
+        actionType: 'copy-text',
+        commandId: 'system.copy-version',
+        metadata: {
+          pluginPage: {
+            name: 'Text Tools',
+          },
+        },
+      }),
+    ).toBeUndefined();
+
+    expect(
+      getPluginPageLaunchRequest({
+        status: 'success',
+        actionType: 'run-plugin',
+        commandId: 'com.example.text-tools.open-ui',
+        metadata: {
+          pluginPage: {
+            name: 'Text Tools',
+            pluginId: '',
+            pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+            uiPath: 'ui/index.html',
+          },
+        },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('turns plugin execution metadata into a PluginHost entry through the preload API', async () => {
+    const createEntry = vi.fn(async () => ({
+      allowedBaseUrl: 'file:///C:/CommandCabin/plugins/text-tools/',
+      entryUrl: 'file:///C:/CommandCabin/plugins/text-tools/ui/index.html',
+      launchToken: 'launch-1',
+      name: 'Text Tools',
+      partition: 'command-cabin-plugin:com-example-text-tools:launch-1',
+      pluginId: 'com.example.text-tools',
+    }));
+    const onOpenPluginPage = vi.fn();
+
+    await expect(
+      openPluginPageFromExecutionResult(
+        {
+          status: 'success',
+          actionType: 'run-plugin',
+          commandId: 'com.example.text-tools.open-ui',
+          metadata: {
+            pluginPage: {
+              name: 'Text Tools',
+              pluginId: 'com.example.text-tools',
+              pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+              uiPath: 'ui/index.html',
+            },
+          },
+        },
+        {
+          createEntry,
+        },
+        onOpenPluginPage,
+      ),
+    ).resolves.toBe(true);
+
+    expect(createEntry).toHaveBeenCalledWith({
+      name: 'Text Tools',
+      pluginId: 'com.example.text-tools',
+      pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+      uiPath: 'ui/index.html',
+    });
+    expect(onOpenPluginPage).toHaveBeenCalledWith({
+      allowedBaseUrl: 'file:///C:/CommandCabin/plugins/text-tools/',
+      entryUrl: 'file:///C:/CommandCabin/plugins/text-tools/ui/index.html',
+      launchToken: 'launch-1',
+      name: 'Text Tools',
+      partition: 'command-cabin-plugin:com-example-text-tools:launch-1',
+      pluginId: 'com.example.text-tools',
+    });
   });
 });

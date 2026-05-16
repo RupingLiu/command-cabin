@@ -9,6 +9,9 @@ class MockBrowserWindow {
   readonly loadFile = vi.fn();
   readonly loadURL = vi.fn();
   readonly show = vi.fn();
+  readonly webContents = {
+    on: vi.fn(),
+  };
 
   private readyToShowListener?: ReadyToShowListener;
 
@@ -58,11 +61,16 @@ describe('createMainWindow', () => {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
+        webviewTag: true,
         preload: 'C:\\CommandCabin\\dist\\preload\\index.js',
       },
     });
     expect(MockBrowserWindow.instances[0]?.loadURL).toHaveBeenCalledWith('http://localhost:5173');
     expect(MockBrowserWindow.instances[0]?.loadFile).not.toHaveBeenCalled();
+    expect(MockBrowserWindow.instances[0]?.webContents.on).toHaveBeenCalledWith(
+      'will-attach-webview',
+      expect.any(Function),
+    );
 
     MockBrowserWindow.instances[0]?.emitReadyToShow();
 

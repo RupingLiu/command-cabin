@@ -1,8 +1,13 @@
 import { ResultList } from './ResultList.js';
 import { SearchInput } from './SearchInput.js';
 import { useLauncherController } from './useLauncherController.js';
+import type { PluginHostEntry } from '../plugin-host/PluginHost.js';
 
-export function LauncherPage() {
+export interface LauncherPageProps {
+  onOpenPluginPage?: (plugin: PluginHostEntry) => void;
+}
+
+export function LauncherPage({ onOpenPluginPage }: LauncherPageProps) {
   const {
     activeDescendantId,
     appInfo,
@@ -16,7 +21,9 @@ export function LauncherPage() {
     selectResult,
     setQuery,
     state,
-  } = useLauncherController();
+  } = useLauncherController({
+    onOpenPluginPage,
+  });
   const isBusy = state.status === 'loading' || state.status === 'executing';
 
   return (

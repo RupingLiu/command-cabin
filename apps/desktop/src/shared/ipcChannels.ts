@@ -6,3 +6,5 @@ export const LIST_FAVORITES_CHANNEL = 'command-cabin:list-favorites';
 export const ADD_FAVORITE_CHANNEL = 'command-cabin:add-favorite';
 export const UPDATE_FAVORITE_CHANNEL = 'command-cabin:update-favorite';
 export const REMOVE_FAVORITE_CHANNEL = 'command-cabin:remove-favorite';
+export const REGISTER_PLUGIN_HOST_ENTRY_CHANNEL = 'command-cabin:register-plugin-host-entry';
+export const RELEASE_PLUGIN_HOST_ENTRY_CHANNEL = 'command-cabin:release-plugin-host-entry';

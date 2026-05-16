@@ -17,6 +17,9 @@
   "references": [
     {
       "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/built-in-plugins/calculator"
     }
   ]
 }

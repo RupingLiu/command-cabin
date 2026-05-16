@@ -6,7 +6,7 @@ import {
   runMigrations,
   type CommandCabinDatabase,
 } from '@command-cabin/core';
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -78,6 +78,9 @@ function createPersistentLauncherCommandService(): LauncherCommandService {
       }
     },
     openUrl: (url) => shell.openExternal(url),
+    writeClipboardText: (text) => {
+      clipboard.writeText(text);
+    },
   });
 }
 

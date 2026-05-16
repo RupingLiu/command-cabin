@@ -1,4 +1,9 @@
 import {
+  CALCULATOR_PLUGIN_ID,
+  CALCULATOR_RESULT_COMMAND_ID,
+  createCalculatorResultCommand,
+} from '@command-cabin/built-in-plugin-calculator';
+import {
   createFavoriteCommands,
   createCommandExecutor,
   createCommandRegistry,
@@ -31,6 +36,7 @@ export interface LauncherCommandServiceOptions {
   historyRepository?: HistoryRepository;
   openPath?: (path: string) => Promise<void> | void;
   openUrl?: (url: string) => Promise<void> | void;
+  writeClipboardText?: (text: string) => Promise<void> | void;
 }
 
 const DEMO_COMMANDS: readonly Command[] = [
@@ -125,6 +131,16 @@ function isCommandList(
   return Array.isArray(value);
 }
 
+function assertNoReservedCalculatorCommandIds(commands: readonly Command[]): void {
+  for (const command of commands) {
+    if (command.id === CALCULATOR_RESULT_COMMAND_ID) {
+      throw new Error(
+        `Command id is reserved for the built-in calculator: ${CALCULATOR_RESULT_COMMAND_ID}`,
+      );
+    }
+  }
+}
+
 export function createLauncherCommandService(
   optionsOrCommands: readonly Command[] | LauncherCommandServiceOptions = {},
 ): LauncherCommandService {
@@ -134,6 +150,9 @@ export function createLauncherCommandService(
   const commands = options.commands ?? DEMO_COMMANDS;
   const registry = createCommandRegistry();
   const favoriteCommandIds = new Set<string>();
+  let calculatorCommandRegistered = false;
+
+  assertNoReservedCalculatorCommandIds(commands);
 
   for (const command of commands) {
     registry.register(command);
@@ -145,12 +164,18 @@ export function createLauncherCommandService(
   });
   const executor = createCommandExecutor({
     handlers: {
-      'copy-text': (command) => ({
-        metadata: {
-          copied: true,
-          text: String(command.action.payload.text ?? ''),
-        },
-      }),
+      'copy-text': async (command) => {
+        const text = String(command.action.payload.text ?? '');
+
+        await options.writeClipboardText?.(text);
+
+        return {
+          metadata: {
+            copied: true,
+            text,
+          },
+        };
+      },
       'open-path': async (command) => {
         const path = String(command.action.payload.path ?? '');
 
@@ -217,6 +242,29 @@ export function createLauncherCommandService(
     for (const command of createFavoriteCommands(options.favoritesRepository.listFavorites())) {
       registry.register(command);
       favoriteCommandIds.add(command.id);
+    }
+
+    refreshSearchIndex();
+  }
+
+  function refreshCalculatorCommand(query: string): void {
+    if (calculatorCommandRegistered) {
+      registry.unregister(CALCULATOR_RESULT_COMMAND_ID);
+      calculatorCommandRegistered = false;
+    }
+
+    const calculatorCommand = createCalculatorResultCommand(query);
+
+    if (calculatorCommand) {
+      if (
+        calculatorCommand.id !== CALCULATOR_RESULT_COMMAND_ID ||
+        calculatorCommand.pluginId !== CALCULATOR_PLUGIN_ID
+      ) {
+        throw new Error('Invalid calculator command registration.');
+      }
+
+      registry.register(calculatorCommand);
+      calculatorCommandRegistered = true;
     }
 
     refreshSearchIndex();
@@ -301,6 +349,8 @@ export function createLauncherCommandService(
       return removed;
     },
     searchCommands: (query) => {
+      refreshCalculatorCommand(query);
+
       const searchOptions: SearchOptions = {
         includeAllOnEmptyQuery: true,
         limit: 10,

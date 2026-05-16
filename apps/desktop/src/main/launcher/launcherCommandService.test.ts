@@ -37,6 +37,93 @@ describe('launcher command service', () => {
     });
   });
 
+  it('returns a calculator result for math queries and copies it on execution', async () => {
+    const copiedText: string[] = [];
+    const service = createLauncherCommandService({
+      commands: [],
+      writeClipboardText: (text) => {
+        copiedText.push(text);
+      },
+    });
+
+    const [result] = service.searchCommands('1 + 2');
+
+    expect(result).toMatchObject({
+      id: 'calculator.result',
+      source: 'plugin',
+      title: '3',
+    });
+
+    await expect(service.executeCommand(result!.id)).resolves.toMatchObject({
+      commandId: 'calculator.result',
+      metadata: {
+        copied: true,
+        text: '3',
+      },
+      status: 'success',
+    });
+    expect(copiedText).toEqual(['3']);
+  });
+
+  it('removes stale calculator result commands after invalid math queries', async () => {
+    const service = createLauncherCommandService({
+      commands: [],
+      writeClipboardText: () => undefined,
+    });
+
+    expect(service.searchCommands('1 + 2')[0]).toMatchObject({
+      id: 'calculator.result',
+      title: '3',
+    });
+
+    expect(service.searchCommands('1 +')).toEqual([]);
+    await expect(service.executeCommand('calculator.result')).resolves.toMatchObject({
+      error: {
+        code: 'invalid-command',
+      },
+      status: 'failure',
+    });
+  });
+
+  it('rejects configured commands that collide with the calculator result command id', () => {
+    expect(() =>
+      createLauncherCommandService({
+        commands: [
+          {
+            id: 'calculator.result',
+            source: 'system',
+            title: 'Reserved Collision',
+            keywords: ['reserved'],
+            action: {
+              type: 'run-system',
+              payload: {
+                command: 'reserved-collision',
+              },
+            },
+          },
+        ],
+      }),
+    ).toThrow('Command id is reserved for the built-in calculator: calculator.result');
+  });
+
+  it('does not throw or expose a calculator command for extreme math input', () => {
+    const service = createLauncherCommandService({ commands: [] });
+    const excessiveUnaryExpression = `${'+'.repeat(200)}1`;
+
+    expect(() => service.searchCommands(excessiveUnaryExpression)).not.toThrow();
+    expect(service.searchCommands(excessiveUnaryExpression)).toEqual([]);
+    expect(service.searchCommands('1 + 2')[0]).toMatchObject({
+      id: 'calculator.result',
+      title: '3',
+    });
+
+    const excessiveNestedExpression = `${'('.repeat(200)}1${')'.repeat(200)}`;
+
+    expect(() => service.searchCommands(excessiveNestedExpression)).not.toThrow();
+    expect(service.searchCommands(excessiveNestedExpression)).toEqual([]);
+    expect(service.searchCommands('1 +')).toEqual([]);
+  });
+
   it('returns a structured failure for unknown command ids', async () => {
     const service = createLauncherCommandService();
 

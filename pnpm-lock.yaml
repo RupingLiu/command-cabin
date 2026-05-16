@@ -29,6 +29,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@command-cabin/built-in-plugin-calculator':
+        specifier: workspace:*
+        version: link:../../packages/built-in-plugins/calculator
       '@command-cabin/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -60,6 +63,12 @@ importers:
       vite:
         specifier: ^7.1.10
         version: 7.1.10(@types/node@20.19.0)(lightningcss@1.32.0)
+
+  packages/built-in-plugins/calculator:
+    dependencies:
+      '@command-cabin/core':
+        specifier: workspace:*
+        version: link:../../core
 
   packages/core:
     dependencies:

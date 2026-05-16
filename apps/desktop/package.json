@@ -2,6 +2,7 @@
   "name": "@command-cabin/desktop",
   "version": "0.1.0",
   "private": true,
+  "productName": "CommandCabin",
   "description": "Electron desktop shell for CommandCabin.",
   "type": "module",
   "main": "./out/main/index.js",
@@ -9,6 +10,9 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc -b && electron-vite build",
+    "package": "node scripts/package-with-pnpm-shim.js",
+    "package:dir": "node scripts/package-with-pnpm-shim.js --dir",
+    "dist:win": "node scripts/package-with-pnpm-shim.js --win --x64",
     "doctor": "electron --version",
     "electron:repair": "node ./node_modules/electron/install.js",
     "test": "vitest run",
@@ -29,6 +33,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^39.0.0",
+    "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "vite": "^7.1.10"
   }

@@ -1,0 +1,47 @@
+appId: com.commandcabin.app
+productName: CommandCabin
+copyright: Copyright © 2026 CommandCabin
+electronVersion: 39.0.0
+asar: false
+
+directories:
+  app: apps/desktop
+  buildResources: apps/desktop/build
+  output: release
+
+extraMetadata:
+  name: command-cabin
+  productName: CommandCabin
+  main: out/main/index.js
+
+files:
+  - out/**
+  - package.json
+  - build/icon.ico
+  - '!**/*.map'
+  - '!**/*.test.*'
+  - '!**/*.tsbuildinfo'
+  - '!**/src/**'
+  - '!**/tests/**'
+  - '!**/vitest.config.*'
+  - '!**/tsconfig*.json'
+  - '!node_modules/@command-cabin/**/dist/*.tsbuildinfo'
+  - '!node_modules/@command-cabin/**/tsconfig*.json'
+  - '!node_modules/@command-cabin/**/vitest.config.*'
+
+win:
+  icon: apps/desktop/build/icon.ico
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  artifactName: CommandCabin-${version}-${arch}-Setup.${ext}
+  installerIcon: apps/desktop/build/icon.ico
+  uninstallerIcon: apps/desktop/build/icon.ico
+  shortcutName: CommandCabin
+  uninstallDisplayName: CommandCabin
+  createDesktopShortcut: always
+  createStartMenuShortcut: true

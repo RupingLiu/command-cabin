@@ -1,10 +1,13 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+apps/desktop/.package-bin/
 
 # Build outputs
 dist/
 build/
+!apps/desktop/build/
+!apps/desktop/build/icon.ico
 out/
 release/
 coverage/

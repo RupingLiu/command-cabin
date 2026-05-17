@@ -63,6 +63,10 @@ corepack pnpm format
 corepack pnpm build
 ```
 
+## 许可证
+
+本项目基于 MIT 许可证开源。详见 [LICENSE](LICENSE)。
+
 ## 当前状态
 
 项目处于开发阶段，Windows 端 MVP 正在持续完善。更详细的设计和验证记录可查看：

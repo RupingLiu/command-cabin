@@ -63,6 +63,10 @@ Build:
 corepack pnpm build
 ```
 
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
 ## Status
 
 CommandCabin is under active development, with the Windows MVP being refined. More detailed design and verification notes live in:

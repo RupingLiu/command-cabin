@@ -155,6 +155,58 @@ describe('Windows start menu scanner', () => {
     expect(result.failures).toEqual([]);
   });
 
+  it('scans configured desktop directories without recursing and keeps unresolved desktop shortcuts', async () => {
+    const resolvedShortcutPaths: string[] = [];
+    const scanner = createWindowsStartMenuScanner({
+      desktopDirectories: ['C:\\Users\\Ada\\Desktop'],
+      startMenuDirectories: ['C:\\StartMenu'],
+      fileSystem: createFileSystem({
+        'C:\\StartMenu': [{ name: 'Notepad.lnk', kind: 'file' }],
+        'C:\\Users\\Ada\\Desktop': [
+          { name: 'Codex.lnk', kind: 'file' },
+          { name: 'Nested', kind: 'directory' },
+        ],
+        'C:\\Users\\Ada\\Desktop\\Nested': [{ name: 'Hidden.lnk', kind: 'file' }],
+      }),
+      shortcutResolver: {
+        resolve: async (shortcutPath) => {
+          resolvedShortcutPaths.push(shortcutPath);
+
+          if (shortcutPath.endsWith('Codex.lnk')) {
+            throw new Error('cannot parse shortcut');
+          }
+
+          return { targetPath: 'C:\\Windows\\System32\\notepad.exe' };
+        },
+      },
+    });
+
+    const result = await scanner.scan();
+
+    expect(resolvedShortcutPaths).toEqual([
+      'C:\\StartMenu\\Notepad.lnk',
+      'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+    ]);
+    expect(result.shortcuts).toEqual([
+      {
+        name: 'Notepad',
+        shortcutPath: 'C:\\StartMenu\\Notepad.lnk',
+        targetPath: 'C:\\Windows\\System32\\notepad.exe',
+      },
+      {
+        name: 'Codex',
+        opensApplication: true,
+        shortcutPath: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+      },
+    ]);
+    expect(result.failures).toEqual([
+      {
+        shortcutPath: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+        message: 'cannot parse shortcut',
+      },
+    ]);
+  });
+
   it('ignores non-lnk files and entries that are neither files nor directories', async () => {
     const resolvedShortcutPaths: string[] = [];
     const scanner = createWindowsStartMenuScanner({

@@ -12,6 +12,9 @@ out/
 release/
 coverage/
 
+# Internal planning notes
+docs/superpowers/plans/
+
 # Logs
 *.log
 npm-debug.log*

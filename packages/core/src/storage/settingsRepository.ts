@@ -22,6 +22,7 @@ const SETTINGS_KEYS = new Set([
   'theme',
   'language',
   'launchAtLogin',
+  'preserveSearchQuery',
   'search',
 ]);
 const SEARCH_SETTINGS_KEYS = new Set([
@@ -96,6 +97,7 @@ function validateSettingsPatch(value: unknown): CommandCabinSettingsPatch {
   validateOptionalString(value, 'hotkey');
   validateOptionalBoolean(value, 'hideOnBlur');
   validateOptionalBoolean(value, 'launchAtLogin');
+  validateOptionalBoolean(value, 'preserveSearchQuery');
 
   if (
     'theme' in value &&
@@ -106,8 +108,13 @@ function validateSettingsPatch(value: unknown): CommandCabinSettingsPatch {
     throwInvalidSettings('theme must be "system", "light", or "dark"');
   }
 
-  if ('language' in value && value.language !== 'zh-CN' && value.language !== 'en-US') {
-    throwInvalidSettings('language must be "zh-CN" or "en-US"');
+  if (
+    'language' in value &&
+    value.language !== 'zh-CN' &&
+    value.language !== 'zh-TW' &&
+    value.language !== 'en-US'
+  ) {
+    throwInvalidSettings('language must be "zh-CN", "zh-TW", or "en-US"');
   }
 
   if ('search' in value) {

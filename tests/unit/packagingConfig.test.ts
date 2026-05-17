@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, normalize } from 'node:path';
 
@@ -8,12 +7,21 @@ import { parse } from 'yaml';
 const repoRoot = process.cwd();
 const builderConfigPath = join(repoRoot, 'electron-builder.yml');
 const desktopPackagePath = join(repoRoot, 'apps', 'desktop', 'package.json');
+const installerIncludePath = join(repoRoot, 'apps', 'desktop', 'build', 'installer.nsh');
+const afterPackIconHookPath = join(
+  repoRoot,
+  'apps',
+  'desktop',
+  'scripts',
+  'after-pack-windows-icon.cjs',
+);
 const windowsIconPath = join(repoRoot, 'apps', 'desktop', 'build', 'icon.ico');
 const unpackedAppPath = join(repoRoot, 'release', 'win-unpacked');
 const unpackedResourcesAppPath = join(unpackedAppPath, 'resources', 'app');
 const installerPath = join(repoRoot, 'release', 'CommandCabin-0.1.0-x64-Setup.exe');
 
 interface BuilderConfig {
+  afterPack?: string;
   appId?: string;
   asar?: boolean;
   directories?: {
@@ -29,10 +37,14 @@ interface BuilderConfig {
   electronVersion?: string;
   files?: string[];
   nsis?: {
+    allowToChangeInstallationDirectory?: boolean;
     artifactName?: string;
     createDesktopShortcut?: string;
     createStartMenuShortcut?: boolean;
+    include?: string;
     installerIcon?: string;
+    oneClick?: boolean;
+    perMachine?: boolean;
     shortcutName?: string;
     uninstallerIcon?: string;
     uninstallDisplayName?: string;
@@ -121,6 +133,7 @@ describe('desktop packaging configuration', () => {
       productName: 'CommandCabin',
     });
     expect(config.asar).toBe(false);
+    expect(config.afterPack).toBe('apps/desktop/scripts/after-pack-windows-icon.cjs');
     expect(config.files).toEqual(
       expect.arrayContaining([
         'out/**',
@@ -148,14 +161,30 @@ describe('desktop packaging configuration', () => {
     expect(config.win?.signAndEditExecutable).toBe(false);
     expect(config.win?.target).toEqual([{ target: 'nsis', arch: ['x64'] }]);
     expect(config.nsis).toEqual({
+      allowToChangeInstallationDirectory: true,
       artifactName: 'CommandCabin-${version}-${arch}-Setup.${ext}',
+      include: 'apps/desktop/build/installer.nsh',
       installerIcon: 'apps/desktop/build/icon.ico',
+      oneClick: false,
+      perMachine: true,
       uninstallerIcon: 'apps/desktop/build/icon.ico',
       shortcutName: 'CommandCabin',
       uninstallDisplayName: 'CommandCabin',
       createDesktopShortcut: 'always',
       createStartMenuShortcut: true,
     });
+    const installerInclude = readFileSync(installerIncludePath, 'utf8');
+    expect(installerInclude).toContain('!macro preInit');
+    expect(installerInclude).toContain('!macro customInstall');
+    expect(installerInclude).toContain('C:\\Program Files\\command-cabin');
+    expect(installerInclude).toContain('InstallLocation');
+    expect(installerInclude).toContain('ReadEnvStr $0 "LOCALAPPDATA"');
+    expect(installerInclude).toContain('$0\\Programs\\command-cabin');
+    expect(installerInclude).toContain('SHChangeNotify');
+    const afterPackIconHook = readFileSync(afterPackIconHookPath, 'utf8');
+    expect(afterPackIconHook).toContain('rcedit');
+    expect(afterPackIconHook).toContain("'build', 'icon.ico'");
+    expect(afterPackIconHook).toContain('CommandCabin.exe');
     expect(iconDirectory).toMatchObject({
       bitsPerPixel: 32,
       height: 256,
@@ -179,7 +208,7 @@ describe('desktop packaging configuration', () => {
     );
   });
 
-  test('package:dir artifact contains app metadata and native sqlite module when present', () => {
+  test('package:dir artifact contains app metadata and avoids native sqlite modules', () => {
     if (!existsSync(unpackedResourcesAppPath)) {
       return;
     }
@@ -189,14 +218,6 @@ describe('desktop packaging configuration', () => {
     ) as PackagedAppMetadata;
     const appFiles = listFilesRecursive(unpackedResourcesAppPath).map((entry) =>
       normalize(entry).replace(normalize(unpackedResourcesAppPath), '').replaceAll('\\', '/'),
-    );
-    const unpackedNativeModule = join(
-      unpackedResourcesAppPath,
-      'node_modules',
-      'better-sqlite3',
-      'build',
-      'Release',
-      'better_sqlite3.node',
     );
 
     expect(metadata).toMatchObject({
@@ -209,15 +230,8 @@ describe('desktop packaging configuration', () => {
     expect(appFiles.some((path) => path.endsWith('.tsbuildinfo'))).toBe(false);
     expect(appFiles.some((path) => path.includes('vitest.config'))).toBe(false);
     expect(appFiles.some((path) => path.endsWith('/tsconfig.json'))).toBe(false);
-    expect(existsSync(unpackedNativeModule)).toBe(true);
-
-    const nativeModuleHash = createHash('sha256')
-      .update(readFileSync(unpackedNativeModule))
-      .digest('hex');
-    expect(nativeModuleHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(normalize(unpackedNativeModule)).toContain(
-      normalize('resources/app/node_modules/better-sqlite3'),
-    );
+    expect(appFiles.some((path) => path.includes('/node_modules/better-sqlite3/'))).toBe(false);
+    expect(appFiles.some((path) => path.endsWith('.node'))).toBe(false);
   });
 
   test('NSIS installer artifact is present after dist:win packaging has run', () => {

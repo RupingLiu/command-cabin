@@ -26,6 +26,7 @@ const settingsKeys = new Set([
   'theme',
   'language',
   'launchAtLogin',
+  'preserveSearchQuery',
   'search',
 ]);
 const searchSettingsKeys = new Set([
@@ -36,7 +37,7 @@ const searchSettingsKeys = new Set([
   'fileBoost',
 ]);
 const themes = new Set<CommandCabinTheme>(['system', 'light', 'dark']);
-const languages = new Set<CommandCabinLanguage>(['zh-CN', 'en-US']);
+const languages = new Set<CommandCabinLanguage>(['zh-CN', 'zh-TW', 'en-US']);
 const hotkeyModifiers = new Set([
   'Alt',
   'Command',
@@ -177,7 +178,7 @@ function parseLanguage(value: unknown, context: string): CommandCabinLanguage {
   const language = parseString(value, context);
 
   if (!languages.has(language as CommandCabinLanguage)) {
-    throw new Error(`${context} must be "zh-CN" or "en-US".`);
+    throw new Error(`${context} must be "zh-CN", "zh-TW", or "en-US".`);
   }
 
   return language as CommandCabinLanguage;
@@ -262,6 +263,7 @@ export function parseSettings(value: unknown): CommandCabinSettings {
     hotkey: parseHotkeyAccelerator(value.hotkey, `${context}.hotkey`),
     language: parseLanguage(value.language, `${context}.language`),
     launchAtLogin: parseBoolean(value.launchAtLogin, `${context}.launchAtLogin`),
+    preserveSearchQuery: parseBoolean(value.preserveSearchQuery, `${context}.preserveSearchQuery`),
     search: parseSearchSettings(value.search, `${context}.search`),
     theme: parseTheme(value.theme, `${context}.theme`),
   };
@@ -293,6 +295,12 @@ export function parseSettingsPatch(value: unknown): CommandCabinSettingsPatch {
   }
   if ('launchAtLogin' in value) {
     patch.launchAtLogin = parseBoolean(value.launchAtLogin, `${context}.launchAtLogin`);
+  }
+  if ('preserveSearchQuery' in value) {
+    patch.preserveSearchQuery = parseBoolean(
+      value.preserveSearchQuery,
+      `${context}.preserveSearchQuery`,
+    );
   }
   if ('search' in value) {
     patch.search = parseSearchSettingsPatch(value.search, `${context}.search`);

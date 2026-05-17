@@ -1,5 +1,6 @@
 import type { CommandCabinSettings } from '@command-cabin/core';
 
+import { OPEN_SETTINGS_CHANNEL } from '../shared/ipcChannels.js';
 import {
   type GlobalHotkeyRegistration,
   type GlobalShortcutRegistry,
@@ -13,7 +14,11 @@ import {
 } from './window/windowVisibility.js';
 
 type DesktopApplicationSettings = Pick<CommandCabinSettings, 'hideOnBlur' | 'hotkey'>;
-type WindowLifecycleEvent = 'blur' | 'closed';
+type WindowLifecycleEvent = 'blur' | 'close' | 'closed';
+
+export interface PreventableWindowCloseEvent {
+  preventDefault: () => void;
+}
 
 export interface DesktopApplicationWindow extends Omit<
   LauncherWindow,
@@ -21,10 +26,16 @@ export interface DesktopApplicationWindow extends Omit<
 > {
   isDestroyed?: () => boolean;
   off?(eventName: 'blur', listener: () => void): unknown;
+  off?(eventName: 'close', listener: (event: PreventableWindowCloseEvent) => void): unknown;
   off?(eventName: 'closed', listener: () => void): unknown;
   on(eventName: 'blur', listener: () => void): unknown;
+  on(eventName: 'close', listener: (event: PreventableWindowCloseEvent) => void): unknown;
   on(eventName: 'closed', listener: () => void): unknown;
   removeListener?(eventName: 'blur', listener: () => void): unknown;
+  removeListener?(
+    eventName: 'close',
+    listener: (event: PreventableWindowCloseEvent) => void,
+  ): unknown;
   removeListener?(eventName: 'closed', listener: () => void): unknown;
 }
 
@@ -39,12 +50,18 @@ export interface CreateDesktopApplicationControllerOptions {
 export interface DesktopApplicationController {
   dispose: () => void;
   handleActivate: () => Promise<void>;
-  start: () => Promise<void>;
+  handleWindowClose: (event: PreventableWindowCloseEvent) => void;
+  isQuitRequested: () => boolean;
+  openSettings: () => Promise<void>;
+  requestQuit: () => void;
+  showLauncherWindow: () => Promise<void>;
+  start: (options?: { showWindow?: boolean }) => Promise<void>;
   toggleLauncherWindow: () => Promise<void>;
   tryRegisterGlobalHotkey: (accelerator: string) => boolean;
 }
 
 interface LauncherState {
+  handleClose: (event: PreventableWindowCloseEvent) => void;
   handleClosed: () => void;
   visibilityController: WindowVisibilityController;
   window: DesktopApplicationWindow;
@@ -57,21 +74,25 @@ function isLiveWindow(window: DesktopApplicationWindow): boolean {
 function removeWindowListener(
   window: DesktopApplicationWindow,
   eventName: WindowLifecycleEvent,
-  listener: () => void,
+  listener: (() => void) | ((event: PreventableWindowCloseEvent) => void),
 ): void {
   if (window.off) {
     if (eventName === 'blur') {
-      window.off('blur', listener);
+      window.off('blur', listener as () => void);
+    } else if (eventName === 'close') {
+      window.off('close', listener as (event: PreventableWindowCloseEvent) => void);
     } else {
-      window.off('closed', listener);
+      window.off('closed', listener as () => void);
     }
     return;
   }
 
   if (eventName === 'blur') {
-    window.removeListener?.('blur', listener);
+    window.removeListener?.('blur', listener as () => void);
+  } else if (eventName === 'close') {
+    window.removeListener?.('close', listener as (event: PreventableWindowCloseEvent) => void);
   } else {
-    window.removeListener?.('closed', listener);
+    window.removeListener?.('closed', listener as () => void);
   }
 }
 
@@ -85,6 +106,7 @@ export function createDesktopApplicationController({
   let hotkeyRegistration: GlobalHotkeyRegistration | undefined;
   let launcherState: LauncherState | undefined;
   let pendingWindowCreation: Promise<LauncherState> | undefined;
+  let quitRequested = false;
 
   const clearLauncherState = (state: LauncherState) => {
     if (launcherState !== state) {
@@ -92,6 +114,7 @@ export function createDesktopApplicationController({
     }
 
     state.visibilityController.dispose();
+    removeWindowListener(state.window, 'close', state.handleClose);
     removeWindowListener(state.window, 'closed', state.handleClosed);
     launcherState = undefined;
   };
@@ -102,6 +125,9 @@ export function createDesktopApplicationController({
     }
 
     const nextState: LauncherState = {
+      handleClose: (event) => {
+        handleWindowClose(event);
+      },
       handleClosed: () => {
         clearLauncherState(nextState);
       },
@@ -111,6 +137,7 @@ export function createDesktopApplicationController({
       }),
       window,
     };
+    window.on('close', nextState.handleClose);
     window.on('closed', nextState.handleClosed);
     launcherState = nextState;
 
@@ -145,9 +172,24 @@ export function createDesktopApplicationController({
     state.visibilityController.show();
   };
 
-  const registerHotkey = () => {
-    if (hotkeyRegistration) {
+  const openSettings = async () => {
+    const state = await ensureLauncherState();
+    state.visibilityController.show();
+    state.window.webContents.send(OPEN_SETTINGS_CHANNEL);
+  };
+
+  const handleWindowClose = (event: PreventableWindowCloseEvent) => {
+    if (quitRequested) {
       return;
+    }
+
+    event.preventDefault();
+    launcherState?.visibilityController.hide();
+  };
+
+  const registerHotkey = (): GlobalHotkeyRegistration => {
+    if (hotkeyRegistration) {
+      return hotkeyRegistration;
     }
 
     hotkeyRegistration = registerGlobalHotkey({
@@ -157,6 +199,7 @@ export function createDesktopApplicationController({
       onTriggered: toggleLauncherWindow,
       registry: hotkeyRegistry,
     });
+    return hotkeyRegistration;
   };
 
   const tryRegisterGlobalHotkey = (accelerator: string): boolean => {
@@ -173,6 +216,7 @@ export function createDesktopApplicationController({
     });
 
     if (!nextRegistration.registered) {
+      void showLauncherWindow();
       return false;
     }
 
@@ -193,9 +237,20 @@ export function createDesktopApplicationController({
       pendingWindowCreation = undefined;
     },
     handleActivate: showLauncherWindow,
+    handleWindowClose,
+    isQuitRequested: () => quitRequested,
+    openSettings,
+    requestQuit: () => {
+      quitRequested = true;
+    },
+    showLauncherWindow,
     start: async () => {
       await ensureLauncherState();
-      registerHotkey();
+      const registration = registerHotkey();
+
+      if (registration.conflict) {
+        await showLauncherWindow();
+      }
     },
     toggleLauncherWindow,
     tryRegisterGlobalHotkey,

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createHotkeySettingsState,
   formatHotkeyFromKeyEvent,
+  isModifierOnlyHotkeyEvent,
   saveRecordedHotkey,
 } from './HotkeySettings.js';
 
@@ -49,6 +50,28 @@ describe('HotkeySettings helpers', () => {
         shiftKey: false,
       }),
     ).toBeUndefined();
+  });
+
+  it('waits for a non-modifier key while recording a modifier chord', () => {
+    expect(
+      isModifierOnlyHotkeyEvent({
+        altKey: true,
+        ctrlKey: false,
+        key: 'Alt',
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(true);
+
+    expect(
+      isModifierOnlyHotkeyEvent({
+        altKey: true,
+        ctrlKey: false,
+        key: ' ',
+        metaKey: false,
+        shiftKey: false,
+      }),
+    ).toBe(false);
   });
 
   it('rolls optimistic hotkey state back to the persisted value when save fails', async () => {

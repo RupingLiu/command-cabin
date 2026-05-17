@@ -1,13 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  ADD_PINNED_APP_CANDIDATE_CHANNEL,
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
+  HOTKEY_INPUT_CAPTURE_CHANNEL,
+  ADD_PINNED_APP_CHANNEL,
   INSTALL_PLUGIN_CHANNEL,
+  LIST_APP_CANDIDATES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
+  OPEN_SETTINGS_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
+  START_HOTKEY_INPUT_CAPTURE_CHANNEL,
+  STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
   UPDATE_SETTINGS_CHANNEL,
 } from '../shared/ipcChannels.js';
 import type { DesktopApi } from './index.js';
@@ -51,6 +58,7 @@ describe('preload desktopApi settings bridge', () => {
       hotkey: 'Alt+Space',
       language: 'zh-CN',
       launchAtLogin: false,
+      preserveSearchQuery: false,
       search: {
         appBoost: 1.2,
         fileBoost: 0.9,
@@ -88,6 +96,65 @@ describe('preload desktopApi settings bridge', () => {
     expect(electronMock.invoke).toHaveBeenLastCalledWith(LIST_PLUGINS_CHANNEL);
 
     electronMock.invoke.mockResolvedValueOnce({
+      createdAt: '2026-05-15T10:00:00.000Z',
+      id: 'favorite-wps',
+      kind: 'file',
+      keywords: ['WPS'],
+      metadata: {
+        launcherPinnedApp: true,
+      },
+      path: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+      title: 'WPS Office',
+      updatedAt: '2026-05-15T10:00:00.000Z',
+    });
+    await expect(api.addPinnedApp()).resolves.toMatchObject({
+      id: 'favorite-wps',
+      title: 'WPS Office',
+    });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(ADD_PINNED_APP_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce(undefined);
+    await expect(api.addPinnedApp()).resolves.toBeUndefined();
+
+    const candidate = {
+      alreadyPinned: false,
+      executablePath: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+      icon: 'data:image/png;base64,WPS',
+      iconPath: 'C:\\Program Files\\WPS Office\\ksolaunch.exe,0',
+      id: 'start-menu.app-wps',
+      resolutionStatus: 'resolved' as const,
+      shortcutPath: 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\WPS Office.lnk',
+      source: 'start-menu' as const,
+      subtitle: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+      title: 'WPS Office',
+    };
+
+    electronMock.invoke.mockResolvedValueOnce([candidate]);
+    await expect(api.listAppCandidates('wps')).resolves.toEqual([candidate]);
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(LIST_APP_CANDIDATES_CHANNEL, 'wps');
+
+    electronMock.invoke.mockResolvedValueOnce({
+      createdAt: '2026-05-15T10:00:00.000Z',
+      id: 'favorite-wps',
+      kind: 'file',
+      keywords: ['WPS Office'],
+      metadata: {
+        launcherPinnedApp: true,
+      },
+      path: candidate.shortcutPath,
+      title: 'WPS Office',
+      updatedAt: '2026-05-15T10:00:00.000Z',
+    });
+    await expect(api.addPinnedAppCandidate(candidate)).resolves.toMatchObject({
+      id: 'favorite-wps',
+      title: 'WPS Office',
+    });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(
+      ADD_PINNED_APP_CANDIDATE_CHANNEL,
+      candidate,
+    );
+
+    electronMock.invoke.mockResolvedValueOnce({
       ...plugin,
       pluginRoot: 'C:\\Plugins\\TextTools',
     });
@@ -121,5 +188,67 @@ describe('preload desktopApi settings bridge', () => {
     electronMock.invoke.mockResolvedValueOnce({ path: 'C:\\CommandCabin' });
     await expect(api.openDataDirectory()).resolves.toEqual({ path: 'C:\\CommandCabin' });
     expect(electronMock.invoke).toHaveBeenLastCalledWith(OPEN_DATA_DIRECTORY_CHANNEL);
+  });
+
+  it('exposes a removable open-settings listener', async () => {
+    const api = await loadDesktopApi();
+    const listener = vi.fn();
+
+    const removeListener = api.onOpenSettings(listener);
+    const registeredListener = electronMock.on.mock.calls.find(
+      ([channel]) => channel === OPEN_SETTINGS_CHANNEL,
+    )?.[1] as (() => void) | undefined;
+
+    registeredListener?.();
+    removeListener();
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(electronMock.removeListener).toHaveBeenCalledWith(
+      OPEN_SETTINGS_CHANNEL,
+      registeredListener,
+    );
+  });
+
+  it('exposes captured hotkey input from the main process', async () => {
+    const api = await loadDesktopApi();
+    const listener = vi.fn();
+
+    const removeListener = api.onHotkeyInputCapture(listener);
+    const registeredListener = electronMock.on.mock.calls.find(
+      ([channel]) => channel === HOTKEY_INPUT_CAPTURE_CHANNEL,
+    )?.[1] as ((_event: unknown, payload: unknown) => void) | undefined;
+
+    registeredListener?.(undefined, {
+      altKey: true,
+      ctrlKey: false,
+      key: ' ',
+      metaKey: false,
+      shiftKey: false,
+    });
+    removeListener();
+
+    expect(listener).toHaveBeenCalledWith({
+      altKey: true,
+      ctrlKey: false,
+      key: ' ',
+      metaKey: false,
+      shiftKey: false,
+    });
+    expect(electronMock.removeListener).toHaveBeenCalledWith(
+      HOTKEY_INPUT_CAPTURE_CHANNEL,
+      registeredListener,
+    );
+  });
+
+  it('exposes hotkey input capture start and stop requests', async () => {
+    const api = await loadDesktopApi();
+
+    electronMock.invoke.mockResolvedValueOnce(true);
+    await expect(api.startHotkeyInputCapture()).resolves.toBe(true);
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(START_HOTKEY_INPUT_CAPTURE_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce(true);
+    await expect(api.stopHotkeyInputCapture()).resolves.toBe(true);
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(STOP_HOTKEY_INPUT_CAPTURE_CHANNEL);
   });
 });

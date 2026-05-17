@@ -15,8 +15,9 @@ describe('settingsApi parsers', () => {
       parseSettings({
         hotkey: 'Ctrl+Alt+K',
         hideOnBlur: true,
-        language: 'zh-CN',
+        language: 'zh-TW',
         launchAtLogin: false,
+        preserveSearchQuery: true,
         theme: 'dark',
         search: {
           appBoost: 1.2,
@@ -28,9 +29,15 @@ describe('settingsApi parsers', () => {
       }),
     ).toMatchObject({
       hotkey: 'Ctrl+Alt+K',
+      language: 'zh-TW',
+      preserveSearchQuery: true,
       theme: 'dark',
     });
 
+    expect(parseSettingsPatch({ language: 'zh-TW', preserveSearchQuery: true })).toEqual({
+      language: 'zh-TW',
+      preserveSearchQuery: true,
+    });
     expect(() => parseSettingsPatch({ unknown: true })).toThrow(/unknown setting/i);
   });
 

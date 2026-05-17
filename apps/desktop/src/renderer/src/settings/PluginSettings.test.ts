@@ -28,11 +28,11 @@ describe('PluginSettings', () => {
       }),
     );
 
-    expect(markup).toContain('Plugin Management');
-    expect(markup).toContain('Install local plugin');
+    expect(markup).toContain('插件管理');
+    expect(markup).toContain('安装本地插件');
     expect(markup).toContain('Text Tools');
-    expect(markup).toContain('Disable');
-    expect(markup).toContain('Uninstall');
+    expect(markup).toContain('禁用');
+    expect(markup).toContain('卸载');
   });
 
   it('renders empty and loading states accessibly', () => {
@@ -48,6 +48,6 @@ describe('PluginSettings', () => {
     );
 
     expect(markup).toContain('aria-busy="true"');
-    expect(markup).toContain('No local plugins installed');
+    expect(markup).toContain('未安装本地插件');
   });
 });

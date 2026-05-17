@@ -20,7 +20,7 @@ describe('ClipboardHistorySettings', () => {
       }),
     );
 
-    expect(markup).toContain('Clearing history');
+    expect(markup).toContain('正在清空历史');
     expect(markup).toContain('disabled=""');
     expect(markup).toContain('aria-busy="true"');
     expect(markup).toContain('Clear failed.');

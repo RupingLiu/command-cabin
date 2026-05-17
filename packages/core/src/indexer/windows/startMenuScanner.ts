@@ -53,6 +53,7 @@ export interface WindowsShortcutResolverOptions {
 
 export interface StartMenuShortcut extends ResolvedShortcut {
   name: string;
+  opensApplication?: boolean;
   shortcutPath: string;
 }
 
@@ -72,6 +73,8 @@ export interface WindowsStartMenuScanner {
 }
 
 export interface WindowsStartMenuScannerOptions {
+  desktopDirectories?: readonly string[];
+  desktopShortcutResolver?: ShortcutResolver;
   startMenuDirectories?: readonly string[];
   fileSystem?: StartMenuFileSystem;
   shortcutResolver?: ShortcutResolver;
@@ -261,12 +264,19 @@ function getShortcutName(shortcutPath: string): string {
 function mergeShortcut(
   shortcutPath: string,
   resolvedShortcut: ResolvedShortcut,
+  opensApplication: boolean,
 ): StartMenuShortcut {
-  return {
+  const shortcut: StartMenuShortcut = {
     name: getShortcutName(shortcutPath),
     shortcutPath,
     ...resolvedShortcut,
   };
+
+  if (opensApplication) {
+    shortcut.opensApplication = true;
+  }
+
+  return shortcut;
 }
 
 export function getDefaultWindowsStartMenuDirectories(
@@ -285,15 +295,44 @@ export function getDefaultWindowsStartMenuDirectories(
   return Array.from(new Set(directories));
 }
 
+export function getDefaultWindowsDesktopDirectories(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const directories: string[] = [];
+
+  if (env.USERPROFILE) {
+    directories.push(path.join(env.USERPROFILE, 'Desktop'));
+  }
+
+  if (env.PUBLIC) {
+    directories.push(path.join(env.PUBLIC, 'Desktop'));
+  }
+
+  return Array.from(new Set(directories));
+}
+
+interface ScanDirectoryOptions {
+  includeUnresolvedShortcuts: boolean;
+  opensApplication: boolean;
+  recurse: boolean;
+  shortcutResolver: ShortcutResolver;
+}
+
 export function createWindowsStartMenuScanner(
   options: WindowsStartMenuScannerOptions = {},
 ): WindowsStartMenuScanner {
   const fileSystem = options.fileSystem ?? createDefaultFileSystem();
   const shortcutResolver = options.shortcutResolver ?? createWindowsShortcutResolver();
+  const desktopShortcutResolver = options.desktopShortcutResolver ?? shortcutResolver;
   const startMenuDirectories =
     options.startMenuDirectories ?? getDefaultWindowsStartMenuDirectories(options.env);
+  const desktopDirectories = options.desktopDirectories ?? [];
 
-  async function scanDirectory(directoryPath: string, result: StartMenuScanResult): Promise<void> {
+  async function scanDirectory(
+    directoryPath: string,
+    result: StartMenuScanResult,
+    scanOptions: ScanDirectoryOptions,
+  ): Promise<void> {
     let entries: StartMenuDirectoryEntry[];
 
     try {
@@ -310,7 +349,9 @@ export function createWindowsStartMenuScanner(
       const entryPath = path.join(directoryPath, entry.name);
 
       if (entry.kind === 'directory') {
-        await scanDirectory(entryPath, result);
+        if (scanOptions.recurse) {
+          await scanDirectory(entryPath, result, scanOptions);
+        }
         continue;
       }
 
@@ -319,12 +360,22 @@ export function createWindowsStartMenuScanner(
       }
 
       try {
-        result.shortcuts.push(mergeShortcut(entryPath, await shortcutResolver.resolve(entryPath)));
+        result.shortcuts.push(
+          mergeShortcut(
+            entryPath,
+            await scanOptions.shortcutResolver.resolve(entryPath),
+            scanOptions.opensApplication,
+          ),
+        );
       } catch (error) {
         result.failures.push({
           shortcutPath: entryPath,
           message: formatThrownValue(error),
         });
+
+        if (scanOptions.includeUnresolvedShortcuts) {
+          result.shortcuts.push(mergeShortcut(entryPath, {}, scanOptions.opensApplication));
+        }
       }
     }
   }
@@ -337,7 +388,21 @@ export function createWindowsStartMenuScanner(
       };
 
       for (const directoryPath of startMenuDirectories) {
-        await scanDirectory(directoryPath, result);
+        await scanDirectory(directoryPath, result, {
+          includeUnresolvedShortcuts: false,
+          opensApplication: false,
+          recurse: true,
+          shortcutResolver,
+        });
+      }
+
+      for (const directoryPath of desktopDirectories) {
+        await scanDirectory(directoryPath, result, {
+          includeUnresolvedShortcuts: true,
+          opensApplication: true,
+          recurse: false,
+          shortcutResolver: desktopShortcutResolver,
+        });
       }
 
       return result;

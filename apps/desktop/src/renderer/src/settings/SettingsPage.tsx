@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type {
+  CommandCabinLanguage,
   CommandCabinSettings,
   CommandCabinSettingsPatch,
   CommandCabinTheme,
 } from '@command-cabin/core';
 
+import { getUiStrings } from '../i18n.js';
 import { ClipboardHistorySettings } from './ClipboardHistorySettings.js';
 import { DataSettings } from './DataSettings.js';
 import { FavoritesSettings } from './FavoritesSettings.js';
 import { HotkeySettings } from './HotkeySettings.js';
+import { LanguageSettings } from './LanguageSettings.js';
+import { LauncherSettings } from './LauncherSettings.js';
 import { PluginSettings } from './PluginSettings.js';
+import { StartupSettings } from './StartupSettings.js';
 import { ThemeSettings } from './ThemeSettings.js';
 
 export interface SettingsPageApi {
@@ -20,7 +25,11 @@ export interface SettingsPageApi {
 
 export interface SettingsPageProps {
   api?: SettingsPageApi;
+  language?: CommandCabinLanguage | undefined;
+  onLanguageUpdated?: (language: CommandCabinLanguage) => void;
   onReturnToLauncher: () => void;
+  onThemeUpdated?: (theme: CommandCabinTheme) => void;
+  theme?: CommandCabinTheme | undefined;
 }
 
 function getDefaultSettingsPageApi(): SettingsPageApi | undefined {
@@ -31,11 +40,21 @@ function getDefaultSettingsPageApi(): SettingsPageApi | undefined {
   return window.desktopApi;
 }
 
-export function SettingsPage({ api, onReturnToLauncher }: SettingsPageProps) {
+export function SettingsPage({
+  api,
+  language,
+  onLanguageUpdated,
+  onReturnToLauncher,
+  onThemeUpdated,
+  theme,
+}: SettingsPageProps) {
   const settingsApi = useMemo(() => api ?? getDefaultSettingsPageApi(), [api]);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<CommandCabinSettings | undefined>();
+  const currentLanguage = settings?.language ?? language;
+  const currentTheme = settings?.theme ?? theme;
+  const strings = getUiStrings(currentLanguage);
 
   useEffect(() => {
     if (!settingsApi) {
@@ -49,18 +68,20 @@ export function SettingsPage({ api, onReturnToLauncher }: SettingsPageProps) {
       .then((loadedSettings) => {
         if (isCurrent) {
           setSettings(loadedSettings);
+          onLanguageUpdated?.(loadedSettings.language);
+          onThemeUpdated?.(loadedSettings.theme);
         }
       })
       .catch((error: unknown) => {
         if (isCurrent) {
-          setErrorMessage(error instanceof Error ? error.message : 'Settings could not be loaded.');
+          setErrorMessage(error instanceof Error ? error.message : strings.settings.loadError);
         }
       });
 
     return () => {
       isCurrent = false;
     };
-  }, [settingsApi]);
+  }, [onLanguageUpdated, onThemeUpdated, settingsApi, strings.settings.loadError]);
 
   const updateSettings = useCallback(
     async (patch: CommandCabinSettingsPatch) => {
@@ -74,28 +95,30 @@ export function SettingsPage({ api, onReturnToLauncher }: SettingsPageProps) {
       try {
         const updatedSettings = await settingsApi.updateSettings(patch);
         setSettings(updatedSettings);
+        onLanguageUpdated?.(updatedSettings.language);
+        onThemeUpdated?.(updatedSettings.theme);
         return updatedSettings;
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Settings could not be saved.';
+        const message = error instanceof Error ? error.message : strings.settings.saveError;
         setErrorMessage(message);
         throw new Error(message, { cause: error });
       } finally {
         setIsSaving(false);
       }
     },
-    [settingsApi],
+    [onLanguageUpdated, onThemeUpdated, settingsApi, strings.settings.saveError],
   );
 
   return (
     <main className="settings-shell">
-      <section className="settings-frame" aria-label="CommandCabin settings">
+      <section className="settings-frame" aria-label={strings.settings.ariaLabel}>
         <header className="settings-titlebar">
           <div>
-            <p className="launcher-kicker">Settings</p>
+            <p className="launcher-kicker">{strings.settings.title}</p>
             <h1>CommandCabin</h1>
           </div>
           <button className="settings-back" type="button" onClick={onReturnToLauncher}>
-            Back
+            {strings.settings.back}
           </button>
         </header>
 
@@ -107,20 +130,42 @@ export function SettingsPage({ api, onReturnToLauncher }: SettingsPageProps) {
 
         <div className="settings-grid">
           <HotkeySettings
-            errorMessage={settingsApi ? undefined : 'Settings API unavailable.'}
+            errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
             isSaving={isSaving}
+            strings={strings.settings.hotkey}
             value={settings?.hotkey}
             onHotkeyChange={(hotkey) => updateSettings({ hotkey })}
           />
           <ThemeSettings
             isSaving={isSaving}
-            value={settings?.theme}
+            strings={strings.settings.theme}
+            value={currentTheme}
             onThemeChange={(theme: CommandCabinTheme) => updateSettings({ theme })}
           />
-          <PluginSettings />
-          <DataSettings />
-          <FavoritesSettings />
-          <ClipboardHistorySettings />
+          <LanguageSettings
+            isSaving={isSaving}
+            strings={strings.settings.language}
+            value={currentLanguage}
+            onLanguageChange={(language: CommandCabinLanguage) => updateSettings({ language })}
+          />
+          <LauncherSettings
+            isSaving={isSaving}
+            strings={strings.settings.launcher}
+            value={settings?.preserveSearchQuery}
+            onPreserveSearchQueryChange={(preserveSearchQuery) =>
+              updateSettings({ preserveSearchQuery })
+            }
+          />
+          <StartupSettings
+            isSaving={isSaving}
+            strings={strings.settings.startup}
+            value={settings?.launchAtLogin}
+            onLaunchAtLoginChange={(launchAtLogin) => updateSettings({ launchAtLogin })}
+          />
+          <PluginSettings strings={strings.settings.plugin} />
+          <DataSettings strings={strings.settings.data} />
+          <FavoritesSettings commonStrings={strings.common} strings={strings.settings.favorites} />
+          <ClipboardHistorySettings strings={strings.settings.clipboardHistory} />
         </div>
       </section>
     </main>

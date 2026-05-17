@@ -10,6 +10,7 @@ describe('launcher API validators', () => {
     const results = parseLauncherCommandSearchResults([
       {
         extra: 'ignored',
+        favoriteId: 'favorite-wps',
         icon: 'S',
         id: 'system.settings',
         score: 1.2,
@@ -21,6 +22,7 @@ describe('launcher API validators', () => {
 
     expect(results).toEqual([
       {
+        favoriteId: 'favorite-wps',
         icon: 'S',
         id: 'system.settings',
         score: 1.2,

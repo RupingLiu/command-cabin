@@ -52,6 +52,8 @@ run('corepack', [
   '--filter',
   '@command-cabin/built-in-plugin-clipboard-history',
   '--filter',
+  '@command-cabin/built-in-plugin-quick-converter',
+  '--filter',
   '@command-cabin/built-in-plugin-text-tools',
   '--filter',
   '@command-cabin/desktop',

@@ -1,6 +1,8 @@
-import { type KeyboardEvent, useState } from 'react';
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 
 import type { CommandCabinSettings } from '@command-cabin/core';
+import type { HotkeyInputCapturePayload } from '../../../shared/hotkeyInputApi.js';
+import { getUiStrings, type UiStrings } from '../i18n.js';
 
 export interface HotkeyEventLike {
   altKey: boolean;
@@ -14,6 +16,7 @@ export interface HotkeySettingsProps {
   errorMessage?: string | undefined;
   isSaving?: boolean;
   onHotkeyChange?: (hotkey: string) => Promise<CommandCabinSettings | void> | void;
+  strings?: UiStrings['settings']['hotkey'] | undefined;
   value?: string | undefined;
 }
 
@@ -75,10 +78,26 @@ export function formatHotkeyFromKeyEvent(event: HotkeyEventLike): string | undef
   return [...modifiers, key].join('+');
 }
 
-function formatHotkeyError(error: unknown): string {
+export function isModifierOnlyHotkeyEvent(event: HotkeyEventLike): boolean {
+  return modifierKeys.has(event.key);
+}
+
+function formatHotkeyError(
+  error: unknown,
+  fallbackMessage = getUiStrings(undefined).settings.hotkey.saveError,
+): string {
   return error instanceof Error && error.message.trim().length > 0
     ? error.message
-    : 'Hotkey could not be saved.';
+    : fallbackMessage;
+}
+
+function getDesktopApi():
+  | Pick<
+      Window['desktopApi'],
+      'onHotkeyInputCapture' | 'startHotkeyInputCapture' | 'stopHotkeyInputCapture'
+    >
+  | undefined {
+  return typeof window !== 'undefined' && 'desktopApi' in window ? window.desktopApi : undefined;
 }
 
 export function createHotkeySettingsState(persistedHotkey: string): HotkeySettingsState {
@@ -115,13 +134,33 @@ export function HotkeySettings({
   errorMessage,
   isSaving = false,
   onHotkeyChange,
+  strings = getUiStrings(undefined).settings.hotkey,
   value = 'Alt+Space',
 }: HotkeySettingsProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [draftHotkey, setDraftHotkey] = useState<string | undefined>();
   const [localError, setLocalError] = useState<string | undefined>();
+  const recordingStateRef = useRef({ isRecording, isSaving });
   const currentHotkey = draftHotkey ?? value;
   const displayedError = localError ?? errorMessage;
+
+  function startHotkeyInputCapture(): void {
+    void getDesktopApi()
+      ?.startHotkeyInputCapture()
+      .catch(() => undefined);
+  }
+
+  function stopHotkeyInputCapture(): void {
+    void getDesktopApi()
+      ?.stopHotkeyInputCapture()
+      .catch(() => undefined);
+  }
+
+  useEffect(() => {
+    recordingStateRef.current = { isRecording, isSaving };
+  }, [isRecording, isSaving]);
+
+  useEffect(() => () => stopHotkeyInputCapture(), []);
 
   async function saveHotkey(hotkey: string): Promise<void> {
     setLocalError(undefined);
@@ -129,11 +168,13 @@ export function HotkeySettings({
 
     try {
       await onHotkeyChange?.(hotkey);
+      stopHotkeyInputCapture();
       setIsRecording(false);
     } catch (error) {
       setDraftHotkey(undefined);
       setIsRecording(true);
-      setLocalError(formatHotkeyError(error));
+      startHotkeyInputCapture();
+      setLocalError(formatHotkeyError(error, strings.saveError));
     }
   }
 
@@ -148,17 +189,42 @@ export function HotkeySettings({
     const accelerator = formatHotkeyFromKeyEvent(event);
 
     if (!accelerator) {
-      setLocalError('Press at least one modifier with a non-modifier key.');
+      if (isModifierOnlyHotkeyEvent(event)) {
+        setLocalError(undefined);
+        return;
+      }
+
+      setLocalError(strings.conflictHint);
       return;
     }
 
     void saveHotkey(accelerator);
   }
 
+  function handleCapturedHotkeyInput(event: HotkeyInputCapturePayload): void {
+    if (!recordingStateRef.current.isRecording || recordingStateRef.current.isSaving) {
+      return;
+    }
+
+    const accelerator = formatHotkeyFromKeyEvent(event);
+
+    if (!accelerator) {
+      return;
+    }
+
+    void saveHotkey(accelerator);
+  }
+
+  useEffect(() => {
+    const desktopApi = getDesktopApi();
+
+    return desktopApi?.onHotkeyInputCapture(handleCapturedHotkeyInput);
+  });
+
   return (
-    <section className="settings-section hotkey-settings" aria-label="Hotkey settings">
+    <section className="settings-section hotkey-settings" aria-label={strings.ariaLabel}>
       <header className="settings-section__header">
-        <h2>Hotkey</h2>
+        <h2>{strings.title}</h2>
         <span>{currentHotkey}</span>
       </header>
       {displayedError ? (
@@ -174,10 +240,11 @@ export function HotkeySettings({
         onClick={() => {
           setLocalError(undefined);
           setIsRecording(true);
+          startHotkeyInputCapture();
         }}
         onKeyDown={handleKeyDown}
       >
-        {isRecording ? 'Press shortcut' : 'Record shortcut'}
+        {isRecording ? strings.waiting : strings.record}
       </button>
     </section>
   );

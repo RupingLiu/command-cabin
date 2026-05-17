@@ -14,6 +14,7 @@ describe('CommandCabin settings', () => {
       theme: 'system',
       language: 'zh-CN',
       launchAtLogin: false,
+      preserveSearchQuery: false,
       search: {
         maxResults: 20,
         historyBoost: 1.4,

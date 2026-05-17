@@ -55,12 +55,22 @@ describe('createMainWindow', () => {
     expect(MockBrowserWindow.instances).toHaveLength(1);
     expect(window).toBe(MockBrowserWindow.instances[0]);
     expect(MockBrowserWindow.instances[0]?.options).toMatchObject({
+      width: 760,
+      height: 520,
+      minWidth: 760,
+      minHeight: 520,
+      maxWidth: 760,
+      maxHeight: 520,
       show: false,
       frame: false,
       alwaysOnTop: true,
+      resizable: false,
+      maximizable: false,
       webPreferences: {
+        backgroundThrottling: false,
         nodeIntegration: false,
         contextIsolation: true,
+        sandbox: false,
         webviewTag: true,
         preload: 'C:\\CommandCabin\\dist\\preload\\index.js',
       },
@@ -90,6 +100,21 @@ describe('createMainWindow', () => {
       'C:\\CommandCabin\\dist\\renderer\\index.html',
     );
     expect(MockBrowserWindow.instances[0]?.loadURL).not.toHaveBeenCalled();
+  });
+
+  it('keeps the window hidden on ready when requested for login startup', async () => {
+    const { createMainWindow } = await import('./createMainWindow.js');
+
+    await createMainWindow({
+      isPackaged: false,
+      preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
+      rendererIndexPath: 'C:\\CommandCabin\\dist\\renderer\\index.html',
+      showOnReady: false,
+    });
+
+    MockBrowserWindow.instances[0]?.emitReadyToShow();
+
+    expect(MockBrowserWindow.instances[0]?.show).not.toHaveBeenCalled();
   });
 
   it('ignores a dev server URL in packaged mode', async () => {

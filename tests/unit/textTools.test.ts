@@ -86,7 +86,7 @@ describe('launcher text tools integration', () => {
       },
     });
 
-    const [result] = service.searchCommands('uppercase text');
+    const [result] = await service.searchCommands('uppercase text');
 
     expect(result).toMatchObject({
       id: TEXT_TOOL_COMMAND_IDS.uppercase,

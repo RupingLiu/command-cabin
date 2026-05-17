@@ -11,6 +11,9 @@ export default defineConfig({
       '@command-cabin/built-in-plugin-calculator': fileURLToPath(
         new URL('./packages/built-in-plugins/calculator/src/index.ts', import.meta.url),
       ),
+      '@command-cabin/built-in-plugin-quick-converter': fileURLToPath(
+        new URL('./packages/built-in-plugins/quick-converter/src/index.ts', import.meta.url),
+      ),
       '@command-cabin/built-in-plugin-clipboard-history': fileURLToPath(
         new URL('./packages/built-in-plugins/clipboard-history/src/index.ts', import.meta.url),
       ),

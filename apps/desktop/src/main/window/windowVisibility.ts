@@ -15,6 +15,7 @@ export interface LauncherWindow {
   off?: (eventName: 'blur', listener: () => void) => unknown;
   removeListener?: (eventName: 'blur', listener: () => void) => unknown;
   show: () => void;
+  showInactive?: () => void;
   webContents: LauncherWindowWebContents;
 }
 
@@ -51,7 +52,11 @@ export function createWindowVisibilityController({
 }: CreateWindowVisibilityControllerOptions): WindowVisibilityController {
   const show = () => {
     window.center();
-    window.show();
+    if (window.showInactive) {
+      window.showInactive();
+    } else {
+      window.show();
+    }
     window.focus();
     window.webContents.send(focusSearchInputChannel);
   };

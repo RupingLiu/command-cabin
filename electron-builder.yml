@@ -3,6 +3,7 @@ productName: CommandCabin
 copyright: Copyright © 2026 CommandCabin
 electronVersion: 39.0.0
 asar: false
+afterPack: apps/desktop/scripts/after-pack-windows-icon.cjs
 
 directories:
   app: apps/desktop
@@ -38,6 +39,10 @@ win:
         - x64
 
 nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  include: apps/desktop/build/installer.nsh
   artifactName: CommandCabin-${version}-${arch}-Setup.${ext}
   installerIcon: apps/desktop/build/icon.ico
   uninstallerIcon: apps/desktop/build/icon.ico

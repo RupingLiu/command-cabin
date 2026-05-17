@@ -17,9 +17,9 @@ describe('DataSettings', () => {
       }),
     );
 
-    expect(markup).toContain('Data Directory');
+    expect(markup).toContain('数据目录');
     expect(markup).toContain('C:\\Users\\Ruping\\AppData\\CommandCabin');
-    expect(markup).toContain('Open');
+    expect(markup).toContain('打开');
   });
 
   it('disables the open action while loading', () => {

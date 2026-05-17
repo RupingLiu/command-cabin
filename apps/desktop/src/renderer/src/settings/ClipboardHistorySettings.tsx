@@ -1,5 +1,7 @@
 import { useReducer } from 'react';
 
+import { getUiStrings, type UiStrings } from '../i18n.js';
+
 export interface ClipboardHistorySettingsApi {
   clearClipboardHistory: () => Promise<number>;
 }
@@ -26,6 +28,7 @@ export type ClipboardHistorySettingsAction =
 export interface ClipboardHistorySettingsProps {
   api?: ClipboardHistorySettingsApi;
   state?: ClipboardHistorySettingsState;
+  strings?: UiStrings['settings']['clipboardHistory'] | undefined;
 }
 
 export interface ClipboardHistoryClearGate {
@@ -82,7 +85,10 @@ export function clipboardHistorySettingsReducer(
   }
 }
 
-function formatUnknownError(error: unknown): string {
+function formatUnknownError(
+  error: unknown,
+  fallbackMessage = getUiStrings(undefined).settings.clipboardHistory.clearError,
+): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
   }
@@ -91,16 +97,17 @@ function formatUnknownError(error: unknown): string {
     return error;
   }
 
-  return 'Could not clear clipboard history.';
+  return fallbackMessage;
 }
 
 export async function runClipboardHistoryClear(
   api: ClipboardHistorySettingsApi | undefined,
   dispatch: (action: ClipboardHistorySettingsAction) => void,
+  strings = getUiStrings(undefined).settings.clipboardHistory,
 ): Promise<number | undefined> {
   if (!api) {
     dispatch({
-      error: 'Clipboard history API is unavailable.',
+      error: strings.unavailable,
       type: 'clear-failed',
     });
     return undefined;
@@ -119,7 +126,7 @@ export async function runClipboardHistoryClear(
     return removedCount;
   } catch (error) {
     dispatch({
-      error: formatUnknownError(error),
+      error: formatUnknownError(error, strings.clearError),
       type: 'clear-failed',
     });
     return undefined;
@@ -134,7 +141,11 @@ function getDefaultClipboardHistorySettingsApi(): ClipboardHistorySettingsApi | 
   return window.desktopApi;
 }
 
-export function ClipboardHistorySettings({ api, state }: ClipboardHistorySettingsProps) {
+export function ClipboardHistorySettings({
+  api,
+  state,
+  strings = getUiStrings(undefined).settings.clipboardHistory,
+}: ClipboardHistorySettingsProps) {
   const settingsApi = api ?? getDefaultClipboardHistorySettingsApi();
   const [internalState, dispatch] = useReducer(
     clipboardHistorySettingsReducer,
@@ -147,13 +158,13 @@ export function ClipboardHistorySettings({ api, state }: ClipboardHistorySetting
       return;
     }
 
-    await runClipboardHistoryClear(settingsApi, dispatch);
+    await runClipboardHistoryClear(settingsApi, dispatch, strings);
   }
 
   return (
-    <section className="clipboard-history-settings" aria-label="Clipboard history settings">
+    <section className="clipboard-history-settings" aria-label={strings.ariaLabel}>
       <header className="clipboard-history-settings__header">
-        <h2>Clipboard History</h2>
+        <h2>{strings.title}</h2>
       </header>
       {currentState.clearError ? (
         <p className="clipboard-history-settings__error" role="alert">
@@ -166,7 +177,7 @@ export function ClipboardHistorySettings({ api, state }: ClipboardHistorySetting
         type="button"
         onClick={() => void handleClearHistory()}
       >
-        {currentState.isClearing ? 'Clearing history' : 'Clear history'}
+        {currentState.isClearing ? strings.clearing : strings.clear}
       </button>
     </section>
   );

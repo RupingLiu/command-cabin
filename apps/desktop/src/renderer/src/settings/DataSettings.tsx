@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { DataDirectoryResponse } from '../../../shared/settingsApi.js';
+import { getUiStrings, type UiStrings } from '../i18n.js';
 
 export interface DataSettingsApi {
   getDataDirectory: () => Promise<DataDirectoryResponse>;
@@ -17,6 +18,7 @@ export interface DataSettingsState {
 export interface DataSettingsProps {
   api?: DataSettingsApi;
   state?: DataSettingsState;
+  strings?: UiStrings['settings']['data'] | undefined;
 }
 
 function getDefaultDataSettingsApi(): DataSettingsApi | undefined {
@@ -27,7 +29,11 @@ function getDefaultDataSettingsApi(): DataSettingsApi | undefined {
   return window.desktopApi;
 }
 
-export function DataSettings({ api, state }: DataSettingsProps) {
+export function DataSettings({
+  api,
+  state,
+  strings = getUiStrings(undefined).settings.data,
+}: DataSettingsProps) {
   const dataApi = useMemo(() => api ?? getDefaultDataSettingsApi(), [api]);
   const [internalState, setInternalState] = useState<DataSettingsState>({
     errorMessage: undefined,
@@ -58,11 +64,11 @@ export function DataSettings({ api, state }: DataSettingsProps) {
     } catch (error) {
       setInternalState((current) => ({
         ...current,
-        errorMessage: error instanceof Error ? error.message : 'Data directory unavailable.',
+        errorMessage: error instanceof Error ? error.message : strings.unavailable,
         isLoading: false,
       }));
     }
-  }, [dataApi, state]);
+  }, [dataApi, state, strings.unavailable]);
 
   useEffect(() => {
     void loadDataDirectory();
@@ -72,7 +78,7 @@ export function DataSettings({ api, state }: DataSettingsProps) {
     if (!dataApi) {
       setInternalState((current) => ({
         ...current,
-        errorMessage: 'Data directory API unavailable.',
+        errorMessage: strings.unavailableApi,
       }));
       return;
     }
@@ -88,8 +94,7 @@ export function DataSettings({ api, state }: DataSettingsProps) {
     } catch (error) {
       setInternalState((current) => ({
         ...current,
-        errorMessage:
-          error instanceof Error ? error.message : 'Data directory could not be opened.',
+        errorMessage: error instanceof Error ? error.message : strings.openError,
       }));
     } finally {
       setInternalState((current) => ({
@@ -100,9 +105,9 @@ export function DataSettings({ api, state }: DataSettingsProps) {
   }
 
   return (
-    <section className="settings-section data-settings" aria-label="Data directory settings">
+    <section className="settings-section data-settings" aria-label={strings.ariaLabel}>
       <header className="settings-section__header">
-        <h2>Data Directory</h2>
+        <h2>{strings.title}</h2>
       </header>
       {currentState.errorMessage ? (
         <p className="settings-section__error" role="alert">
@@ -110,7 +115,7 @@ export function DataSettings({ api, state }: DataSettingsProps) {
         </p>
       ) : null}
       <div className="data-settings__path" aria-busy={currentState.isLoading}>
-        {currentState.path ?? 'Loading data directory'}
+        {currentState.path ?? strings.loading}
       </div>
       <button
         aria-busy={currentState.isOpening}
@@ -118,7 +123,7 @@ export function DataSettings({ api, state }: DataSettingsProps) {
         type="button"
         onClick={() => void handleOpenDataDirectory()}
       >
-        {currentState.isOpening ? 'Opening' : 'Open'}
+        {currentState.isOpening ? strings.opening : strings.open}
       </button>
     </section>
   );

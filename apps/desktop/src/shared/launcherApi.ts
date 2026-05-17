@@ -13,6 +13,8 @@ export interface LauncherCommandSearchResult {
   title: string;
   subtitle?: string;
   icon?: string;
+  iconCandidates?: string[];
+  favoriteId?: string;
   score: number;
 }
 
@@ -137,6 +139,7 @@ function parseSearchResult(value: unknown, index: number): LauncherCommandSearch
   };
   const subtitle = parseOptionalString(value.subtitle, `${context}.subtitle`);
   const icon = parseOptionalString(value.icon, `${context}.icon`);
+  const favoriteId = parseOptionalString(value.favoriteId, `${context}.favoriteId`);
 
   if (subtitle !== undefined) {
     result.subtitle = subtitle;
@@ -144,6 +147,10 @@ function parseSearchResult(value: unknown, index: number): LauncherCommandSearch
 
   if (icon !== undefined) {
     result.icon = icon;
+  }
+
+  if (favoriteId !== undefined) {
+    result.favoriteId = favoriteId;
   }
 
   return result;

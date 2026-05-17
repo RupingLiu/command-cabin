@@ -1,9 +1,17 @@
 export const FOCUS_SEARCH_INPUT_CHANNEL = 'command-cabin:focus-search-input';
+export const HOTKEY_INPUT_CAPTURE_CHANNEL = 'command-cabin:hotkey-input-capture';
+export const OPEN_SETTINGS_CHANNEL = 'command-cabin:open-settings';
 export const SEARCH_COMMANDS_CHANNEL = 'command-cabin:search-commands';
 export const EXECUTE_COMMAND_CHANNEL = 'command-cabin:execute-command';
 export const HIDE_LAUNCHER_CHANNEL = 'command-cabin:hide-launcher';
+export const START_HOTKEY_INPUT_CAPTURE_CHANNEL = 'command-cabin:start-hotkey-input-capture';
+export const STOP_HOTKEY_INPUT_CAPTURE_CHANNEL = 'command-cabin:stop-hotkey-input-capture';
 export const LIST_FAVORITES_CHANNEL = 'command-cabin:list-favorites';
 export const ADD_FAVORITE_CHANNEL = 'command-cabin:add-favorite';
+export const ADD_PINNED_APP_CHANNEL = 'command-cabin:add-pinned-app';
+export const ADD_PINNED_APP_CANDIDATE_CHANNEL = 'command-cabin:add-pinned-app-candidate';
+export const LIST_APP_CANDIDATES_CHANNEL = 'command-cabin:list-app-candidates';
+export const UPDATE_PINNED_APP_CHANNEL = 'command-cabin:update-pinned-app';
 export const UPDATE_FAVORITE_CHANNEL = 'command-cabin:update-favorite';
 export const REMOVE_FAVORITE_CHANNEL = 'command-cabin:remove-favorite';
 export const CLEAR_CLIPBOARD_HISTORY_CHANNEL = 'command-cabin:clear-clipboard-history';

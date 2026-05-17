@@ -136,9 +136,13 @@ export type { CommandRegistry } from './command/commandRegistry.js';
 export { createCommandExecutor } from './command/commandExecutor.js';
 export type { CommandExecutor, CommandExecutorOptions } from './command/commandExecutor.js';
 export {
+  LAUNCHER_PINNED_APP_EXECUTABLE_PATH_METADATA_KEY,
+  LAUNCHER_PINNED_APP_ICON_PATH_METADATA_KEY,
+  LAUNCHER_PINNED_APP_METADATA_KEY,
   createFavoriteCommand,
   createFavoriteCommandId,
   createFavoriteCommands,
+  isLauncherPinnedAppFavorite,
 } from './command/builtInFavorites.js';
 export type {
   Command,
@@ -201,6 +205,7 @@ export type {
 export {
   createWindowsShortcutResolver,
   createWindowsStartMenuScanner,
+  getDefaultWindowsDesktopDirectories,
   getDefaultWindowsStartMenuDirectories,
 } from './indexer/windows/startMenuScanner.js';
 export type {

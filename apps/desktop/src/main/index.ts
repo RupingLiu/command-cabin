@@ -14,6 +14,7 @@ import {
   createPluginRuntime,
   createPluginRepository,
   createSettingsRepository,
+  createWindowsShortcutResolver,
   openCommandCabinDatabase,
   runMigrations,
   type AppIndexer,
@@ -23,19 +24,46 @@ import {
   type PluginRuntime,
   type PluginRepository,
 } from '@command-cabin/core';
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, shell } from 'electron';
-import { join } from 'node:path';
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  shell,
+  type IpcMainInvokeEvent,
+  type OpenDialogOptions,
+} from 'electron';
+import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createDesktopApplicationController } from './desktopApplication.js';
+import { createAltSpaceHotkeyCaptureController } from './hotkey/altSpaceHotkeyCapture.js';
+import { createAppIconResolver } from './icons/appIconResolver.js';
+import { startAppIndexing } from './launcher/appIndexStartup.js';
+import { listDesktopShortcutCommands } from './launcher/desktopShortcutCommands.js';
+import { createExchangeRateCache } from './launcher/exchangeRateCache.js';
+import {
+  createAppCandidateService,
+  listShortcutFilesInDirectories,
+  type AppCandidateService,
+  type InternalAppCandidate,
+} from './launcher/appCandidateService.js';
 import {
   createLauncherCommandService,
   type LauncherCommandService,
+  type LauncherPinnedAppInput,
 } from './launcher/launcherCommandService.js';
 import {
   createDesktopPluginService,
   type DesktopPluginService,
 } from './plugins/desktopPluginService.js';
+import {
+  createCommandCabinTrayController,
+  resolveTrayIconPath,
+  type CommandCabinTrayController,
+} from './tray/trayController.js';
 import { createMainWindow } from './window/createMainWindow.js';
 import { resolveWindowEntryPaths } from './window/entryPaths.js';
 import {
@@ -48,13 +76,16 @@ import {
   parseFavoriteUpdateRequest,
 } from '../shared/favoritesApi.js';
 import {
+  ADD_PINNED_APP_CANDIDATE_CHANNEL,
   ADD_FAVORITE_CHANNEL,
+  ADD_PINNED_APP_CHANNEL,
   CLEAR_CLIPBOARD_HISTORY_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
   INSTALL_PLUGIN_CHANNEL,
+  LIST_APP_CANDIDATES_CHANNEL,
   LIST_FAVORITES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
@@ -64,14 +95,28 @@ import {
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
-  UPDATE_SETTINGS_CHANNEL,
+  START_HOTKEY_INPUT_CAPTURE_CHANNEL,
+  STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
   UPDATE_FAVORITE_CHANNEL,
+  UPDATE_PINNED_APP_CHANNEL,
+  UPDATE_SETTINGS_CHANNEL,
 } from '../shared/ipcChannels.js';
+import { parseAppCandidateAddRequest, type AppCandidate } from '../shared/appCandidatesApi.js';
 import { parsePluginInstallRequest, parseSettingsPatch } from '../shared/settingsApi.js';
 import { updateSettingsWithHotkeyRegistration } from './settings/updateSettingsWithHotkeyRegistration.js';
+import { configureSingleInstance } from './singleInstance.js';
+import { createLaunchAtLoginController, isLaunchAtLoginStartup } from './startup/launchAtLogin.js';
 
 const mainDirectory = fileURLToPath(new URL('.', import.meta.url));
 const windowEntryPaths = resolveWindowEntryPaths(mainDirectory);
+const shortcutResolver = createWindowsShortcutResolver();
+const appCandidateShortcutResolver = createWindowsShortcutResolver({
+  timeoutMs: 750,
+});
+const appIconResolver = createAppIconResolver({
+  getFileIcon: (path) => app.getFileIcon(path),
+  resolveShortcut: (path) => shortcutResolver.resolve(path),
+});
 const pluginWebviewPolicyStore = createPluginWebviewPolicyStore({
   expectedPreloadPath: getPluginBridgePreloadPath(windowEntryPaths.preloadPath),
 });
@@ -80,10 +125,19 @@ let commandCabinDatabase: CommandCabinDatabase | undefined;
 let appIndexer: AppIndexer | undefined;
 let clipboardHistoryRuntime: ClipboardHistoryPluginRuntime | undefined;
 let desktopPluginService: DesktopPluginService | undefined;
+let appCandidateService: AppCandidateService = createAppCandidateService({
+  appCommands: () => [],
+  favorites: () => [],
+  listDesktopShortcuts: async () => [],
+  resolveShortcut: (path) => shortcutResolver.resolve(path),
+});
 let launcherCommandService: LauncherCommandService = createLauncherCommandService();
 let pluginRepository: PluginRepository | undefined;
 let pluginRuntime: PluginRuntime | undefined;
+let trayController: CommandCabinTrayController | undefined;
 let isShutdownResuming = false;
+let nextWindowShowOnReady = true;
+let startupPromise: Promise<void> | undefined;
 
 function getWindowOptions() {
   return {
@@ -91,16 +145,62 @@ function getWindowOptions() {
     ...windowEntryPaths,
     pluginWebviewPolicyStore,
     rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
+    showOnReady: nextWindowShowOnReady,
   };
 }
 
-async function createApplicationWindow(): Promise<void> {
-  launcherCommandService = await createPersistentLauncherCommandService();
-  await desktopApplication.start();
+async function createApplicationWindow({ showWindow }: { showWindow: boolean }): Promise<void> {
+  nextWindowShowOnReady = showWindow;
+  try {
+    launcherCommandService = await createPersistentLauncherCommandService();
+    launchAtLoginController.sync(settingsStore.getSettings().launchAtLogin);
+    await desktopApplication.start({ showWindow });
+  } finally {
+    nextWindowShowOnReady = true;
+  }
+  trayController = createCommandCabinTrayController({
+    iconPath: resolveTrayIconPath(mainDirectory),
+    language: settingsStore.getSettings().language,
+    openSettings: () => {
+      void desktopApplication.openSettings();
+    },
+    quit: () => {
+      desktopApplication.requestQuit();
+      app.quit();
+    },
+    show: () => {
+      void desktopApplication.showLauncherWindow();
+    },
+    toggle: () => {
+      void desktopApplication.toggleLauncherWindow();
+    },
+  });
+}
+
+function getDesktopShortcutDirectories(): string[] {
+  return Array.from(
+    new Set([
+      app.getPath('desktop'),
+      ...(process.env.PUBLIC ? [join(process.env.PUBLIC, 'Desktop')] : []),
+    ]),
+  );
+}
+
+function getLauncherAppCommands() {
+  return [
+    ...(appIndexer?.getCommands() ?? []),
+    ...listDesktopShortcutCommands({
+      directories: getDesktopShortcutDirectories(),
+    }),
+  ];
 }
 
 async function createPersistentLauncherCommandService(): Promise<LauncherCommandService> {
   const userDataPath = app.getPath('userData');
+  const exchangeRateProvider = createExchangeRateCache({
+    cacheFilePath: join(userDataPath, 'exchange-rates.json'),
+    logger: console,
+  });
 
   commandCabinDatabase = openCommandCabinDatabase({
     path: join(userDataPath, 'command-cabin.sqlite'),
@@ -112,6 +212,7 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
   clipboardHistoryRuntime = createPersistentClipboardHistoryRuntime(clipboardHistoryRepository);
   clipboardHistoryRuntime.watcher.start();
   const commandRegistry = createCommandRegistry();
+  const favoritesRepository = createFavoritesRepository(commandCabinDatabase);
 
   appIndexer = createAppIndexer({
     cache: createIndexCache({
@@ -123,15 +224,10 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
     refreshIntervalMs: 30 * 60 * 1000,
   });
 
-  try {
-    if (!(await appIndexer.load())) {
-      await appIndexer.refresh();
-    }
-  } catch (error) {
-    console.error('Initial app indexing failed.', error);
-  }
-
-  appIndexer.startAutoRefresh();
+  void startAppIndexing({
+    indexer: appIndexer,
+    logger: console,
+  });
 
   pluginRuntime = createPluginRuntime({
     clipboard: {
@@ -162,14 +258,22 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
   });
   await desktopPluginService.loadEnabledPlugins();
 
+  appCandidateService = createAppCandidateService({
+    appCommands: () => appIndexer?.getCommands() ?? [],
+    favorites: () => favoritesRepository.listFavorites(),
+    listDesktopShortcuts: () => listShortcutFilesInDirectories(getDesktopShortcutDirectories()),
+    resolveShortcut: (path) => appCandidateShortcutResolver.resolve(path),
+  });
+
   return createLauncherCommandService({
     actionHandlers: {
       'run-plugin': pluginRuntime.createRunPluginCommandHandler(),
     },
-    appCommands: () => appIndexer?.getCommands() ?? [],
+    appCommands: getLauncherAppCommands,
     clipboardHistoryRepository,
     commandRegistry,
-    favoritesRepository: createFavoritesRepository(commandCabinDatabase),
+    exchangeRateProvider,
+    favoritesRepository,
     historyRepository: createHistoryRepository(commandCabinDatabase),
     openApp: openAppCommand,
     openPath: async (path) => {
@@ -249,10 +353,142 @@ const desktopApplication = createDesktopApplicationController({
     dialog.showErrorBox('CommandCabin shortcut conflict', message);
   },
 });
+const altSpaceHotkeyCapture = createAltSpaceHotkeyCaptureController({
+  registry: globalShortcut,
+});
+const launchAtLoginController = createLaunchAtLoginController({
+  app,
+});
 
-ipcMain.handle(SEARCH_COMMANDS_CHANNEL, (_event, query: unknown) =>
-  launcherCommandService.searchCommands(typeof query === 'string' ? query : ''),
-);
+async function showExistingApplicationInstance(): Promise<void> {
+  if (startupPromise) {
+    await startupPromise;
+  } else if (!app.isReady()) {
+    await app.whenReady();
+  }
+
+  await desktopApplication.showLauncherWindow();
+}
+
+function startApplication(): Promise<void> {
+  const showWindow = !isLaunchAtLoginStartup(process.argv);
+  const nextStartupPromise = app.whenReady().then(() => createApplicationWindow({ showWindow }));
+
+  nextStartupPromise.catch((error: unknown) => {
+    console.error('Failed to start CommandCabin.', error);
+    app.quit();
+  });
+
+  return nextStartupPromise;
+}
+
+async function createPinnedAppInput(appPath: string): Promise<LauncherPinnedAppInput> {
+  const extension = extname(appPath).toLowerCase();
+
+  if (extension !== '.lnk') {
+    return {
+      appPath,
+      executablePath: appPath,
+      iconPath: appPath,
+    };
+  }
+
+  try {
+    const shortcut = await shortcutResolver.resolve(appPath);
+
+    return {
+      appPath,
+      executablePath: shortcut.targetPath,
+      iconPath: shortcut.iconPath ?? shortcut.targetPath,
+    };
+  } catch (error) {
+    console.warn('Pinned app shortcut resolution failed.', error);
+    return {
+      appPath,
+    };
+  }
+}
+
+async function showPinnedAppDialog(
+  event: IpcMainInvokeEvent,
+  title: string,
+): Promise<string | undefined> {
+  const parentWindow = BrowserWindow.fromWebContents(event.sender);
+  const dialogOptions: OpenDialogOptions = {
+    filters: [
+      {
+        extensions: ['exe', 'lnk'],
+        name: 'Applications',
+      },
+    ],
+    properties: ['openFile'],
+    title,
+  };
+  const result = parentWindow
+    ? await dialog.showOpenDialog(parentWindow, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions);
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return undefined;
+  }
+
+  return result.filePaths[0]!;
+}
+
+async function resolveAppCandidateIcon(candidate: InternalAppCandidate) {
+  const iconSearchResult = {
+    iconCandidates: candidate.iconCandidates,
+    id: candidate.id,
+    score: candidate.alreadyPinned ? 0 : 1,
+    source: 'app',
+    subtitle: candidate.subtitle,
+    title: candidate.title,
+  } as const;
+  const resolvedIcon = await appIconResolver.resolveSearchResultIcon(
+    candidate.iconPath === undefined
+      ? iconSearchResult
+      : {
+          ...iconSearchResult,
+          icon: candidate.iconPath,
+        },
+  );
+  const publicCandidate: AppCandidate = {
+    alreadyPinned: candidate.alreadyPinned,
+    id: candidate.id,
+    resolutionStatus: candidate.resolutionStatus,
+    shortcutPath: candidate.shortcutPath,
+    source: candidate.source,
+    subtitle: candidate.subtitle,
+    title: candidate.title,
+  };
+
+  if (candidate.executablePath !== undefined) {
+    publicCandidate.executablePath = candidate.executablePath;
+  }
+
+  if (candidate.iconPath !== undefined) {
+    publicCandidate.iconPath = candidate.iconPath;
+  }
+
+  if (resolvedIcon.icon !== undefined) {
+    publicCandidate.icon = resolvedIcon.icon;
+  }
+
+  return publicCandidate;
+}
+
+const hasSingleInstanceLock = configureSingleInstance({
+  app,
+  showExistingWindow: showExistingApplicationInstance,
+});
+
+ipcMain.handle(SEARCH_COMMANDS_CHANNEL, async (_event, query: unknown) => {
+  const results = await launcherCommandService.searchCommands(
+    typeof query === 'string' ? query : '',
+  );
+
+  return Promise.all(results.map((result) => appIconResolver.resolveSearchResultIcon(result)));
+});
 
 ipcMain.handle(EXECUTE_COMMAND_CHANNEL, (_event, commandId: unknown) =>
   launcherCommandService.executeCommand(typeof commandId === 'string' ? commandId : ''),
@@ -267,6 +503,43 @@ ipcMain.handle(LIST_FAVORITES_CHANNEL, () => launcherCommandService.listFavorite
 ipcMain.handle(ADD_FAVORITE_CHANNEL, (_event, input: unknown) =>
   launcherCommandService.addFavorite(parseFavoriteCreateRequest(input)),
 );
+
+ipcMain.handle(ADD_PINNED_APP_CHANNEL, async (event) => {
+  const appPath = await showPinnedAppDialog(event, 'Add application');
+
+  if (appPath === undefined) {
+    return undefined;
+  }
+
+  return launcherCommandService.addPinnedApp(await createPinnedAppInput(appPath));
+});
+
+ipcMain.handle(LIST_APP_CANDIDATES_CHANNEL, async (_event, query: unknown) =>
+  Promise.all(
+    (await appCandidateService.listCandidates(typeof query === 'string' ? query : '')).map(
+      resolveAppCandidateIcon,
+    ),
+  ),
+);
+
+ipcMain.handle(ADD_PINNED_APP_CANDIDATE_CHANNEL, (_event, input: unknown) =>
+  launcherCommandService.addPinnedApp(
+    appCandidateService.createPinnedAppInput(parseAppCandidateAddRequest(input)),
+  ),
+);
+
+ipcMain.handle(UPDATE_PINNED_APP_CHANNEL, async (event, id: unknown) => {
+  const appPath = await showPinnedAppDialog(event, 'Modify application');
+
+  if (appPath === undefined) {
+    return undefined;
+  }
+
+  return launcherCommandService.updatePinnedApp(
+    parseFavoriteId(id),
+    await createPinnedAppInput(appPath),
+  );
+});
 
 ipcMain.handle(UPDATE_FAVORITE_CHANNEL, (_event, id: unknown, input: unknown) =>
   launcherCommandService.updateFavorite(parseFavoriteId(id), parseFavoriteUpdateRequest(input)),
@@ -283,11 +556,32 @@ ipcMain.handle(CLEAR_CLIPBOARD_HISTORY_CHANNEL, () =>
 ipcMain.handle(GET_SETTINGS_CHANNEL, () => settingsStore.getSettings());
 
 ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
-  return updateSettingsWithHotkeyRegistration({
-    settingsPatch: parseSettingsPatch(input),
+  altSpaceHotkeyCapture.stop();
+  const settingsPatch = parseSettingsPatch(input);
+  const updatedSettings = updateSettingsWithHotkeyRegistration({
+    settingsPatch,
     settingsStore,
     tryRegisterHotkey: desktopApplication.tryRegisterGlobalHotkey,
   });
+
+  if (settingsPatch.launchAtLogin !== undefined) {
+    launchAtLoginController.sync(updatedSettings.launchAtLogin);
+  }
+
+  if (settingsPatch.language !== undefined) {
+    trayController?.updateLanguage(updatedSettings.language);
+  }
+
+  return updatedSettings;
+});
+
+ipcMain.handle(START_HOTKEY_INPUT_CAPTURE_CHANNEL, (event) =>
+  altSpaceHotkeyCapture.start(event.sender),
+);
+
+ipcMain.handle(STOP_HOTKEY_INPUT_CAPTURE_CHANNEL, () => {
+  altSpaceHotkeyCapture.stop();
+  return true;
 });
 
 ipcMain.handle(LIST_PLUGINS_CHANNEL, () => desktopPluginService?.listPlugins() ?? []);
@@ -362,25 +656,23 @@ ipcMain.handle(RELEASE_PLUGIN_HOST_ENTRY_CHANNEL, (_event, launchToken: unknown)
   return pluginWebviewPolicyStore.release(launchToken);
 });
 
-app
-  .whenReady()
-  .then(createApplicationWindow)
-  .catch((error: unknown) => {
-    console.error('Failed to start CommandCabin.', error);
-    app.quit();
-  });
+if (hasSingleInstanceLock) {
+  startupPromise = startApplication();
+}
 
 app.on('activate', () => {
   void desktopApplication.handleActivate();
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (desktopApplication.isQuitRequested() && process.platform !== 'darwin') {
     app.quit();
   }
 });
 
 app.on('before-quit', (event) => {
+  desktopApplication.requestQuit();
+
   if (isShutdownResuming || !clipboardHistoryRuntime) {
     return;
   }
@@ -397,6 +689,8 @@ app.on('before-quit', (event) => {
 });
 
 app.on('will-quit', () => {
+  trayController?.dispose();
+  trayController = undefined;
   desktopApplication.dispose();
   globalShortcut.unregisterAll();
   if (clipboardHistoryRuntime || commandCabinDatabase) {

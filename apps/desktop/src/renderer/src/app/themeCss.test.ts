@@ -1,0 +1,46 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+import { describe, expect, it } from 'vitest';
+
+const cssPath = join(dirname(fileURLToPath(import.meta.url)), 'App.css');
+
+describe('app theme CSS', () => {
+  it('drives launcher and settings surfaces from theme variables', () => {
+    const css = readFileSync(cssPath, 'utf8');
+
+    expect(css).toMatch(/:root\[data-theme='light'\]\s*{[^}]*--app-bg:/s);
+    expect(css).toMatch(/\.launcher-shell\s*{[^}]*background:\s*var\(--app-bg\)/s);
+    expect(css).toMatch(/\.search-field-wrap\s*{[^}]*background:\s*var\(--app-control-bg\)/s);
+    expect(css).toMatch(/\.settings-shell\s*{[^}]*background:\s*var\(--app-bg\)/s);
+  });
+
+  it('uses a single uncluttered launcher surface instead of a nested panel frame', () => {
+    const css = readFileSync(cssPath, 'utf8');
+
+    expect(css).toMatch(/\.launcher-frame\s*{[^}]*border:\s*0/s);
+    expect(css).toMatch(/\.launcher-frame\s*{[^}]*background:\s*transparent/s);
+    expect(css).toMatch(/\.launcher-frame\s*{[^}]*box-shadow:\s*none/s);
+  });
+
+  it('uses a single uncluttered settings surface while keeping the scroll container', () => {
+    const css = readFileSync(cssPath, 'utf8');
+
+    expect(css).toMatch(/\.settings-frame\s*{[^}]*border:\s*0/s);
+    expect(css).toMatch(/\.settings-frame\s*{[^}]*background:\s*transparent/s);
+    expect(css).toMatch(/\.settings-frame\s*{[^}]*box-shadow:\s*none/s);
+    expect(css).toMatch(/\.settings-grid\s*{[^}]*overflow:\s*auto/s);
+  });
+
+  it('keeps the fixed-size settings page scrollable inside the frame', () => {
+    const css = readFileSync(cssPath, 'utf8');
+
+    expect(css).toMatch(/\.settings-shell\s*{[^}]*height:\s*100vh/s);
+    expect(css).toMatch(/\.settings-shell\s*{[^}]*overflow:\s*hidden/s);
+    expect(css).toMatch(/\.settings-frame\s*{[^}]*display:\s*flex/s);
+    expect(css).toMatch(/\.settings-frame\s*{[^}]*height:\s*100%/s);
+    expect(css).toMatch(/\.settings-grid\s*{[^}]*flex:\s*1\s+1\s+auto/s);
+    expect(css).toMatch(/\.settings-grid\s*{[^}]*overflow:\s*auto/s);
+  });
+});

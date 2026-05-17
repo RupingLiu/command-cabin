@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { join } from 'node:path';
 
 import {
+  ADD_PINNED_APP_CANDIDATE_CHANNEL,
+  ADD_PINNED_APP_CHANNEL,
   ADD_FAVORITE_CHANNEL,
   CLEAR_CLIPBOARD_HISTORY_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
@@ -9,19 +11,30 @@ import {
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
+  HOTKEY_INPUT_CAPTURE_CHANNEL,
   INSTALL_PLUGIN_CHANNEL,
+  LIST_APP_CANDIDATES_CHANNEL,
   LIST_FAVORITES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
+  OPEN_SETTINGS_CHANNEL,
   REMOVE_FAVORITE_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
-  UPDATE_SETTINGS_CHANNEL,
+  START_HOTKEY_INPUT_CAPTURE_CHANNEL,
+  STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
   UPDATE_FAVORITE_CHANNEL,
+  UPDATE_PINNED_APP_CHANNEL,
+  UPDATE_SETTINGS_CHANNEL,
 } from '../shared/ipcChannels.js';
+import {
+  parseAppCandidateAddRequest,
+  parseAppCandidates,
+  type AppCandidate,
+} from '../shared/appCandidatesApi.js';
 import {
   parseFavoriteCreateRequest,
   parseFavoriteId,
@@ -33,6 +46,10 @@ import {
   type FavoriteListRecord,
   type FavoriteUpdateRequest,
 } from '../shared/favoritesApi.js';
+import {
+  parseHotkeyInputCapturePayload,
+  type HotkeyInputCapturePayload,
+} from '../shared/hotkeyInputApi.js';
 import {
   parseLauncherCommandExecutionResult,
   parseLauncherCommandSearchResults,
@@ -99,6 +116,8 @@ export interface DesktopAppInfo {
 
 export interface DesktopApi {
   addFavorite: (input: FavoriteCreateRequest) => Promise<FavoriteListRecord>;
+  addPinnedApp: () => Promise<FavoriteListRecord | undefined>;
+  addPinnedAppCandidate: (candidate: AppCandidate) => Promise<FavoriteListRecord>;
   clearClipboardHistory: () => Promise<number>;
   executeCommand: (commandId: string) => Promise<LauncherCommandExecutionResult>;
   getAppInfo: () => DesktopAppInfo;
@@ -106,15 +125,21 @@ export interface DesktopApi {
   getSettings: () => Promise<SettingsReadResponse>;
   hideLauncher: () => Promise<void>;
   installPlugin: (pluginRoot: string) => Promise<PluginListRecord>;
+  listAppCandidates: (query?: string | undefined) => Promise<AppCandidate[]>;
   listFavorites: () => Promise<FavoriteListRecord[]>;
   listPlugins: () => Promise<PluginListRecord[]>;
   onFocusSearchInput: (listener: () => void) => () => void;
+  onHotkeyInputCapture: (listener: (payload: HotkeyInputCapturePayload) => void) => () => void;
+  onOpenSettings: (listener: () => void) => () => void;
   openDataDirectory: () => Promise<DataDirectoryResponse>;
   pluginHost: PluginHostPreloadApi;
   removeFavorite: (id: string) => Promise<boolean>;
   removePlugin: (id: string) => Promise<boolean>;
   searchCommands: (query: string) => Promise<LauncherCommandSearchResult[]>;
   setPluginEnabled: (id: string, enabled: boolean) => Promise<PluginListRecord | undefined>;
+  startHotkeyInputCapture: () => Promise<boolean>;
+  stopHotkeyInputCapture: () => Promise<boolean>;
+  updatePinnedApp: (id: string) => Promise<FavoriteListRecord | undefined>;
   updateFavorite: (
     id: string,
     input: FavoriteUpdateRequest,
@@ -192,6 +217,18 @@ const desktopApi = {
     parseFavoriteRecord(
       await ipcRenderer.invoke(ADD_FAVORITE_CHANNEL, parseFavoriteCreateRequest(input)),
     ),
+  addPinnedApp: async () => {
+    const favorite = await ipcRenderer.invoke(ADD_PINNED_APP_CHANNEL);
+
+    return favorite === undefined ? undefined : parseFavoriteRecord(favorite);
+  },
+  addPinnedAppCandidate: async (candidate) =>
+    parseFavoriteRecord(
+      await ipcRenderer.invoke(
+        ADD_PINNED_APP_CANDIDATE_CHANNEL,
+        parseAppCandidateAddRequest(candidate),
+      ),
+    ),
   clearClipboardHistory: async () =>
     parseNonNegativeInteger(
       await ipcRenderer.invoke(CLEAR_CLIPBOARD_HISTORY_CHANNEL),
@@ -220,6 +257,8 @@ const desktopApi = {
         parsePluginInstallRequest(pluginRoot).pluginRoot,
       ),
     ),
+  listAppCandidates: async (query = '') =>
+    parseAppCandidates(await ipcRenderer.invoke(LIST_APP_CANDIDATES_CHANNEL, query)),
   listFavorites: async () => parseFavoriteRecords(await ipcRenderer.invoke(LIST_FAVORITES_CHANNEL)),
   listPlugins: async () => parsePluginRecords(await ipcRenderer.invoke(LIST_PLUGINS_CHANNEL)),
   onFocusSearchInput: (listener) => {
@@ -231,6 +270,28 @@ const desktopApi = {
 
     return () => {
       ipcRenderer.removeListener(FOCUS_SEARCH_INPUT_CHANNEL, handleFocusSearchInput);
+    };
+  },
+  onHotkeyInputCapture: (listener) => {
+    const handleHotkeyInputCapture = (_event: unknown, payload: unknown) => {
+      listener(parseHotkeyInputCapturePayload(payload));
+    };
+
+    ipcRenderer.on(HOTKEY_INPUT_CAPTURE_CHANNEL, handleHotkeyInputCapture);
+
+    return () => {
+      ipcRenderer.removeListener(HOTKEY_INPUT_CAPTURE_CHANNEL, handleHotkeyInputCapture);
+    };
+  },
+  onOpenSettings: (listener) => {
+    const handleOpenSettings = () => {
+      listener();
+    };
+
+    ipcRenderer.on(OPEN_SETTINGS_CHANNEL, handleOpenSettings);
+
+    return () => {
+      ipcRenderer.removeListener(OPEN_SETTINGS_CHANNEL, handleOpenSettings);
     };
   },
   openDataDirectory: async () =>
@@ -275,6 +336,24 @@ const desktopApi = {
         parseBoolean(enabled, 'Plugin enabled state'),
       ),
     ),
+  startHotkeyInputCapture: async () =>
+    parseBoolean(
+      await ipcRenderer.invoke(START_HOTKEY_INPUT_CAPTURE_CHANNEL),
+      'Hotkey input capture start response',
+    ),
+  stopHotkeyInputCapture: async () =>
+    parseBoolean(
+      await ipcRenderer.invoke(STOP_HOTKEY_INPUT_CAPTURE_CHANNEL),
+      'Hotkey input capture stop response',
+    ),
+  updatePinnedApp: async (id) => {
+    const updatedFavorite = await ipcRenderer.invoke(
+      UPDATE_PINNED_APP_CHANNEL,
+      parseFavoriteId(id),
+    );
+
+    return updatedFavorite === undefined ? undefined : parseFavoriteRecord(updatedFavorite);
+  },
   updateFavorite: async (id, input) => {
     const updatedFavorite = await ipcRenderer.invoke(
       UPDATE_FAVORITE_CHANNEL,

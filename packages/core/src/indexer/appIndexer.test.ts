@@ -103,6 +103,57 @@ describe('app indexer', () => {
     });
   });
 
+  it('de-duplicates generated app commands that point to the same executable', () => {
+    const commands = createAppCommandsFromShortcuts([
+      {
+        name: '腾讯会议',
+        shortcutPath: 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\腾讯会议.lnk',
+        targetPath: 'C:\\Program Files\\Tencent\\WeMeet\\wemeetapp.exe',
+      },
+      {
+        name: '腾讯会议',
+        shortcutPath:
+          'C:\\Users\\Ada\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\腾讯会议.lnk',
+        targetPath: 'C:\\Program Files\\Tencent\\WeMeet\\wemeetapp.exe',
+      },
+      {
+        name: '卸载 腾讯会议',
+        shortcutPath:
+          'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\卸载 腾讯会议.lnk',
+        targetPath: 'C:\\Program Files\\Tencent\\WeMeet\\3.43.3.406\\WeMeetUninstall.exe',
+      },
+    ]);
+
+    expect(commands).toHaveLength(2);
+    expect(commands.map((command) => command.title)).toEqual(['腾讯会议', '卸载 腾讯会议']);
+  });
+
+  it('creates launchable app commands for unresolved desktop shortcuts', () => {
+    const commands = createAppCommandsFromShortcuts([
+      {
+        name: 'Codex',
+        opensApplication: true,
+        shortcutPath: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+      },
+    ]);
+
+    expect(commands).toEqual([
+      {
+        id: 'app.901f6fa8c20c',
+        source: 'app',
+        title: 'Codex',
+        subtitle: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+        keywords: ['Codex', 'codex', 'Desktop', 'C:\\Users\\Ada\\Desktop\\Codex.lnk'],
+        action: {
+          type: 'open-app',
+          payload: {
+            shortcutPath: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+          },
+        },
+      },
+    ]);
+  });
+
   it('manually refreshes by scanning, generating commands, caching, and updating memory', async () => {
     const scanner: AppIndexerScanner = {
       scan: async () => ({
@@ -173,6 +224,63 @@ describe('app indexer', () => {
     const snapshot = await indexer.load();
 
     expect(snapshot?.commands).toMatchObject([{ id: 'app.cached' }]);
+    expect(scanner.scan).not.toHaveBeenCalled();
+    expect(indexer.getCommands()).toEqual(snapshot?.commands);
+  });
+
+  it('de-duplicates matching app commands loaded from cache', async () => {
+    const scanner: AppIndexerScanner = {
+      scan: vi.fn(async () => ({ shortcuts: [], failures: [] })),
+    };
+    const indexer = createAppIndexer({
+      scanner,
+      cache: {
+        read: async () => ({
+          version: 1,
+          scannedAt: '2026-05-16T01:00:00.000Z',
+          commands: [
+            {
+              id: 'app.cached-one',
+              source: 'app',
+              title: '腾讯会议',
+              keywords: ['腾讯会议'],
+              action: {
+                type: 'open-app',
+                payload: {
+                  executablePath: 'C:\\Program Files\\Tencent\\WeMeet\\wemeetapp.exe',
+                  shortcutPath:
+                    'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\腾讯会议.lnk',
+                },
+              },
+            },
+            {
+              id: 'app.cached-two',
+              source: 'app',
+              title: '腾讯会议',
+              keywords: ['腾讯会议'],
+              action: {
+                type: 'open-app',
+                payload: {
+                  executablePath: 'C:\\Program Files\\Tencent\\WeMeet\\wemeetapp.exe',
+                  shortcutPath:
+                    'C:\\Users\\Ada\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\腾讯会议.lnk',
+                },
+              },
+            },
+          ],
+        }),
+        write: vi.fn(),
+        isStale: () => false,
+      },
+    });
+
+    const snapshot = await indexer.load();
+
+    expect(snapshot?.commands).toHaveLength(1);
+    expect(snapshot?.commands[0]).toMatchObject({
+      id: 'app.cached-one',
+      title: '腾讯会议',
+    });
     expect(scanner.scan).not.toHaveBeenCalled();
     expect(indexer.getCommands()).toEqual(snapshot?.commands);
   });

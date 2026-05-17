@@ -11,6 +11,9 @@
       "path": "./packages/built-in-plugins/calculator"
     },
     {
+      "path": "./packages/built-in-plugins/quick-converter"
+    },
+    {
       "path": "./packages/built-in-plugins/clipboard-history"
     },
     {

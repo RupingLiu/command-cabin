@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { PluginListRecord } from '../../../shared/settingsApi.js';
+import { getUiStrings, type UiStrings } from '../i18n.js';
 
 export interface PluginSettingsApi {
   installPlugin: (pluginRoot: string) => Promise<PluginListRecord>;
@@ -19,6 +20,7 @@ export interface PluginSettingsState {
 export interface PluginSettingsProps {
   api?: PluginSettingsApi;
   state?: PluginSettingsState;
+  strings?: UiStrings['settings']['plugin'] | undefined;
 }
 
 function getDefaultPluginSettingsApi(): PluginSettingsApi | undefined {
@@ -29,11 +31,18 @@ function getDefaultPluginSettingsApi(): PluginSettingsApi | undefined {
   return window.desktopApi;
 }
 
-function formatPermissions(permissions: readonly string[]): string {
-  return permissions.length === 0 ? 'No permissions' : permissions.join(', ');
+function formatPermissions(
+  permissions: readonly string[],
+  strings: UiStrings['settings']['plugin'],
+): string {
+  return permissions.length === 0 ? strings.noPermissions : permissions.join(', ');
 }
 
-export function PluginSettings({ api, state }: PluginSettingsProps) {
+export function PluginSettings({
+  api,
+  state,
+  strings = getUiStrings(undefined).settings.plugin,
+}: PluginSettingsProps) {
   const pluginApi = useMemo(() => api ?? getDefaultPluginSettingsApi(), [api]);
   const [internalState, setInternalState] = useState<PluginSettingsState>({
     errorMessage: undefined,
@@ -65,7 +74,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
     } catch (error) {
       setInternalState((current) => ({
         ...current,
-        errorMessage: error instanceof Error ? error.message : 'Plugins could not be loaded.',
+        errorMessage: error instanceof Error ? error.message : strings.loadError,
         isLoading: false,
         plugins: [],
       }));
@@ -83,7 +92,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
     if (!pluginApi) {
       setInternalState((current) => ({
         ...current,
-        errorMessage: 'Plugin API unavailable.',
+        errorMessage: strings.unavailable,
       }));
       return;
     }
@@ -100,7 +109,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
     } catch (error) {
       setInternalState((current) => ({
         ...current,
-        errorMessage: error instanceof Error ? error.message : 'Plugin operation failed.',
+        errorMessage: error instanceof Error ? error.message : strings.operationError,
       }));
     } finally {
       setInternalState((current) => ({
@@ -111,9 +120,9 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
   }
 
   return (
-    <section className="settings-section plugin-settings" aria-label="Plugin management settings">
+    <section className="settings-section plugin-settings" aria-label={strings.ariaLabel}>
       <header className="settings-section__header">
-        <h2>Plugin Management</h2>
+        <h2>{strings.title}</h2>
         <span>{currentState.plugins.length}</span>
       </header>
       <form
@@ -125,7 +134,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
           if (trimmedPluginRoot.length === 0) {
             setInternalState((current) => ({
               ...current,
-              errorMessage: 'Plugin folder path is required.',
+              errorMessage: strings.pathRequired,
             }));
             return;
           }
@@ -135,7 +144,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
         }}
       >
         <input
-          aria-label="Local plugin folder path"
+          aria-label={strings.pathLabel}
           placeholder="C:\\CommandCabin\\plugins\\example"
           type="text"
           value={pluginRoot}
@@ -146,7 +155,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
           disabled={currentState.operationPluginId === 'install'}
           type="submit"
         >
-          Install local plugin
+          {strings.install}
         </button>
       </form>
       {currentState.errorMessage ? (
@@ -156,7 +165,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
       ) : null}
       <div className="plugin-settings__list" aria-busy={currentState.isLoading}>
         {currentState.plugins.length === 0 ? (
-          <p className="settings-empty">No local plugins installed</p>
+          <p className="settings-empty">{strings.empty}</p>
         ) : (
           currentState.plugins.map((plugin) => {
             const isBusy = currentState.operationPluginId === plugin.id;
@@ -166,9 +175,11 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
                 <div>
                   <strong>{plugin.name}</strong>
                   <span>{plugin.id}</span>
-                  <small>{formatPermissions(plugin.permissions)}</small>
+                  <small>{formatPermissions(plugin.permissions, strings)}</small>
                 </div>
-                <span className="settings-badge">{plugin.enabled ? 'Enabled' : 'Disabled'}</span>
+                <span className="settings-badge">
+                  {plugin.enabled ? strings.enabled : strings.disabled}
+                </span>
                 <button
                   aria-busy={isBusy}
                   disabled={isBusy}
@@ -179,7 +190,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
                     )
                   }
                 >
-                  {plugin.enabled ? 'Disable' : 'Enable'}
+                  {plugin.enabled ? strings.disable : strings.enable}
                 </button>
                 <button
                   aria-busy={isBusy}
@@ -189,7 +200,7 @@ export function PluginSettings({ api, state }: PluginSettingsProps) {
                     void runPluginOperation(plugin.id, () => pluginApi!.removePlugin(plugin.id))
                   }
                 >
-                  Uninstall
+                  {strings.uninstall}
                 </button>
               </article>
             );

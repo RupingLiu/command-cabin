@@ -89,6 +89,10 @@ function createKeywords(shortcut: StartMenuShortcut): string[] {
   addKeyword(keywords, shortcut.targetPath);
   addKeyword(keywords, shortcut.appUserModelId);
 
+  if (shortcut.targetPath === undefined && shortcut.appUserModelId === undefined) {
+    addKeyword(keywords, shortcut.shortcutPath);
+  }
+
   return keywords;
 }
 
@@ -131,7 +135,9 @@ function createOpenPathPayload(shortcut: StartMenuShortcut): CommandPayload {
 
 function createCommandFromShortcut(shortcut: StartMenuShortcut): Command {
   const opensApplication =
-    shortcut.appUserModelId !== undefined || isExecutableTarget(shortcut.targetPath);
+    shortcut.opensApplication === true ||
+    shortcut.appUserModelId !== undefined ||
+    isExecutableTarget(shortcut.targetPath);
   const subtitle = shortcut.targetPath ?? shortcut.appUserModelId ?? shortcut.shortcutPath;
   const command: Command = {
     id: createAppCommandId(shortcut),
@@ -161,9 +167,76 @@ function cloneSnapshotCommands(commands: readonly Command[]): Command[] {
   return commands.map(cloneCommand);
 }
 
+function getStringPayloadValue(payload: CommandPayload, key: string): string | undefined {
+  const value = payload[key];
+
+  return typeof value === 'string' ? value : undefined;
+}
+
+function normalizeIdentityText(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+function normalizeIdentityPath(value: string | undefined): string {
+  const trimmedValue = value?.trim();
+
+  return trimmedValue ? normalizeCommandIdInput(trimmedValue) : '';
+}
+
+function createAppCommandIdentityKey(command: Command): string {
+  if (command.source !== 'app' || command.action.type !== 'open-app') {
+    return `id:${command.id}`;
+  }
+
+  const title = normalizeIdentityText(command.title);
+  const payload = command.action.payload;
+  const appUserModelId = normalizeIdentityText(getStringPayloadValue(payload, 'appUserModelId'));
+  const executablePath = normalizeIdentityPath(getStringPayloadValue(payload, 'executablePath'));
+  const commandArguments = normalizeIdentityText(getStringPayloadValue(payload, 'arguments'));
+  const workingDirectory = normalizeIdentityPath(
+    getStringPayloadValue(payload, 'workingDirectory'),
+  );
+
+  if (appUserModelId.length > 0) {
+    return ['app-user-model-id', title, appUserModelId, commandArguments, workingDirectory].join(
+      '|',
+    );
+  }
+
+  if (executablePath.length > 0) {
+    return ['executable', title, executablePath, commandArguments, workingDirectory].join('|');
+  }
+
+  return `id:${command.id}`;
+}
+
+function dedupeAppCommands(commands: readonly Command[]): Command[] {
+  const seenIds = new Set<string>();
+  const seenIdentityKeys = new Set<string>();
+  const dedupedCommands: Command[] = [];
+
+  for (const command of commands) {
+    if (seenIds.has(command.id)) {
+      continue;
+    }
+
+    const identityKey = createAppCommandIdentityKey(command);
+
+    if (seenIdentityKeys.has(identityKey)) {
+      continue;
+    }
+
+    seenIds.add(command.id);
+    seenIdentityKeys.add(identityKey);
+    dedupedCommands.push(cloneCommand(command));
+  }
+
+  return dedupedCommands;
+}
+
 function createSnapshotFromCache(snapshot: AppIndexCacheSnapshot): AppIndexSnapshot {
   return {
-    commands: cloneSnapshotCommands(snapshot.commands),
+    commands: dedupeAppCommands(snapshot.commands),
     failures: [],
     scannedAt: snapshot.scannedAt,
     source: 'cache',
@@ -171,17 +244,13 @@ function createSnapshotFromCache(snapshot: AppIndexCacheSnapshot): AppIndexSnaps
 }
 
 export function createAppCommandsFromShortcuts(shortcuts: readonly StartMenuShortcut[]): Command[] {
-  const commandsById = new Map<string, Command>();
+  const commands: Command[] = [];
 
   for (const shortcut of shortcuts) {
-    const command = createCommandFromShortcut(shortcut);
-
-    if (!commandsById.has(command.id)) {
-      commandsById.set(command.id, command);
-    }
+    commands.push(createCommandFromShortcut(shortcut));
   }
 
-  return Array.from(commandsById.values(), cloneCommand);
+  return dedupeAppCommands(commands);
 }
 
 function isCacheCorruptionError(error: unknown): boolean {

@@ -5,9 +5,11 @@ interface SearchInputProps {
   inputRef: Ref<HTMLInputElement>;
   isBusy: boolean;
   isExpanded: boolean;
+  label: string;
   listboxId: string;
   onKeyDown: KeyboardEventHandler<HTMLInputElement>;
   onQueryChange: (query: string) => void;
+  placeholder: string;
   query: string;
   searchInputId: string;
 }
@@ -17,15 +19,17 @@ export function SearchInput({
   inputRef,
   isBusy,
   isExpanded,
+  label,
   listboxId,
   onKeyDown,
   onQueryChange,
+  placeholder,
   query,
   searchInputId,
 }: SearchInputProps) {
   return (
     <label className="search-box">
-      <span>Search</span>
+      <span>{label}</span>
       <div className="search-field-wrap" data-busy={isBusy}>
         <input
           aria-activedescendant={activeDescendantId}
@@ -40,7 +44,7 @@ export function SearchInput({
             onQueryChange(event.currentTarget.value);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Type a command"
+          placeholder={placeholder}
           ref={inputRef}
           role="combobox"
           spellCheck={false}

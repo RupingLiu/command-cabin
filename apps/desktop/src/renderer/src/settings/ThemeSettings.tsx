@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 
 import type { CommandCabinSettings, CommandCabinTheme } from '@command-cabin/core';
+import { getUiStrings, type UiStrings } from '../i18n.js';
 
 export interface ThemeRoot {
   removeAttribute: (name: string) => unknown;
@@ -11,6 +12,7 @@ export interface ThemeSettingsProps {
   errorMessage?: string | undefined;
   isSaving?: boolean;
   onThemeChange?: (theme: CommandCabinTheme) => Promise<CommandCabinSettings | void> | void;
+  strings?: UiStrings['settings']['theme'] | undefined;
   value?: CommandCabinTheme | undefined;
 }
 
@@ -56,6 +58,7 @@ export function ThemeSettings({
   errorMessage,
   isSaving = false,
   onThemeChange,
+  strings = getUiStrings(undefined).settings.theme,
   value = 'system',
 }: ThemeSettingsProps) {
   useEffect(() => {
@@ -65,10 +68,10 @@ export function ThemeSettings({
   }, [value]);
 
   return (
-    <section className="settings-section theme-settings" aria-label="Theme settings">
+    <section className="settings-section theme-settings" aria-label={strings.ariaLabel}>
       <header className="settings-section__header">
-        <h2>Theme</h2>
-        <span>{value}</span>
+        <h2>{strings.title}</h2>
+        <span>{strings.options[value]}</span>
       </header>
       {errorMessage ? (
         <p className="settings-section__error" role="alert">
@@ -76,7 +79,7 @@ export function ThemeSettings({
         </p>
       ) : null}
       <fieldset className="settings-segmented-control" disabled={isSaving}>
-        <legend>Theme mode</legend>
+        <legend>{strings.mode}</legend>
         {themeOptions.map((theme) => (
           <label key={theme} data-selected={value === theme}>
             <input
@@ -86,7 +89,7 @@ export function ThemeSettings({
               value={theme}
               onChange={() => void onThemeChange?.(theme)}
             />
-            <span>{theme}</span>
+            <span>{strings.options[theme]}</span>
           </label>
         ))}
       </fieldset>

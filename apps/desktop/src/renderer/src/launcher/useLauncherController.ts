@@ -77,6 +77,10 @@ type LauncherAction =
   | {
       errorMessage: string;
       type: 'execution-failed';
+    }
+  | {
+      preserveSearchQuery: boolean;
+      type: 'launcher-focused';
     };
 
 const fallbackResults: LauncherResultItem[] = [
@@ -131,6 +135,17 @@ function createFallbackFavoriteRecord(input: FavoriteCreateRequest): FavoriteLis
 
 const fallbackDesktopApi: DesktopApi = {
   addFavorite: async (input) => createFallbackFavoriteRecord(input),
+  addPinnedApp: async () => undefined,
+  addPinnedAppCandidate: async (candidate) =>
+    createFallbackFavoriteRecord({
+      kind: 'file',
+      keywords: [candidate.title],
+      metadata: {
+        launcherPinnedApp: true,
+      },
+      path: candidate.shortcutPath,
+      title: candidate.title,
+    }),
   clearClipboardHistory: async () => 0,
   executeCommand: async (commandId) => ({
     status: 'success',
@@ -156,6 +171,7 @@ const fallbackDesktopApi: DesktopApi = {
     hotkey: 'Alt+Space',
     language: 'zh-CN',
     launchAtLogin: false,
+    preserveSearchQuery: false,
     search: {
       appBoost: 1.2,
       fileBoost: 0.9,
@@ -182,8 +198,11 @@ const fallbackDesktopApi: DesktopApi = {
     };
   },
   listFavorites: async () => [],
+  listAppCandidates: async () => [],
   listPlugins: async () => [],
   onFocusSearchInput: () => () => undefined,
+  onHotkeyInputCapture: () => () => undefined,
+  onOpenSettings: () => () => undefined,
   openDataDirectory: async () => ({
     path: '',
   }),
@@ -229,12 +248,16 @@ const fallbackDesktopApi: DesktopApi = {
     });
   },
   setPluginEnabled: async () => undefined,
+  startHotkeyInputCapture: async () => false,
+  stopHotkeyInputCapture: async () => true,
+  updatePinnedApp: async () => undefined,
   updateFavorite: async () => undefined,
   updateSettings: async (patch) => ({
     hideOnBlur: patch.hideOnBlur ?? true,
     hotkey: patch.hotkey ?? 'Alt+Space',
     language: patch.language ?? 'zh-CN',
     launchAtLogin: patch.launchAtLogin ?? false,
+    preserveSearchQuery: patch.preserveSearchQuery ?? false,
     search: {
       appBoost: patch.search?.appBoost ?? 1.2,
       fileBoost: patch.search?.fileBoost ?? 0.9,
@@ -329,6 +352,10 @@ export function getLauncherOptionId(commandId: string): string {
   return `launcher-option-${commandId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
+export function createLauncherSearchRequestKey(state: LauncherState): string {
+  return `${state.requestId}\u0000${state.query}`;
+}
+
 export function getExecutableSelectedResult(state: LauncherState): LauncherResultItem | undefined {
   if (state.status !== 'ready') {
     return undefined;
@@ -341,12 +368,28 @@ export function getExecutableSelectedResult(state: LauncherState): LauncherResul
   return state.results[state.selectedIndex];
 }
 
-export function getLauncherKeyIntent(key: string): LauncherKeyIntent | undefined {
+export function isHorizontalLauncherNavigation(state: LauncherState): boolean {
+  return (
+    state.status === 'ready' &&
+    state.query.trim().length === 0 &&
+    state.results.length > 0 &&
+    state.results.every((result) => result.source === 'app')
+  );
+}
+
+export function getLauncherKeyIntent(
+  key: string,
+  useHorizontalNavigation = false,
+): LauncherKeyIntent | undefined {
   switch (key) {
     case 'ArrowDown':
       return 'select-next';
     case 'ArrowUp':
       return 'select-previous';
+    case 'ArrowRight':
+      return useHorizontalNavigation ? 'select-next' : undefined;
+    case 'ArrowLeft':
+      return useHorizontalNavigation ? 'select-previous' : undefined;
     case 'Enter':
       return 'execute';
     case 'Escape':
@@ -426,6 +469,20 @@ export function launcherReducer(state: LauncherState, action: LauncherAction): L
         ...state,
         errorMessage: undefined,
         query: action.query,
+        requestId: state.requestId + 1,
+        results: [],
+        selectedIndex: -1,
+        status: 'loading',
+      };
+    case 'launcher-focused':
+      if (action.preserveSearchQuery || state.query.length === 0) {
+        return state;
+      }
+
+      return {
+        ...state,
+        errorMessage: undefined,
+        query: '',
         requestId: state.requestId + 1,
         results: [],
         selectedIndex: -1,
@@ -521,13 +578,21 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
   const desktopApi = useMemo(getDesktopApi, []);
   const [state, dispatch] = useReducer(launcherReducer, initialLauncherState);
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastStartedSearchKeyRef = useRef<string | undefined>(undefined);
   const nextRequestIdRef = useRef(0);
   const executionInFlightRef = useRef(false);
+  const isMountedRef = useRef(false);
+  const preserveSearchQueryRef = useRef(false);
 
   const selectedResult = state.selectedIndex >= 0 ? state.results[state.selectedIndex] : undefined;
   const executableSelectedResult = getExecutableSelectedResult(state);
+  const searchRequestKey = createLauncherSearchRequestKey(state);
 
   const focusSearchInput = useCallback(() => {
+    dispatch({
+      preserveSearchQuery: preserveSearchQueryRef.current,
+      type: 'launcher-focused',
+    });
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
@@ -608,9 +673,71 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     }
   }, [desktopApi, executableSelectedResult, onOpenPluginPage, onOpenSettings]);
 
+  const refreshCurrentQuery = useCallback(() => {
+    dispatch({
+      query: state.query,
+      type: 'query-changed',
+    });
+    focusSearchInput();
+  }, [focusSearchInput, state.query]);
+
+  const addPinnedApp = useCallback(async () => {
+    try {
+      const favorite = await desktopApi.addPinnedApp();
+
+      if (favorite === undefined) {
+        focusSearchInput();
+        return;
+      }
+
+      refreshCurrentQuery();
+    } catch (error) {
+      dispatch({
+        errorMessage: formatUnknownError(error, 'Pinned app could not be added.'),
+        type: 'execution-failed',
+      });
+    }
+  }, [desktopApi, focusSearchInput, refreshCurrentQuery]);
+
+  const editPinnedApp = useCallback(
+    async (favoriteId: string) => {
+      try {
+        const favorite = await desktopApi.updatePinnedApp(favoriteId);
+
+        if (favorite === undefined) {
+          focusSearchInput();
+          return;
+        }
+
+        refreshCurrentQuery();
+      } catch (error) {
+        dispatch({
+          errorMessage: formatUnknownError(error, 'Pinned app could not be updated.'),
+          type: 'execution-failed',
+        });
+      }
+    },
+    [desktopApi, focusSearchInput, refreshCurrentQuery],
+  );
+
+  const removePinnedApp = useCallback(
+    async (favoriteId: string) => {
+      try {
+        await desktopApi.removeFavorite(favoriteId);
+        refreshCurrentQuery();
+      } catch (error) {
+        dispatch({
+          errorMessage: formatUnknownError(error, 'Pinned app could not be removed.'),
+          type: 'execution-failed',
+        });
+      }
+    },
+    [desktopApi, refreshCurrentQuery],
+  );
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
-      const intent = getLauncherKeyIntent(event.key);
+      const intent = getLauncherKeyIntent(event.key, isHorizontalLauncherNavigation(state));
 
       if (!intent) {
         return;
@@ -641,8 +768,37 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
 
       void hideLauncher();
     },
-    [executeSelectedCommand, hideLauncher],
+    [executeSelectedCommand, hideLauncher, state],
   );
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    desktopApi
+      .getSettings()
+      .then((settings) => {
+        if (isCurrent) {
+          preserveSearchQueryRef.current = settings.preserveSearchQuery;
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          preserveSearchQueryRef.current = false;
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [desktopApi]);
 
   useEffect(() => {
     focusSearchInput();
@@ -650,11 +806,20 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
   }, [desktopApi, focusSearchInput]);
 
   useEffect(() => {
-    let isCurrent = true;
     const requestId =
       state.status === 'loading' && state.requestId > 0
         ? state.requestId
         : nextRequestIdRef.current + 1;
+    const nextSearchKey = createLauncherSearchRequestKey({
+      ...state,
+      requestId,
+    });
+
+    if (lastStartedSearchKeyRef.current === nextSearchKey) {
+      return;
+    }
+
+    lastStartedSearchKeyRef.current = nextSearchKey;
     nextRequestIdRef.current = requestId;
 
     dispatch({
@@ -665,7 +830,7 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     desktopApi
       .searchCommands(state.query)
       .then((results) => {
-        if (!isCurrent) {
+        if (!isMountedRef.current) {
           return;
         }
 
@@ -676,7 +841,7 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
         });
       })
       .catch((error: unknown) => {
-        if (!isCurrent) {
+        if (!isMountedRef.current) {
           return;
         }
 
@@ -686,25 +851,25 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
           type: 'search-failed',
         });
       });
-
-    return () => {
-      isCurrent = false;
-    };
-  }, [desktopApi, state.query]);
+  }, [desktopApi, searchRequestKey, state.query]);
 
   return {
     activeDescendantId: selectedResult ? getLauncherOptionId(selectedResult.id) : undefined,
+    addPinnedApp,
     appInfo: desktopApi.getAppInfo(),
+    editPinnedApp,
     executeSelectedCommand,
     handleKeyDown,
     inputRef,
     isExecutionDisabled: state.status !== 'ready',
     isExpanded: state.status !== 'idle',
+    refreshCurrentQuery,
     resultListboxId: LAUNCHER_RESULT_LISTBOX_ID,
     searchInputId: LAUNCHER_SEARCH_INPUT_ID,
     selectedResult,
     selectResult,
     setQuery,
+    removePinnedApp,
     state,
   };
 }

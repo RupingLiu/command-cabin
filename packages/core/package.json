@@ -23,10 +23,6 @@
   },
   "dependencies": {
     "@command-cabin/plugin-api": "workspace:*",
-    "better-sqlite3": "^12.10.0",
     "fuse.js": "^7.3.0"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13"
   }
 }

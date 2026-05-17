@@ -1,5 +1,5 @@
 export type CommandCabinTheme = 'system' | 'light' | 'dark';
-export type CommandCabinLanguage = 'zh-CN' | 'en-US';
+export type CommandCabinLanguage = 'zh-CN' | 'zh-TW' | 'en-US';
 export type DeepReadonly<T> = T extends object
   ? {
       readonly [Key in keyof T]: DeepReadonly<T[Key]>;
@@ -20,6 +20,7 @@ export interface CommandCabinSettings {
   theme: CommandCabinTheme;
   language: CommandCabinLanguage;
   launchAtLogin: boolean;
+  preserveSearchQuery: boolean;
   search: CommandCabinSearchSettings;
 }
 
@@ -51,6 +52,7 @@ export const DEFAULT_COMMAND_CABIN_SETTINGS: DeepReadonly<CommandCabinSettings> 
   theme: 'system',
   language: 'zh-CN',
   launchAtLogin: false,
+  preserveSearchQuery: false,
   search: {
     maxResults: 20,
     historyBoost: 1.4,

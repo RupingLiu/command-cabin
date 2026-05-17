@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   getExecutableSelectedResult,
   getLauncherKeyIntent,
+  createLauncherSearchRequestKey,
   getPluginPageLaunchRequest,
   getSystemExecutionAction,
+  isHorizontalLauncherNavigation,
   openPluginPageFromExecutionResult,
   launcherReducer,
   type LauncherResultItem,
@@ -29,7 +31,61 @@ function createResult(id: string): LauncherResultItem {
   };
 }
 
+function createAppResult(id: string): LauncherResultItem {
+  return {
+    id,
+    source: 'app',
+    title: `App ${id}`,
+  };
+}
+
 describe('launcher controller state', () => {
+  it('treats a request id change as a new search even when the query is unchanged', () => {
+    const firstSearch = createLauncherSearchRequestKey({
+      ...baseState,
+      query: '',
+      requestId: 1,
+    });
+    const refreshedSearch = createLauncherSearchRequestKey({
+      ...baseState,
+      query: '',
+      requestId: 2,
+    });
+
+    expect(refreshedSearch).not.toBe(firstSearch);
+  });
+
+  it('clears or preserves the query when the launcher receives focus', () => {
+    const ready: LauncherState = {
+      ...baseState,
+      query: 'wps',
+      requestId: 1,
+      results: [createResult('wps')],
+      selectedIndex: 0,
+      status: 'ready',
+    };
+
+    const cleared = launcherReducer(ready, {
+      preserveSearchQuery: false,
+      type: 'launcher-focused',
+    } as never);
+
+    expect(cleared).toMatchObject({
+      query: '',
+      requestId: 2,
+      results: [],
+      selectedIndex: -1,
+      status: 'loading',
+    });
+
+    const preserved = launcherReducer(ready, {
+      preserveSearchQuery: true,
+      type: 'launcher-focused',
+    } as never);
+
+    expect(preserved).toBe(ready);
+  });
+
   it('clears stale results and selection while a new search is loading', () => {
     const ready: LauncherState = {
       ...baseState,
@@ -199,6 +255,35 @@ describe('launcher keyboard intent', () => {
 
   it('ignores unrelated keys', () => {
     expect(getLauncherKeyIntent('Tab')).toBeUndefined();
+  });
+
+  it('uses left and right arrows only for blank-query app grids', () => {
+    expect(getLauncherKeyIntent('ArrowRight')).toBeUndefined();
+    expect(getLauncherKeyIntent('ArrowLeft')).toBeUndefined();
+    expect(getLauncherKeyIntent('ArrowRight', true)).toBe('select-next');
+    expect(getLauncherKeyIntent('ArrowLeft', true)).toBe('select-previous');
+  });
+
+  it('identifies blank-query app grids as horizontal keyboard navigation', () => {
+    const appGridState: LauncherState = {
+      ...baseState,
+      query: '',
+      results: [createAppResult('wps'), createAppResult('wechat')],
+      selectedIndex: 0,
+      status: 'ready',
+    };
+    const searchedAppState: LauncherState = {
+      ...appGridState,
+      query: 'wps',
+    };
+    const systemState: LauncherState = {
+      ...appGridState,
+      results: [createResult('settings')],
+    };
+
+    expect(isHorizontalLauncherNavigation(appGridState)).toBe(true);
+    expect(isHorizontalLauncherNavigation(searchedAppState)).toBe(false);
+    expect(isHorizontalLauncherNavigation(systemState)).toBe(false);
   });
 });
 

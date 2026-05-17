@@ -1,8 +1,16 @@
+import { win32 as path } from 'node:path';
+
 import {
   CALCULATOR_PLUGIN_ID,
   CALCULATOR_RESULT_COMMAND_ID,
   createCalculatorResultCommand,
 } from '@command-cabin/built-in-plugin-calculator';
+import {
+  QUICK_CONVERTER_PLUGIN_ID,
+  QUICK_CONVERTER_RESULT_COMMAND_ID,
+  createQuickConverterCommand,
+  type ExchangeRateProvider,
+} from '@command-cabin/built-in-plugin-quick-converter';
 import {
   createClipboardHistoryCommands,
   type ClipboardHistoryRepository,
@@ -15,10 +23,14 @@ import {
   isTextToolCommandId,
 } from '@command-cabin/built-in-plugin-text-tools';
 import {
+  LAUNCHER_PINNED_APP_EXECUTABLE_PATH_METADATA_KEY,
+  LAUNCHER_PINNED_APP_ICON_PATH_METADATA_KEY,
+  LAUNCHER_PINNED_APP_METADATA_KEY,
   createFavoriteCommands,
   createCommandExecutor,
   createCommandRegistry,
   createSearchEngine,
+  isLauncherPinnedAppFavorite,
   type AddFavoriteInput,
   type Command,
   type CommandActionHandlers,
@@ -30,6 +42,7 @@ import {
   type HistoryRepository,
   type SearchOptions,
   type SearchRankingContext,
+  type StorageJsonObject,
   type UpdateFavoriteInput,
 } from '@command-cabin/core';
 
@@ -37,12 +50,24 @@ import type { LauncherCommandSearchResult } from '../../shared/launcherApi.js';
 
 export interface LauncherCommandService {
   addFavorite: (input: AddFavoriteInput) => FavoriteRecord;
+  addPinnedApp: (input: LauncherPinnedAppInput | string) => FavoriteRecord;
   clearClipboardHistory: () => number;
   executeCommand: (commandId: string) => Promise<CommandExecutionResult>;
   listFavorites: () => FavoriteRecord[];
   removeFavorite: (id: string) => boolean;
-  searchCommands: (query: string) => LauncherCommandSearchResult[];
+  searchCommands: (query: string) => Promise<LauncherCommandSearchResult[]>;
+  updatePinnedApp: (
+    id: string,
+    input: LauncherPinnedAppInput | string,
+  ) => FavoriteRecord | undefined;
   updateFavorite: (id: string, input: UpdateFavoriteInput) => FavoriteRecord | undefined;
+}
+
+export interface LauncherPinnedAppInput {
+  appPath: string;
+  executablePath?: string | undefined;
+  iconPath?: string | undefined;
+  title?: string | undefined;
 }
 
 export interface LauncherCommandServiceOptions {
@@ -51,6 +76,7 @@ export interface LauncherCommandServiceOptions {
   clipboardHistoryRepository?: ClipboardHistoryRepository;
   commandRegistry?: CommandRegistry;
   commands?: readonly Command[];
+  exchangeRateProvider?: ExchangeRateProvider;
   favoritesRepository?: FavoritesRepository;
   historyRepository?: HistoryRepository;
   openApp?: (payload: CommandPayload) => Promise<void> | void;
@@ -115,6 +141,35 @@ const DEMO_COMMANDS: readonly Command[] = [
   },
 ];
 
+function getStringPayloadValue(payload: CommandPayload, key: string): string | undefined {
+  const value = payload[key];
+
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function addIconCandidate(candidates: string[], candidate: string | undefined): void {
+  if (candidate === undefined || candidates.includes(candidate)) {
+    return;
+  }
+
+  candidates.push(candidate);
+}
+
+function getAppIconCandidates(command: Command): string[] {
+  if (!isAppCommand(command)) {
+    return [];
+  }
+
+  const candidates: string[] = [];
+
+  addIconCandidate(candidates, command.icon);
+  addIconCandidate(candidates, getStringPayloadValue(command.action.payload, 'executablePath'));
+  addIconCandidate(candidates, command.subtitle);
+  addIconCandidate(candidates, getStringPayloadValue(command.action.payload, 'shortcutPath'));
+
+  return candidates;
+}
+
 function mapSearchResult(result: { command: Command; score: number }): LauncherCommandSearchResult {
   const commandResult: LauncherCommandSearchResult = {
     id: result.command.id,
@@ -129,6 +184,18 @@ function mapSearchResult(result: { command: Command; score: number }): LauncherC
 
   if (result.command.icon !== undefined) {
     commandResult.icon = result.command.icon;
+  }
+
+  const favoriteId = getStringPayloadValue(result.command.action.payload, 'favoriteId');
+
+  if (favoriteId !== undefined) {
+    commandResult.favoriteId = favoriteId;
+  }
+
+  const iconCandidates = getAppIconCandidates(result.command);
+
+  if (iconCandidates.length > 0) {
+    commandResult.iconCandidates = iconCandidates;
   }
 
   return commandResult;
@@ -152,11 +219,100 @@ function isCommandList(
   return Array.isArray(value);
 }
 
+function isBlankQuery(query: string): boolean {
+  return query.trim().length === 0;
+}
+
+function isAppCommand(command: Command): boolean {
+  return command.source === 'app' && command.action.type === 'open-app';
+}
+
+const PINNED_APP_EXTENSIONS = new Set(['.exe', '.lnk']);
+
+interface NormalizedPinnedAppInput {
+  appPath: string;
+  executablePath: string;
+  iconPath: string;
+  title: string;
+}
+
+function normalizeAppPath(appPath: string): string {
+  return appPath.trim().replaceAll('/', '\\').toLowerCase();
+}
+
+function validatePinnedAppPath(appPath: string): string {
+  const trimmedPath = appPath.trim();
+
+  if (
+    trimmedPath.length === 0 ||
+    !PINNED_APP_EXTENSIONS.has(path.extname(trimmedPath).toLowerCase())
+  ) {
+    throw new Error('Pinned app path must be an .exe or .lnk file.');
+  }
+
+  return trimmedPath;
+}
+
+function createPinnedAppTitle(appPath: string): string {
+  const extension = path.extname(appPath);
+  const title = path.basename(appPath, extension).trim();
+
+  return title.length > 0 ? title : appPath;
+}
+
+function normalizeOptionalPinnedAppValue(value: string | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+
+  return trimmedValue && trimmedValue.length > 0 ? trimmedValue : undefined;
+}
+
+function normalizePinnedAppInput(input: LauncherPinnedAppInput | string): NormalizedPinnedAppInput {
+  const appPath = validatePinnedAppPath(typeof input === 'string' ? input : input.appPath);
+  const executablePath = normalizeOptionalPinnedAppValue(
+    typeof input === 'string' ? undefined : input.executablePath,
+  );
+  const iconPath = normalizeOptionalPinnedAppValue(
+    typeof input === 'string' ? undefined : input.iconPath,
+  );
+  const title = normalizeOptionalPinnedAppValue(
+    typeof input === 'string' ? undefined : input.title,
+  );
+
+  return {
+    appPath,
+    executablePath: executablePath ?? appPath,
+    iconPath: iconPath ?? executablePath ?? appPath,
+    title: title ?? createPinnedAppTitle(appPath),
+  };
+}
+
+function createPinnedAppMetadata(input: NormalizedPinnedAppInput): StorageJsonObject {
+  return {
+    [LAUNCHER_PINNED_APP_METADATA_KEY]: true,
+    [LAUNCHER_PINNED_APP_EXECUTABLE_PATH_METADATA_KEY]: input.executablePath,
+    [LAUNCHER_PINNED_APP_ICON_PATH_METADATA_KEY]: input.iconPath,
+  };
+}
+
+function createAppResultIdentityKey(result: LauncherCommandSearchResult): string {
+  return (result.subtitle ?? result.title).trim().replaceAll('/', '\\').toLowerCase();
+}
+
 function assertNoReservedCalculatorCommandIds(commands: readonly Command[]): void {
   for (const command of commands) {
     if (command.id === CALCULATOR_RESULT_COMMAND_ID) {
       throw new Error(
         `Command id is reserved for the built-in calculator: ${CALCULATOR_RESULT_COMMAND_ID}`,
+      );
+    }
+  }
+}
+
+function assertNoReservedQuickConverterCommandIds(commands: readonly Command[]): void {
+  for (const command of commands) {
+    if (command.id === QUICK_CONVERTER_RESULT_COMMAND_ID) {
+      throw new Error(
+        `Command id is reserved for the built-in quick converter: ${QUICK_CONVERTER_RESULT_COMMAND_ID}`,
       );
     }
   }
@@ -182,8 +338,10 @@ export function createLauncherCommandService(
   const clipboardHistoryCommandIds = new Set<string>();
   const favoriteCommandIds = new Set<string>();
   let calculatorCommandRegistered = false;
+  let quickConverterCommandRegistered = false;
 
   assertNoReservedCalculatorCommandIds(commands);
+  assertNoReservedQuickConverterCommandIds(commands);
   assertNoReservedTextToolCommandIds(commands);
 
   for (const command of commands) {
@@ -399,6 +557,31 @@ export function createLauncherCommandService(
     refreshSearchIndex();
   }
 
+  async function refreshQuickConverterCommand(query: string): Promise<void> {
+    if (quickConverterCommandRegistered) {
+      registry.unregister(QUICK_CONVERTER_RESULT_COMMAND_ID);
+      quickConverterCommandRegistered = false;
+    }
+
+    const quickConverterCommand = await createQuickConverterCommand(query, {
+      exchangeRateProvider: options.exchangeRateProvider,
+    });
+
+    if (quickConverterCommand) {
+      if (
+        quickConverterCommand.id !== QUICK_CONVERTER_RESULT_COMMAND_ID ||
+        quickConverterCommand.pluginId !== QUICK_CONVERTER_PLUGIN_ID
+      ) {
+        throw new Error('Invalid quick converter command registration.');
+      }
+
+      registry.register(quickConverterCommand);
+      quickConverterCommandRegistered = true;
+    }
+
+    refreshSearchIndex();
+  }
+
   function createHistoryRankingContext(): SearchRankingContext | undefined {
     if (!options.historyRepository) {
       return undefined;
@@ -418,6 +601,89 @@ export function createLauncherCommandService(
     };
   }
 
+  function listRecentAppSearchResults(limit = 10): LauncherCommandSearchResult[] {
+    if (!options.historyRepository) {
+      return [];
+    }
+
+    const results: LauncherCommandSearchResult[] = [];
+
+    for (const entry of options.historyRepository.listRecent(100)) {
+      if (entry.source !== 'app') {
+        continue;
+      }
+
+      const command = registry.get(entry.commandId);
+
+      if (!command || !isAppCommand(command)) {
+        continue;
+      }
+
+      results.push(
+        mapSearchResult({
+          command,
+          score: entry.executionCount,
+        }),
+      );
+
+      if (results.length >= limit) {
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  function listPinnedAppSearchResults(limit = 10): LauncherCommandSearchResult[] {
+    const results: LauncherCommandSearchResult[] = [];
+
+    for (const commandId of favoriteCommandIds) {
+      const command = registry.get(commandId);
+
+      if (!command || !isAppCommand(command)) {
+        continue;
+      }
+
+      results.push(
+        mapSearchResult({
+          command,
+          score: 1,
+        }),
+      );
+
+      if (results.length >= limit) {
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  function listHomeAppSearchResults(limit = 10): LauncherCommandSearchResult[] {
+    const results: LauncherCommandSearchResult[] = [];
+    const seenAppKeys = new Set<string>();
+
+    for (const result of [
+      ...listPinnedAppSearchResults(limit),
+      ...listRecentAppSearchResults(limit),
+    ]) {
+      const appKey = createAppResultIdentityKey(result);
+
+      if (seenAppKeys.has(appKey)) {
+        continue;
+      }
+
+      seenAppKeys.add(appKey);
+      results.push(result);
+
+      if (results.length >= limit) {
+        break;
+      }
+    }
+
+    return results;
+  }
+
   refreshFavoriteCommands();
   refreshClipboardHistoryCommands();
   refreshAppCommands();
@@ -429,6 +695,37 @@ export function createLauncherCommandService(
       }
 
       const favorite = options.favoritesRepository.addFavorite(input);
+      refreshFavoriteCommands();
+      return favorite;
+    },
+    addPinnedApp: (input) => {
+      if (!options.favoritesRepository) {
+        throw new Error('Favorites repository is not configured.');
+      }
+
+      const pinnedApp = normalizePinnedAppInput(input);
+      const normalizedPinnedAppPath = normalizeAppPath(pinnedApp.appPath);
+      const existingFavorite = options.favoritesRepository
+        .listFavorites()
+        .find(
+          (favorite) =>
+            isLauncherPinnedAppFavorite(favorite) &&
+            favorite.kind === 'file' &&
+            normalizeAppPath(favorite.path) === normalizedPinnedAppPath,
+        );
+
+      if (existingFavorite) {
+        return existingFavorite;
+      }
+
+      const favorite = options.favoritesRepository.addFavorite({
+        kind: 'file',
+        title: pinnedApp.title,
+        path: pinnedApp.appPath,
+        keywords: [pinnedApp.title],
+        metadata: createPinnedAppMetadata(pinnedApp),
+      });
+
       refreshFavoriteCommands();
       return favorite;
     },
@@ -452,8 +749,8 @@ export function createLauncherCommandService(
 
       if (
         result.status === 'success' &&
-        favoriteCommandIds.has(command.id) &&
-        options.historyRepository
+        options.historyRepository &&
+        (favoriteCommandIds.has(command.id) || isAppCommand(command))
       ) {
         const historyInput = {
           commandId: command.id,
@@ -488,13 +785,19 @@ export function createLauncherCommandService(
 
       return removed;
     },
-    searchCommands: (query) => {
+    searchCommands: async (query) => {
       refreshAppCommands();
+
+      if (isBlankQuery(query)) {
+        return listHomeAppSearchResults(10);
+      }
+
       refreshCalculatorCommand(query);
+      await refreshQuickConverterCommand(query);
       refreshClipboardHistoryCommands();
 
       const searchOptions: SearchOptions = {
-        includeAllOnEmptyQuery: true,
+        includeAllOnEmptyQuery: false,
         limit: 10,
       };
       const ranking = createHistoryRankingContext();
@@ -504,6 +807,48 @@ export function createLauncherCommandService(
       }
 
       return searchEngine.search(query, searchOptions).map(mapSearchResult);
+    },
+    updatePinnedApp: (id, input) => {
+      if (!options.favoritesRepository) {
+        throw new Error('Favorites repository is not configured.');
+      }
+
+      const existingFavorite = options.favoritesRepository.getFavorite(id);
+
+      if (!existingFavorite || !isLauncherPinnedAppFavorite(existingFavorite)) {
+        return undefined;
+      }
+
+      const pinnedApp = normalizePinnedAppInput(input);
+      const normalizedPinnedAppPath = normalizeAppPath(pinnedApp.appPath);
+      const duplicateFavorite = options.favoritesRepository
+        .listFavorites()
+        .find(
+          (favorite) =>
+            favorite.id !== id &&
+            isLauncherPinnedAppFavorite(favorite) &&
+            favorite.kind === 'file' &&
+            normalizeAppPath(favorite.path) === normalizedPinnedAppPath,
+        );
+
+      if (duplicateFavorite) {
+        options.favoritesRepository.removeFavorite(id);
+        refreshFavoriteCommands();
+        return duplicateFavorite;
+      }
+
+      options.favoritesRepository.removeFavorite(id);
+      const updatedFavorite = options.favoritesRepository.addFavorite({
+        id,
+        kind: 'file',
+        title: pinnedApp.title,
+        path: pinnedApp.appPath,
+        keywords: [pinnedApp.title],
+        metadata: createPinnedAppMetadata(pinnedApp),
+      });
+
+      refreshFavoriteCommands();
+      return updatedFavorite;
     },
     updateFavorite: (id, input) => {
       if (!options.favoritesRepository) {

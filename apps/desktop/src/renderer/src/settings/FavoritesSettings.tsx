@@ -5,6 +5,7 @@ import type {
   FavoriteListRecord,
   FavoriteUpdateRequest,
 } from '../../../shared/favoritesApi.js';
+import { getUiStrings, type UiStrings } from '../i18n.js';
 
 type FavoriteKind = FavoriteListRecord['kind'];
 
@@ -20,6 +21,8 @@ export interface FavoritesSettingsApi {
 
 export interface FavoritesSettingsProps {
   api?: FavoritesSettingsApi;
+  commonStrings?: UiStrings['common'] | undefined;
+  strings?: UiStrings['settings']['favorites'] | undefined;
 }
 
 export interface FavoriteDraft {
@@ -100,8 +103,8 @@ function getFavoriteTarget(favorite: FavoriteListRecord): string {
   return favorite.kind === 'url' ? favorite.url : favorite.path;
 }
 
-function getTargetLabel(kind: FavoriteKind): string {
-  return kind === 'url' ? 'URL' : 'Path';
+function getTargetLabel(kind: FavoriteKind, strings: UiStrings['settings']['favorites']): string {
+  return kind === 'url' ? strings.targetUrl : strings.path;
 }
 
 export function parseFavoriteKeywordsInput(input: string): string[] {
@@ -161,7 +164,11 @@ export function favoriteDraftToUpdateRequest(draft: FavoriteDraft): FavoriteUpda
   };
 }
 
-export function FavoritesSettings({ api }: FavoritesSettingsProps) {
+export function FavoritesSettings({
+  api,
+  commonStrings = getUiStrings(undefined).common,
+  strings = getUiStrings(undefined).settings.favorites,
+}: FavoritesSettingsProps) {
   const favoritesApi = useMemo(() => api ?? getDefaultFavoritesApi(), [api]);
   const loadGateRef = useRef(createFavoritesLoadGate());
   const operationGateRef = useRef(createFavoritesOperationGate());
@@ -176,7 +183,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
 
   const loadFavorites = useCallback(async () => {
     if (!favoritesApi) {
-      setErrorMessage('Favorites API unavailable.');
+      setErrorMessage(strings.unavailable);
       setFavorites([]);
       return;
     }
@@ -194,7 +201,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
       }
     } catch (error) {
       if (loadGateRef.current.isCurrent(loadToken)) {
-        setErrorMessage(error instanceof Error ? error.message : 'Favorites could not be loaded.');
+        setErrorMessage(error instanceof Error ? error.message : strings.loadError);
       }
     } finally {
       if (loadGateRef.current.isCurrent(loadToken)) {
@@ -202,7 +209,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
         loadGateRef.current.finish(loadToken);
       }
     }
-  }, [favoritesApi]);
+  }, [favoritesApi, strings.loadError, strings.unavailable]);
 
   useEffect(() => {
     void loadFavorites();
@@ -217,7 +224,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
     event.preventDefault();
 
     if (!favoritesApi) {
-      setErrorMessage('Favorites API unavailable.');
+      setErrorMessage(strings.unavailable);
       return;
     }
 
@@ -238,7 +245,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
       resetDraft();
       await loadFavorites();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Favorite could not be saved.');
+      setErrorMessage(error instanceof Error ? error.message : strings.saveError);
     } finally {
       operationGateRef.current.finish('saving');
       setOperation('idle');
@@ -247,7 +254,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
 
   const handleDeleteFavorite = async (favoriteId: string) => {
     if (!favoritesApi) {
-      setErrorMessage('Favorites API unavailable.');
+      setErrorMessage(strings.unavailable);
       return;
     }
 
@@ -265,7 +272,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
       }
       await loadFavorites();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Favorite could not be deleted.');
+      setErrorMessage(error instanceof Error ? error.message : strings.deleteError);
     } finally {
       operationGateRef.current.finish('deleting');
       setOperation('idle');
@@ -273,11 +280,11 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
   };
 
   return (
-    <section className="favorites-settings" aria-label="Favorites settings">
+    <section className="favorites-settings" aria-label={strings.ariaLabel}>
       <header className="favorites-settings__header">
-        <h2>Favorites</h2>
+        <h2>{strings.title}</h2>
         <button type="button" onClick={resetDraft} disabled={isMutating}>
-          Add
+          {strings.add}
         </button>
       </header>
 
@@ -289,7 +296,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
 
       <form className="favorites-settings__form" onSubmit={handleSubmit}>
         <fieldset className="favorites-settings__row favorites-settings__row--kind">
-          <legend>Kind</legend>
+          <legend>{strings.kind}</legend>
           {(['file', 'folder', 'url'] as const).map((kind) => (
             <label key={kind} data-selected={draft.kind === kind}>
               <input
@@ -300,13 +307,13 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
                 disabled={isEditing || isMutating}
                 onChange={() => setDraft((currentDraft) => ({ ...currentDraft, kind }))}
               />
-              <span>{kind}</span>
+              <span>{strings.kinds[kind]}</span>
             </label>
           ))}
         </fieldset>
 
         <label>
-          <span>Title</span>
+          <span>{strings.titleField}</span>
           <input
             value={draft.title}
             onChange={(event) =>
@@ -317,7 +324,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
         </label>
 
         <label>
-          <span>{getTargetLabel(draft.kind)}</span>
+          <span>{getTargetLabel(draft.kind, strings)}</span>
           <input
             value={draft.target}
             onChange={(event) =>
@@ -328,7 +335,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
         </label>
 
         <label>
-          <span>Keywords</span>
+          <span>{strings.keywords}</span>
           <input
             value={draft.keywordsText}
             onChange={(event) =>
@@ -340,11 +347,11 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
 
         <div className="favorites-settings__actions">
           <button type="submit" disabled={isMutating}>
-            {isEditing ? 'Save' : 'Create'}
+            {isEditing ? commonStrings.save : commonStrings.create}
           </button>
           {isEditing ? (
             <button type="button" onClick={resetDraft} disabled={isMutating}>
-              Cancel
+              {commonStrings.cancel}
             </button>
           ) : null}
         </div>
@@ -352,7 +359,7 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
 
       <div className="favorites-settings__list" aria-busy={isLoading}>
         {favorites.length === 0 ? (
-          <p className="favorites-settings__empty">No favorites</p>
+          <p className="favorites-settings__empty">{strings.empty}</p>
         ) : (
           favorites.map((favorite) => (
             <article key={favorite.id} className="favorites-settings__item">
@@ -369,14 +376,14 @@ export function FavoritesSettings({ api }: FavoritesSettingsProps) {
                 }}
                 disabled={isMutating}
               >
-                Edit
+                {commonStrings.edit}
               </button>
               <button
                 type="button"
                 onClick={() => void handleDeleteFavorite(favorite.id)}
                 disabled={isMutating}
               >
-                Delete
+                {commonStrings.delete}
               </button>
             </article>
           ))

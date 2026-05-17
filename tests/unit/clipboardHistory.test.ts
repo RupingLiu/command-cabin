@@ -228,7 +228,7 @@ describe('clipboard history built-in plugin', () => {
         },
       });
 
-      const [result] = service.searchCommands('clip');
+      const [result] = await service.searchCommands('clip');
 
       expect(result).toMatchObject({
         id: expect.stringMatching(/^clipboard-history\.entry\./) as string,
@@ -250,7 +250,7 @@ describe('clipboard history built-in plugin', () => {
     }
   });
 
-  it('exposes a clear-history service API and settings control gate', () => {
+  it('exposes a clear-history service API and settings control gate', async () => {
     const database = openInMemoryCommandCabinDatabase();
 
     try {
@@ -269,7 +269,7 @@ describe('clipboard history built-in plugin', () => {
       gate.finish();
 
       expect(gate.tryStart()).toBe(true);
-      expect(service.searchCommands('clip')).toEqual([]);
+      await expect(service.searchCommands('clip')).resolves.toEqual([]);
     } finally {
       database.close();
     }

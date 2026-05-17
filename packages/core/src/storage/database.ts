@@ -1,6 +1,37 @@
-import Database from 'better-sqlite3';
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
-export type CommandCabinDatabase = Database.Database;
+export interface CommandCabinRunResult {
+  changes: number;
+  lastInsertRowid: number | bigint;
+}
+
+type StatementBindParameters = readonly unknown[] | Record<string, unknown>;
+type StatementArguments<BindParameters extends StatementBindParameters> =
+  BindParameters extends readonly unknown[] ? BindParameters : [BindParameters];
+
+export interface CommandCabinStatement<
+  BindParameters extends StatementBindParameters = [],
+  Result = unknown,
+> {
+  all: (...parameters: StatementArguments<BindParameters>) => Result[];
+  get: (...parameters: StatementArguments<BindParameters>) => Result | undefined;
+  run: (...parameters: StatementArguments<BindParameters>) => CommandCabinRunResult;
+}
+
+export interface CommandCabinDatabase {
+  readonly memory: boolean;
+  readonly readonly: boolean;
+  close: () => void;
+  exec: (sql: string) => void;
+  pragma: (sql: string) => unknown[];
+  prepare: <BindParameters extends StatementBindParameters = [], Result = unknown>(
+    sql: string,
+  ) => CommandCabinStatement<BindParameters, Result>;
+  transaction: <Args extends unknown[], Result>(
+    handler: (...args: Args) => Result,
+  ) => (...args: Args) => Result;
+}
 
 export type StorageJsonPrimitive = string | number | boolean | null;
 export type StorageJsonValue =
@@ -30,6 +61,153 @@ export interface StorageDateContext {
   field: string;
 }
 
+interface NodeSqliteRunResult {
+  changes: number;
+  lastInsertRowid: number | bigint;
+}
+
+interface NodeSqliteStatementSync {
+  all: (...parameters: unknown[]) => unknown[];
+  get: (...parameters: unknown[]) => unknown | undefined;
+  run: (...parameters: unknown[]) => NodeSqliteRunResult;
+}
+
+interface NodeSqliteDatabaseSync {
+  close: () => void;
+  exec: (sql: string) => void;
+  prepare: (sql: string) => NodeSqliteStatementSync;
+}
+
+interface NodeSqliteDatabaseOptions {
+  readOnly?: boolean;
+  timeout?: number;
+}
+
+interface NodeSqliteModule {
+  DatabaseSync: new (path: string, options?: NodeSqliteDatabaseOptions) => NodeSqliteDatabaseSync;
+}
+
+const nodeRequire = createRequire(import.meta.url);
+const { DatabaseSync } = nodeRequire('node:sqlite') as NodeSqliteModule;
+
+function createStatementArguments(parameters: readonly unknown[]): unknown[] {
+  return [...parameters];
+}
+
+class CommandCabinNodeSqliteStatement<
+  BindParameters extends StatementBindParameters,
+  Result,
+> implements CommandCabinStatement<BindParameters, Result> {
+  constructor(
+    private readonly statement: NodeSqliteStatementSync,
+    private readonly verbose?: (message?: unknown, ...additionalArgs: unknown[]) => void,
+    private readonly sql?: string,
+  ) {}
+
+  all(...parameters: StatementArguments<BindParameters>): Result[] {
+    this.verbose?.(this.sql);
+    return this.statement.all(...createStatementArguments(parameters)) as Result[];
+  }
+
+  get(...parameters: StatementArguments<BindParameters>): Result | undefined {
+    this.verbose?.(this.sql);
+    return this.statement.get(...createStatementArguments(parameters)) as Result | undefined;
+  }
+
+  run(...parameters: StatementArguments<BindParameters>): CommandCabinRunResult {
+    this.verbose?.(this.sql);
+    return this.statement.run(...createStatementArguments(parameters));
+  }
+}
+
+class CommandCabinNodeSqliteDatabase implements CommandCabinDatabase {
+  readonly memory: boolean;
+  readonly readonly: boolean;
+
+  private nextSavepointId = 0;
+  private transactionDepth = 0;
+
+  constructor(
+    private readonly database: NodeSqliteDatabaseSync,
+    private readonly options: {
+      path: string;
+      readonly: boolean;
+      verbose?: ((message?: unknown, ...additionalArgs: unknown[]) => void) | undefined;
+    },
+  ) {
+    this.memory = options.path === ':memory:' || options.path === '';
+    this.readonly = options.readonly;
+  }
+
+  close(): void {
+    this.database.close();
+  }
+
+  exec(sql: string): void {
+    this.options.verbose?.(sql);
+    this.database.exec(sql);
+  }
+
+  pragma(sql: string): unknown[] {
+    const statement = this.prepare(`PRAGMA ${sql}`);
+    return statement.all();
+  }
+
+  prepare<BindParameters extends StatementBindParameters = [], Result = unknown>(
+    sql: string,
+  ): CommandCabinStatement<BindParameters, Result> {
+    return new CommandCabinNodeSqliteStatement<BindParameters, Result>(
+      this.database.prepare(sql),
+      this.options.verbose,
+      sql,
+    );
+  }
+
+  transaction<Args extends unknown[], Result>(
+    handler: (...args: Args) => Result,
+  ): (...args: Args) => Result {
+    return (...args) => {
+      const isNestedTransaction = this.transactionDepth > 0;
+      const savepointName = `command_cabin_tx_${this.nextSavepointId++}`;
+
+      if (isNestedTransaction) {
+        this.exec(`SAVEPOINT ${savepointName}`);
+      } else {
+        this.exec('BEGIN');
+      }
+
+      this.transactionDepth += 1;
+
+      try {
+        const result = handler(...args);
+
+        if (isNestedTransaction) {
+          this.exec(`RELEASE ${savepointName}`);
+        } else {
+          this.exec('COMMIT');
+        }
+
+        return result;
+      } catch (error) {
+        if (isNestedTransaction) {
+          this.exec(`ROLLBACK TO ${savepointName}`);
+          this.exec(`RELEASE ${savepointName}`);
+        } else {
+          this.exec('ROLLBACK');
+        }
+
+        throw error;
+      } finally {
+        this.transactionDepth -= 1;
+      }
+    };
+  }
+}
+
+function shouldCheckFileExists(path: string): boolean {
+  return path !== ':memory:' && path !== '';
+}
+
 export function openCommandCabinDatabase(
   options: CommandCabinDatabaseOptions,
 ): CommandCabinDatabase {
@@ -39,24 +217,32 @@ export function openCommandCabinDatabase(
   if (options.path.trim().length === 0) {
     throw new Error('openCommandCabinDatabase requires a non-empty database path');
   }
+  if (
+    options.fileMustExist === true &&
+    shouldCheckFileExists(options.path) &&
+    !existsSync(options.path)
+  ) {
+    throw new Error(`Database file does not exist: ${options.path}`);
+  }
 
-  const databaseOptions: Database.Options = {};
+  const databaseOptions: NodeSqliteDatabaseOptions = {};
 
   if (options.readonly !== undefined) {
-    databaseOptions.readonly = options.readonly;
-  }
-  if (options.fileMustExist !== undefined) {
-    databaseOptions.fileMustExist = options.fileMustExist;
+    databaseOptions.readOnly = options.readonly;
   }
   if (options.timeoutMs !== undefined) {
     databaseOptions.timeout = options.timeoutMs;
   }
-  if (options.verbose !== undefined) {
-    databaseOptions.verbose = options.verbose;
-  }
 
   const databasePath = options.path;
-  const database = new Database(databasePath, databaseOptions);
+  const database = new CommandCabinNodeSqliteDatabase(
+    new DatabaseSync(databasePath, databaseOptions),
+    {
+      path: databasePath,
+      readonly: options.readonly ?? false,
+      verbose: options.verbose,
+    },
+  );
 
   database.pragma('foreign_keys = ON');
 

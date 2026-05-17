@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { FavoriteRecord } from '../indexer/favoritesRepository.js';
-import { createFavoriteCommand, createFavoriteCommands } from './builtInFavorites.js';
+import {
+  LAUNCHER_PINNED_APP_EXECUTABLE_PATH_METADATA_KEY,
+  LAUNCHER_PINNED_APP_ICON_PATH_METADATA_KEY,
+  LAUNCHER_PINNED_APP_METADATA_KEY,
+  createFavoriteCommand,
+  createFavoriteCommands,
+} from './builtInFavorites.js';
 
 function createFavorite(overrides: Partial<FavoriteRecord> = {}): FavoriteRecord {
   return {
@@ -82,6 +88,67 @@ describe('built-in favorite commands', () => {
       },
     });
     expect(command.keywords).toEqual(['issue tracker', 'bugs', 'url']);
+  });
+
+  it('converts launcher pinned app favorites into app commands', () => {
+    const command = createFavoriteCommand(
+      createFavorite({
+        id: 'favorite-wps',
+        title: 'WPS Office',
+        path: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+        keywords: ['wps'],
+        metadata: {
+          [LAUNCHER_PINNED_APP_METADATA_KEY]: true,
+        },
+      }),
+    );
+
+    expect(command).toMatchObject({
+      source: 'app',
+      title: 'WPS Office',
+      subtitle: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+      action: {
+        type: 'open-app',
+        payload: {
+          executablePath: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+          favoriteId: 'favorite-wps',
+          shortcutPath: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+        },
+      },
+    });
+  });
+
+  it('uses resolved executable and icon metadata for launcher pinned shortcuts', () => {
+    const command = createFavoriteCommand(
+      createFavorite({
+        id: 'favorite-codex',
+        title: 'Codex',
+        path: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+        keywords: ['codex'],
+        metadata: {
+          [LAUNCHER_PINNED_APP_METADATA_KEY]: true,
+          [LAUNCHER_PINNED_APP_EXECUTABLE_PATH_METADATA_KEY]:
+            'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe',
+          [LAUNCHER_PINNED_APP_ICON_PATH_METADATA_KEY]:
+            'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe,0',
+        },
+      }),
+    );
+
+    expect(command).toMatchObject({
+      source: 'app',
+      title: 'Codex',
+      subtitle: 'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe',
+      icon: 'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe,0',
+      action: {
+        type: 'open-app',
+        payload: {
+          executablePath: 'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe',
+          favoriteId: 'favorite-codex',
+          shortcutPath: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+        },
+      },
+    });
   });
 
   it('keeps command ids stable across title and keyword edits', () => {

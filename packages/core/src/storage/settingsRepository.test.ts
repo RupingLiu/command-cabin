@@ -30,6 +30,7 @@ describe('SQLite settings repository', () => {
         theme: 'system',
         language: 'zh-CN',
         launchAtLogin: false,
+        preserveSearchQuery: false,
         search: {
           maxResults: 20,
           historyBoost: 1.4,
@@ -80,6 +81,7 @@ describe('SQLite settings repository', () => {
     runMigrations(firstDatabase);
     createSettingsRepository(firstDatabase).updateSettings({
       hideOnBlur: false,
+      preserveSearchQuery: true,
       theme: 'dark',
       search: {
         pluginBoost: 1.8,
@@ -94,6 +96,7 @@ describe('SQLite settings repository', () => {
       expect(createSettingsRepository(secondDatabase).getSettings()).toMatchObject({
         hotkey: 'Alt+Space',
         hideOnBlur: false,
+        preserveSearchQuery: true,
         theme: 'dark',
         search: {
           maxResults: 20,
@@ -102,6 +105,20 @@ describe('SQLite settings repository', () => {
       });
     } finally {
       secondDatabase.close();
+    }
+  });
+
+  it('persists Traditional Chinese as a supported display language', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createSettingsRepository(database);
+
+      expect(repository.updateSettings({ language: 'zh-TW' }).language).toBe('zh-TW');
+      expect(repository.getSettings().language).toBe('zh-TW');
+    } finally {
+      database.close();
     }
   });
 

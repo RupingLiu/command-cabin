@@ -1,0 +1,598 @@
+import type { CommandCabinLanguage, CommandCabinTheme } from '@command-cabin/core';
+import type { LauncherResultItem } from './launcher/useLauncherController.js';
+
+export const DEFAULT_UI_LANGUAGE: CommandCabinLanguage = 'zh-CN';
+
+const zhCnStrings = {
+  common: {
+    appName: 'CommandCabin',
+    cancel: '取消',
+    create: '创建',
+    delete: '删除',
+    edit: '编辑',
+    save: '保存',
+  },
+  launcher: {
+    addPinnedApp: '添加应用',
+    appPicker: {
+      add: '添加',
+      added: '已添加',
+      ariaLabel: '添加应用',
+      browseLocalFile: '浏览本地文件',
+      emptyDetail: '换个关键词试试，或浏览本地文件。',
+      emptyTitle: '没有找到应用',
+      loading: '正在查找应用',
+      searchLabel: '搜索应用',
+      searchPlaceholder: '搜索应用名称或路径',
+      sources: {
+        desktop: '桌面',
+        'start-menu': '开始菜单',
+      },
+      title: '添加应用',
+      unresolvedShortcut: '快捷方式信息不完整',
+    },
+    ariaLabel: 'CommandCabin 启动器',
+    openSettings: '打开设置',
+    pinnedAppMenu: {
+      edit: '修改',
+      remove: '移除',
+    },
+    search: {
+      label: '搜索',
+      placeholder: '输入命令',
+    },
+    results: {
+      ariaLabel: '命令结果',
+      errorDetail: '启动器无法完成请求。',
+      errorTitle: '出错了',
+      noCommands: '没有可用命令。',
+      noMatches: '没有匹配的命令。',
+      noResults: '无结果',
+    },
+    sources: {
+      app: '应用',
+      file: '文件',
+      plugin: '插件',
+      system: '系统',
+      url: 'URL',
+    } satisfies Record<LauncherResultItem['source'], string>,
+    systemCommands: {
+      'fallback.copy-version': {
+        subtitle: '复制运行时诊断信息',
+        title: '复制版本信息',
+      },
+      'fallback.open-settings': {
+        subtitle: 'CommandCabin 偏好设置',
+        title: '打开设置',
+      },
+      'fallback.reload-launcher': {
+        subtitle: '刷新桌面启动器',
+        title: '重新加载启动器',
+      },
+      'system.copy-version': {
+        subtitle: '复制运行时诊断信息',
+        title: '复制版本信息',
+      },
+      'system.open-diagnostics': {
+        subtitle: '运行时和启动详情',
+        title: '打开诊断信息',
+      },
+      'system.open-settings': {
+        subtitle: 'CommandCabin 偏好设置',
+        title: '打开设置',
+      },
+      'system.reload-launcher': {
+        subtitle: '刷新桌面启动器',
+        title: '重新加载启动器',
+      },
+    },
+  },
+  settings: {
+    ariaLabel: 'CommandCabin 设置',
+    back: '返回',
+    clipboardHistory: {
+      ariaLabel: '剪贴板历史设置',
+      clear: '清空历史',
+      clearing: '正在清空历史',
+      clearError: '无法清空剪贴板历史。',
+      title: '剪贴板历史',
+      unavailable: '剪贴板历史接口不可用。',
+    },
+    data: {
+      ariaLabel: '数据目录设置',
+      loading: '正在加载数据目录',
+      open: '打开',
+      opening: '正在打开',
+      openError: '无法打开数据目录。',
+      title: '数据目录',
+      unavailable: '数据目录不可用。',
+      unavailableApi: '数据目录接口不可用。',
+    },
+    favorites: {
+      add: '添加',
+      ariaLabel: '收藏设置',
+      deleteError: '无法删除收藏。',
+      empty: '暂无收藏',
+      kinds: {
+        file: '文件',
+        folder: '文件夹',
+        url: 'URL',
+      },
+      keywords: '关键词',
+      kind: '类型',
+      loadError: '无法加载收藏。',
+      path: '路径',
+      saveError: '无法保存收藏。',
+      targetUrl: 'URL',
+      title: '收藏',
+      titleField: '标题',
+      unavailable: '收藏接口不可用。',
+    },
+    hotkey: {
+      ariaLabel: '快捷键设置',
+      conflictHint: '请按至少一个修饰键和一个非修饰键。',
+      record: '录制快捷键',
+      saveError: '无法保存快捷键。',
+      title: '快捷键',
+      waiting: '按下快捷键',
+    },
+    language: {
+      ariaLabel: '语言设置',
+      displayLanguage: '显示语言',
+      title: '语言',
+    },
+    launcher: {
+      ariaLabel: '启动器设置',
+      disabled: '每次清空',
+      enabled: '已保留',
+      preserveSearchQuery: '保留上次搜索内容',
+      title: '启动器',
+    },
+    loadError: '无法加载设置。',
+    plugin: {
+      ariaLabel: '插件管理设置',
+      disable: '禁用',
+      disabled: '未启用',
+      enable: '启用',
+      enabled: '已启用',
+      empty: '未安装本地插件',
+      install: '安装本地插件',
+      loadError: '无法加载插件。',
+      noPermissions: '无权限',
+      operationError: '插件操作失败。',
+      pathLabel: '本地插件文件夹路径',
+      pathRequired: '请输入插件文件夹路径。',
+      title: '插件管理',
+      uninstall: '卸载',
+      unavailable: '插件接口不可用。',
+    },
+    saveError: '无法保存设置。',
+    settingsUnavailable: '设置接口不可用。',
+    startup: {
+      ariaLabel: '启动设置',
+      disabled: '未启用',
+      enabled: '已启用',
+      launchAtLogin: '开机自启动',
+      title: '启动',
+    },
+    theme: {
+      ariaLabel: '主题设置',
+      mode: '主题模式',
+      options: {
+        dark: '深色',
+        light: '浅色',
+        system: '跟随系统',
+      } satisfies Record<CommandCabinTheme, string>,
+      title: '主题',
+    },
+    title: '设置',
+  },
+};
+
+type WidenStringValues<T> = T extends string
+  ? string
+  : {
+      [Key in keyof T]: WidenStringValues<T[Key]>;
+    };
+
+export type UiStrings = WidenStringValues<typeof zhCnStrings>;
+
+const zhTwStrings: UiStrings = {
+  common: {
+    appName: 'CommandCabin',
+    cancel: '取消',
+    create: '建立',
+    delete: '刪除',
+    edit: '編輯',
+    save: '儲存',
+  },
+  launcher: {
+    addPinnedApp: '新增應用程式',
+    appPicker: {
+      add: '新增',
+      added: '已新增',
+      ariaLabel: '新增應用程式',
+      browseLocalFile: '瀏覽本機檔案',
+      emptyDetail: '換個關鍵字試試，或瀏覽本機檔案。',
+      emptyTitle: '找不到應用程式',
+      loading: '正在尋找應用程式',
+      searchLabel: '搜尋應用程式',
+      searchPlaceholder: '搜尋應用程式名稱或路徑',
+      sources: {
+        desktop: '桌面',
+        'start-menu': '開始功能表',
+      },
+      title: '新增應用程式',
+      unresolvedShortcut: '捷徑資訊不完整',
+    },
+    ariaLabel: 'CommandCabin 啟動器',
+    openSettings: '開啟設定',
+    pinnedAppMenu: {
+      edit: '修改',
+      remove: '移除',
+    },
+    search: {
+      label: '搜尋',
+      placeholder: '輸入指令',
+    },
+    results: {
+      ariaLabel: '指令結果',
+      errorDetail: '啟動器無法完成請求。',
+      errorTitle: '發生錯誤',
+      noCommands: '沒有可用指令。',
+      noMatches: '沒有符合的指令。',
+      noResults: '沒有結果',
+    },
+    sources: {
+      app: '應用程式',
+      file: '檔案',
+      plugin: '外掛',
+      system: '系統',
+      url: 'URL',
+    },
+    systemCommands: {
+      'fallback.copy-version': {
+        subtitle: '複製執行階段診斷資訊',
+        title: '複製版本資訊',
+      },
+      'fallback.open-settings': {
+        subtitle: 'CommandCabin 偏好設定',
+        title: '開啟設定',
+      },
+      'fallback.reload-launcher': {
+        subtitle: '重新整理桌面啟動器',
+        title: '重新載入啟動器',
+      },
+      'system.copy-version': {
+        subtitle: '複製執行階段診斷資訊',
+        title: '複製版本資訊',
+      },
+      'system.open-diagnostics': {
+        subtitle: '執行階段與啟動詳情',
+        title: '開啟診斷資訊',
+      },
+      'system.open-settings': {
+        subtitle: 'CommandCabin 偏好設定',
+        title: '開啟設定',
+      },
+      'system.reload-launcher': {
+        subtitle: '重新整理桌面啟動器',
+        title: '重新載入啟動器',
+      },
+    },
+  },
+  settings: {
+    ariaLabel: 'CommandCabin 設定',
+    back: '返回',
+    clipboardHistory: {
+      ariaLabel: '剪貼簿歷史設定',
+      clear: '清除歷史',
+      clearing: '正在清除歷史',
+      clearError: '無法清除剪貼簿歷史。',
+      title: '剪貼簿歷史',
+      unavailable: '剪貼簿歷史介面不可用。',
+    },
+    data: {
+      ariaLabel: '資料目錄設定',
+      loading: '正在載入資料目錄',
+      open: '開啟',
+      opening: '正在開啟',
+      openError: '無法開啟資料目錄。',
+      title: '資料目錄',
+      unavailable: '資料目錄不可用。',
+      unavailableApi: '資料目錄介面不可用。',
+    },
+    favorites: {
+      add: '新增',
+      ariaLabel: '收藏設定',
+      deleteError: '無法刪除收藏。',
+      empty: '尚無收藏',
+      kinds: {
+        file: '檔案',
+        folder: '資料夾',
+        url: 'URL',
+      },
+      keywords: '關鍵字',
+      kind: '類型',
+      loadError: '無法載入收藏。',
+      path: '路徑',
+      saveError: '無法儲存收藏。',
+      targetUrl: 'URL',
+      title: '收藏',
+      titleField: '標題',
+      unavailable: '收藏介面不可用。',
+    },
+    hotkey: {
+      ariaLabel: '快捷鍵設定',
+      conflictHint: '請按至少一個修飾鍵和一個非修飾鍵。',
+      record: '錄製快捷鍵',
+      saveError: '無法儲存快捷鍵。',
+      title: '快捷鍵',
+      waiting: '按下快捷鍵',
+    },
+    language: {
+      ariaLabel: '語言設定',
+      displayLanguage: '顯示語言',
+      title: '語言',
+    },
+    launcher: {
+      ariaLabel: '啟動器設定',
+      disabled: '每次清空',
+      enabled: '已保留',
+      preserveSearchQuery: '保留上次搜尋內容',
+      title: '啟動器',
+    },
+    loadError: '無法載入設定。',
+    plugin: {
+      ariaLabel: '外掛管理設定',
+      disable: '停用',
+      disabled: '未啟用',
+      enable: '啟用',
+      enabled: '已啟用',
+      empty: '未安裝本地外掛',
+      install: '安裝本地外掛',
+      loadError: '無法載入外掛。',
+      noPermissions: '無權限',
+      operationError: '外掛操作失敗。',
+      pathLabel: '本地外掛資料夾路徑',
+      pathRequired: '請輸入外掛資料夾路徑。',
+      title: '外掛管理',
+      uninstall: '解除安裝',
+      unavailable: '外掛介面不可用。',
+    },
+    saveError: '無法儲存設定。',
+    settingsUnavailable: '設定介面不可用。',
+    startup: {
+      ariaLabel: '啟動設定',
+      disabled: '未啟用',
+      enabled: '已啟用',
+      launchAtLogin: '開機自動啟動',
+      title: '啟動',
+    },
+    theme: {
+      ariaLabel: '主題設定',
+      mode: '主題模式',
+      options: {
+        dark: '深色',
+        light: '淺色',
+        system: '跟隨系統',
+      },
+      title: '主題',
+    },
+    title: '設定',
+  },
+};
+
+const enUsStrings: UiStrings = {
+  common: {
+    appName: 'CommandCabin',
+    cancel: 'Cancel',
+    create: 'Create',
+    delete: 'Delete',
+    edit: 'Edit',
+    save: 'Save',
+  },
+  launcher: {
+    addPinnedApp: 'Add app',
+    appPicker: {
+      add: 'Add',
+      added: 'Added',
+      ariaLabel: 'Add app',
+      browseLocalFile: 'Browse local file',
+      emptyDetail: 'Try another keyword, or browse for a local file.',
+      emptyTitle: 'No apps found',
+      loading: 'Finding apps',
+      searchLabel: 'Search apps',
+      searchPlaceholder: 'Search app name or path',
+      sources: {
+        desktop: 'Desktop',
+        'start-menu': 'Start Menu',
+      },
+      title: 'Add app',
+      unresolvedShortcut: 'Shortcut details unavailable',
+    },
+    ariaLabel: 'CommandCabin launcher',
+    openSettings: 'Open settings',
+    pinnedAppMenu: {
+      edit: 'Modify',
+      remove: 'Remove',
+    },
+    search: {
+      label: 'Search',
+      placeholder: 'Type a command',
+    },
+    results: {
+      ariaLabel: 'Command results',
+      errorDetail: 'The launcher could not complete the request.',
+      errorTitle: 'Something went wrong',
+      noCommands: 'No commands available.',
+      noMatches: 'No matching commands.',
+      noResults: 'No results',
+    },
+    sources: {
+      app: 'App',
+      file: 'File',
+      plugin: 'Plugin',
+      system: 'System',
+      url: 'URL',
+    },
+    systemCommands: {
+      'fallback.copy-version': {
+        subtitle: 'Copy runtime details for diagnostics',
+        title: 'Copy Version Info',
+      },
+      'fallback.open-settings': {
+        subtitle: 'CommandCabin preferences',
+        title: 'Open Settings',
+      },
+      'fallback.reload-launcher': {
+        subtitle: 'Refresh the desktop shell',
+        title: 'Reload Launcher',
+      },
+      'system.copy-version': {
+        subtitle: 'Copy runtime details for diagnostics',
+        title: 'Copy Version Info',
+      },
+      'system.open-diagnostics': {
+        subtitle: 'Runtime and startup details',
+        title: 'Open Diagnostics',
+      },
+      'system.open-settings': {
+        subtitle: 'CommandCabin preferences',
+        title: 'Open Settings',
+      },
+      'system.reload-launcher': {
+        subtitle: 'Refresh the desktop shell',
+        title: 'Reload Launcher',
+      },
+    },
+  },
+  settings: {
+    ariaLabel: 'CommandCabin settings',
+    back: 'Back',
+    clipboardHistory: {
+      ariaLabel: 'Clipboard history settings',
+      clear: 'Clear history',
+      clearing: 'Clearing history',
+      clearError: 'Could not clear clipboard history.',
+      title: 'Clipboard History',
+      unavailable: 'Clipboard history API is unavailable.',
+    },
+    data: {
+      ariaLabel: 'Data directory settings',
+      loading: 'Loading data directory',
+      open: 'Open',
+      opening: 'Opening',
+      openError: 'Data directory could not be opened.',
+      title: 'Data Directory',
+      unavailable: 'Data directory unavailable.',
+      unavailableApi: 'Data directory API unavailable.',
+    },
+    favorites: {
+      add: 'Add',
+      ariaLabel: 'Favorites settings',
+      deleteError: 'Favorite could not be deleted.',
+      empty: 'No favorites',
+      kinds: {
+        file: 'file',
+        folder: 'folder',
+        url: 'url',
+      },
+      keywords: 'Keywords',
+      kind: 'Kind',
+      loadError: 'Favorites could not be loaded.',
+      path: 'Path',
+      saveError: 'Favorite could not be saved.',
+      targetUrl: 'URL',
+      title: 'Favorites',
+      titleField: 'Title',
+      unavailable: 'Favorites API unavailable.',
+    },
+    hotkey: {
+      ariaLabel: 'Hotkey settings',
+      conflictHint: 'Press at least one modifier with a non-modifier key.',
+      record: 'Record shortcut',
+      saveError: 'Hotkey could not be saved.',
+      title: 'Hotkey',
+      waiting: 'Press shortcut',
+    },
+    language: {
+      ariaLabel: 'Language settings',
+      displayLanguage: 'Display language',
+      title: 'Language',
+    },
+    launcher: {
+      ariaLabel: 'Launcher settings',
+      disabled: 'clears each time',
+      enabled: 'kept',
+      preserveSearchQuery: 'Keep last search text',
+      title: 'Launcher',
+    },
+    loadError: 'Settings could not be loaded.',
+    plugin: {
+      ariaLabel: 'Plugin management settings',
+      disable: 'Disable',
+      disabled: 'Disabled',
+      enable: 'Enable',
+      enabled: 'Enabled',
+      empty: 'No local plugins installed',
+      install: 'Install local plugin',
+      loadError: 'Plugins could not be loaded.',
+      noPermissions: 'No permissions',
+      operationError: 'Plugin operation failed.',
+      pathLabel: 'Local plugin folder path',
+      pathRequired: 'Plugin folder path is required.',
+      title: 'Plugin Management',
+      uninstall: 'Uninstall',
+      unavailable: 'Plugin API unavailable.',
+    },
+    saveError: 'Settings could not be saved.',
+    settingsUnavailable: 'Settings API unavailable.',
+    startup: {
+      ariaLabel: 'Startup settings',
+      disabled: 'disabled',
+      enabled: 'enabled',
+      launchAtLogin: 'Launch at login',
+      title: 'Startup',
+    },
+    theme: {
+      ariaLabel: 'Theme settings',
+      mode: 'Theme mode',
+      options: {
+        dark: 'dark',
+        light: 'light',
+        system: 'system',
+      },
+      title: 'Theme',
+    },
+    title: 'Settings',
+  },
+};
+
+const uiStrings: Record<CommandCabinLanguage, UiStrings> = {
+  'en-US': enUsStrings,
+  'zh-CN': zhCnStrings,
+  'zh-TW': zhTwStrings,
+};
+
+export function getUiStrings(language: CommandCabinLanguage | undefined): UiStrings {
+  return uiStrings[language ?? DEFAULT_UI_LANGUAGE];
+}
+
+export function localizeLauncherResult(
+  result: LauncherResultItem,
+  strings: UiStrings,
+): LauncherResultItem {
+  const translated =
+    strings.launcher.systemCommands[result.id as keyof typeof strings.launcher.systemCommands];
+
+  if (!translated) {
+    return result;
+  }
+
+  return {
+    ...result,
+    title: translated.title,
+    subtitle: translated.subtitle,
+  };
+}

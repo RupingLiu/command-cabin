@@ -22,6 +22,7 @@
   "dependencies": {
     "@command-cabin/built-in-plugin-calculator": "workspace:*",
     "@command-cabin/built-in-plugin-clipboard-history": "workspace:*",
+    "@command-cabin/built-in-plugin-quick-converter": "workspace:*",
     "@command-cabin/built-in-plugin-text-tools": "workspace:*",
     "@command-cabin/core": "workspace:*",
     "react": "^19.2.6",

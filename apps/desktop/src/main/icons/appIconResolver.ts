@@ -32,9 +32,13 @@ export interface AppIconResolverOptions {
 }
 
 export interface AppIconResolver {
+  resolveCachedSearchResultIcon: (
+    result: LauncherCommandSearchResult,
+  ) => Promise<LauncherCommandSearchResult>;
   resolveSearchResultIcon: (
     result: LauncherCommandSearchResult,
   ) => Promise<LauncherCommandSearchResult>;
+  warmSearchResultIcon: (result: LauncherCommandSearchResult) => Promise<void>;
 }
 
 const ICON_INDEX_SUFFIX_PATTERN = /,\d+$/;
@@ -146,6 +150,7 @@ export function createAppIconResolver({
   const failedIconPaths = new Set<string>();
   const shortcutCandidateCache = new Map<string, string[]>();
   const failedShortcutPaths = new Set<string>();
+  const pendingResultIconResolutions = new Map<string, Promise<void>>();
 
   async function getFileIconDataUrl(iconPath: string): Promise<string | undefined> {
     let didTimeout = false;
@@ -526,28 +531,61 @@ export function createAppIconResolver({
     }
   }
 
+  async function resolveSearchResultIconData(
+    result: LauncherCommandSearchResult,
+    mode: 'cache-only' | 'resolve-native',
+  ): Promise<LauncherCommandSearchResult> {
+    const publicResult = createPublicSearchResult(result);
+
+    if (result.source !== 'app') {
+      return publicResult;
+    }
+
+    const resultIconCacheKey = createResultIconCacheKey(result);
+    const cachedResultIcon = await readCachedResultIcon(resultIconCacheKey);
+
+    if (cachedResultIcon !== undefined) {
+      return { ...publicResult, icon: cachedResultIcon };
+    }
+
+    if (mode === 'cache-only') {
+      return publicResult;
+    }
+
+    const resolvedIcon = await resolveIconDataUrl(getResultIconCandidates(result));
+
+    if (resolvedIcon !== undefined && resolvedIcon.cacheable) {
+      await writeCachedResultIcon(resultIconCacheKey, resolvedIcon.dataUrl);
+    }
+
+    return resolvedIcon ? { ...publicResult, icon: resolvedIcon.dataUrl } : publicResult;
+  }
+
+  async function warmSearchResultIcon(result: LauncherCommandSearchResult): Promise<void> {
+    if (result.source !== 'app') {
+      return;
+    }
+
+    const resultIconCacheKey = createResultIconCacheKey(result);
+    const pendingResolution = pendingResultIconResolutions.get(resultIconCacheKey);
+
+    if (pendingResolution !== undefined) {
+      return pendingResolution;
+    }
+
+    const resolution = resolveSearchResultIconData(result, 'resolve-native')
+      .then(() => undefined)
+      .finally(() => {
+        pendingResultIconResolutions.delete(resultIconCacheKey);
+      });
+
+    pendingResultIconResolutions.set(resultIconCacheKey, resolution);
+    return resolution;
+  }
+
   return {
-    resolveSearchResultIcon: async (result) => {
-      const publicResult = createPublicSearchResult(result);
-
-      if (result.source !== 'app') {
-        return publicResult;
-      }
-
-      const resultIconCacheKey = createResultIconCacheKey(result);
-      const cachedResultIcon = await readCachedResultIcon(resultIconCacheKey);
-
-      if (cachedResultIcon !== undefined) {
-        return { ...publicResult, icon: cachedResultIcon };
-      }
-
-      const resolvedIcon = await resolveIconDataUrl(getResultIconCandidates(result));
-
-      if (resolvedIcon !== undefined && resolvedIcon.cacheable) {
-        await writeCachedResultIcon(resultIconCacheKey, resolvedIcon.dataUrl);
-      }
-
-      return resolvedIcon ? { ...publicResult, icon: resolvedIcon.dataUrl } : publicResult;
-    },
+    resolveCachedSearchResultIcon: (result) => resolveSearchResultIconData(result, 'cache-only'),
+    resolveSearchResultIcon: (result) => resolveSearchResultIconData(result, 'resolve-native'),
+    warmSearchResultIcon,
   };
 }

@@ -44,6 +44,7 @@ import { createDesktopApplicationController } from './desktopApplication.js';
 import { createAltSpaceHotkeyCaptureController } from './hotkey/altSpaceHotkeyCapture.js';
 import { createAppIconResolver } from './icons/appIconResolver.js';
 import { createIconDataUrlCache, type IconDataUrlCache } from './icons/iconDataUrlCache.js';
+import { hydrateSearchResultsWithCachedIcons } from './icons/searchResultIconHydration.js';
 import { createWindowsAppUserModelIconResolver } from './icons/windowsAppUserModelIconResolver.js';
 import { startAppIndexing } from './launcher/appIndexStartup.js';
 import { listDesktopShortcutCommands } from './launcher/desktopShortcutCommands.js';
@@ -539,7 +540,9 @@ ipcMain.handle(SEARCH_COMMANDS_CHANNEL, async (_event, query: unknown) => {
     typeof query === 'string' ? query : '',
   );
 
-  return Promise.all(results.map((result) => appIconResolver.resolveSearchResultIcon(result)));
+  return hydrateSearchResultsWithCachedIcons(results, {
+    appIconResolver,
+  });
 });
 
 ipcMain.handle(EXECUTE_COMMAND_CHANNEL, (_event, commandId: unknown) =>

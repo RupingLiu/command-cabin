@@ -103,6 +103,75 @@ describe('createAppIconResolver', () => {
     expect(getFileIcon).not.toHaveBeenCalled();
   });
 
+  it('returns uncached app results without waiting for native icon resolution in cache-only mode', async () => {
+    const getFileIcon = vi.fn(() => new Promise<never>(() => undefined));
+    const iconDataUrlCache = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(async () => undefined),
+    };
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      iconDataUrlCache,
+    });
+
+    await expect(
+      resolver.resolveCachedSearchResultIcon({
+        iconCandidates: ['C:\\Program Files\\WPS Office\\ksolaunch.exe'],
+        id: 'app.wps',
+        score: 1,
+        source: 'app',
+        title: 'WPS Office',
+      }),
+    ).resolves.toEqual({
+      id: 'app.wps',
+      score: 1,
+      source: 'app',
+      title: 'WPS Office',
+    });
+
+    expect(getFileIcon).not.toHaveBeenCalled();
+    expect(iconDataUrlCache.write).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates background app icon warming for the same search result', async () => {
+    let resolveIcon: ((image: { toDataURL: () => string }) => void) | undefined;
+    const getFileIcon = vi.fn(
+      () =>
+        new Promise<{ toDataURL: () => string }>((resolve) => {
+          resolveIcon = resolve;
+        }),
+    );
+    const iconDataUrlCache = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(async () => undefined),
+    };
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      iconDataUrlCache,
+    });
+    const result = {
+      iconCandidates: ['C:\\Program Files\\WPS Office\\ksolaunch.exe'],
+      id: 'app.wps',
+      score: 1,
+      source: 'app',
+      title: 'WPS Office',
+    } as const;
+
+    const firstWarm = resolver.warmSearchResultIcon(result);
+    const secondWarm = resolver.warmSearchResultIcon(result);
+
+    await vi.waitFor(() => {
+      expect(getFileIcon).toHaveBeenCalledOnce();
+    });
+
+    resolveIcon?.({
+      toDataURL: () => 'data:image/png;base64,WPS',
+    });
+    await Promise.all([firstWarm, secondWarm]);
+
+    expect(iconDataUrlCache.write).toHaveBeenCalledOnce();
+  });
+
   it('stores resolved app result icons for future resolver instances', async () => {
     const getFileIcon = vi.fn(async () => ({
       toDataURL: () => 'data:image/png;base64,CODEX',

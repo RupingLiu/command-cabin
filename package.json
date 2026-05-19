@@ -1,6 +1,6 @@
 {
   "name": "command-cabin",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Windows-first cross-platform desktop productivity launcher.",
   "license": "MIT",

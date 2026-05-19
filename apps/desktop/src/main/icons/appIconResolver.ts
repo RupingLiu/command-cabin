@@ -49,6 +49,17 @@ function isImageDataUrl(icon: string): boolean {
   return icon.startsWith('data:image/');
 }
 
+function isAppUserModelIdCandidate(icon: string): boolean {
+  const separatorIndex = icon.indexOf('!');
+
+  return (
+    separatorIndex > 0 &&
+    separatorIndex < icon.length - 1 &&
+    !icon.includes('\\') &&
+    !icon.includes('/')
+  );
+}
+
 export function getIconFilePathCandidate(icon: string | undefined): string | undefined {
   if (!icon) {
     return undefined;
@@ -137,6 +148,16 @@ export function createAppIconResolver({
 
       if (isImageDataUrl(candidate)) {
         return candidate;
+      }
+
+      if (isAppUserModelIdCandidate(candidate)) {
+        const appUserModelIcon = await getAppUserModelIcon(candidate);
+
+        if (appUserModelIcon !== undefined) {
+          return appUserModelIcon;
+        }
+
+        continue;
       }
 
       const iconPath = expandEnvironmentVariables(candidate);

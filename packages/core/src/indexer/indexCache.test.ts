@@ -33,7 +33,7 @@ function createCacheWithContents(contents: string) {
 
 function createCachedSnapshot(command: unknown): string {
   return JSON.stringify({
-    version: 1,
+    version: 2,
     scannedAt: '2026-05-16T01:00:00.000Z',
     commands: [command],
   });
@@ -75,7 +75,7 @@ describe('app index cache', () => {
     const snapshot = await cache.read();
 
     expect(snapshot).toEqual({
-      version: 1,
+      version: 2,
       scannedAt: '2026-05-16T01:00:00.000Z',
       commands: [
         {
@@ -114,18 +114,30 @@ describe('app index cache', () => {
 
     expect(
       cache.isStale({
-        version: 1,
+        version: 2,
         scannedAt: '2026-05-16T01:00:59.999Z',
         commands: [],
       }),
     ).toBe(true);
     expect(
       cache.isStale({
-        version: 1,
+        version: 2,
         scannedAt: '2026-05-16T01:01:00.000Z',
         commands: [],
       }),
     ).toBe(false);
+  });
+
+  it('rejects legacy cache versions so scanner capability changes rebuild the index', async () => {
+    const cache = createCacheWithContents(
+      JSON.stringify({
+        version: 1,
+        scannedAt: '2026-05-16T01:00:00.000Z',
+        commands: [VALID_CACHED_COMMAND],
+      }),
+    );
+
+    await expect(cache.read()).rejects.toThrow('version must be 2');
   });
 
   it.each([

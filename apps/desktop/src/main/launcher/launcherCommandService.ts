@@ -172,6 +172,7 @@ function getAppIconCandidates(command: Command): string[] {
   const candidates: string[] = [];
 
   addIconCandidate(candidates, command.icon);
+  addIconCandidate(candidates, getStringPayloadValue(command.action.payload, 'appUserModelId'));
   addIconCandidate(candidates, getStringPayloadValue(command.action.payload, 'executablePath'));
   addIconCandidate(candidates, command.subtitle);
   addIconCandidate(candidates, getStringPayloadValue(command.action.payload, 'shortcutPath'));

@@ -15,7 +15,7 @@ function createCache(): AppIndexCache {
     write: async (commands) => {
       writtenCommands = commands.length;
       return {
-        version: 1,
+        version: 2,
         scannedAt: '2026-05-16T01:00:00.000Z',
         commands: [...commands],
       };
@@ -199,7 +199,7 @@ describe('app indexer', () => {
       scanner,
       cache: {
         read: async () => ({
-          version: 1,
+          version: 2,
           scannedAt: '2026-05-16T01:00:00.000Z',
           commands: [
             {
@@ -236,7 +236,7 @@ describe('app indexer', () => {
       scanner,
       cache: {
         read: async () => ({
-          version: 1,
+          version: 2,
           scannedAt: '2026-05-16T01:00:00.000Z',
           commands: [
             {
@@ -302,12 +302,12 @@ describe('app indexer', () => {
       scanner,
       cache: {
         read: async () => ({
-          version: 1,
+          version: 2,
           scannedAt: '2026-05-16T00:00:00.000Z',
           commands: [],
         }),
         write: async (commands) => ({
-          version: 1,
+          version: 2,
           scannedAt: '2026-05-16T01:00:00.000Z',
           commands: [...commands],
         }),
@@ -341,7 +341,7 @@ describe('app indexer', () => {
           throw new Error('Invalid app index cache at "apps.json": commands[0].source must be app');
         },
         write: async (commands) => ({
-          version: 1,
+          version: 2,
           scannedAt: '2026-05-16T01:00:00.000Z',
           commands: [...commands],
         }),

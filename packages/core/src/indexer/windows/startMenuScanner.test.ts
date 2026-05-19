@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  createWindowsAppsFolderScanner,
   createWindowsShortcutResolver,
   createWindowsStartMenuScanner,
   type ShortcutResolver,
@@ -15,7 +16,65 @@ function createFileSystem(
   };
 }
 
+const emptyAppsFolderScanner = {
+  scan: async () => ({
+    apps: [],
+    failures: [],
+  }),
+};
+
 describe('Windows start menu scanner', () => {
+  it('builds the default AppsFolder scanner and parses AppUserModelID entries', async () => {
+    const execFileCalls: Array<{
+      file: string;
+      args: readonly string[];
+      options: { windowsHide: true; timeout: number; encoding: 'utf8' };
+    }> = [];
+    const scanner = createWindowsAppsFolderScanner({
+      platform: 'win32',
+      timeoutMs: 12_345,
+      execFile: async (file, args, options) => {
+        execFileCalls.push({ file, args, options });
+
+        return {
+          stdout: JSON.stringify([
+            {
+              name: '1Password',
+              appUserModelId: 'DC5C6510.2032887045529_2v019pwa6amcg!Agilebits.OnePassword',
+            },
+            {
+              name: 'Broken',
+              appUserModelId: 'C:\\Program Files\\Broken\\Broken.exe',
+            },
+          ]),
+        };
+      },
+    });
+
+    await expect(scanner.scan()).resolves.toEqual({
+      apps: [
+        {
+          name: '1Password',
+          appUserModelId: 'DC5C6510.2032887045529_2v019pwa6amcg!Agilebits.OnePassword',
+        },
+      ],
+      failures: [],
+    });
+    expect(execFileCalls).toHaveLength(1);
+    expect(execFileCalls[0]?.file).toBe('powershell.exe');
+    expect(execFileCalls[0]?.options).toEqual({
+      windowsHide: true,
+      timeout: 12_345,
+      encoding: 'utf8',
+    });
+    const encodedCommand = execFileCalls[0]?.args[5];
+    expect(encodedCommand).toEqual(expect.any(String));
+
+    const commandScript = Buffer.from(encodedCommand ?? '', 'base64').toString('utf16le');
+    expect(commandScript).toContain("$shell.Namespace('shell:AppsFolder')");
+    expect(commandScript).toContain('$item.Path');
+  });
+
   it('builds the default PowerShell shortcut resolver without splitting paths that contain spaces', async () => {
     const shortcutPath = 'C:\\Start Menu\\Programs\\Sample App.lnk';
     const execFileCalls: Array<{
@@ -84,6 +143,7 @@ describe('Windows start menu scanner', () => {
 
   it('reports default resolver timeouts as shortcut scan failures', async () => {
     const scanner = createWindowsStartMenuScanner({
+      appsFolderScanner: emptyAppsFolderScanner,
       startMenuDirectories: ['C:\\StartMenu'],
       fileSystem: createFileSystem({
         'C:\\StartMenu': [{ name: 'Slow App.lnk', kind: 'file' }],
@@ -114,6 +174,7 @@ describe('Windows start menu scanner', () => {
   it('recursively scans configured start menu directories for shortcut entries', async () => {
     const resolvedShortcutPaths: string[] = [];
     const scanner = createWindowsStartMenuScanner({
+      appsFolderScanner: emptyAppsFolderScanner,
       startMenuDirectories: ['C:\\Users\\Ada\\Start Menu\\Programs'],
       fileSystem: createFileSystem({
         'C:\\Users\\Ada\\Start Menu\\Programs': [
@@ -158,9 +219,43 @@ describe('Windows start menu scanner', () => {
     expect(result.failures).toEqual([]);
   });
 
+  it('includes AppsFolder entries that do not have traditional shortcut files', async () => {
+    const scanner = createWindowsStartMenuScanner({
+      startMenuDirectories: ['C:\\StartMenu'],
+      fileSystem: createFileSystem({
+        'C:\\StartMenu': [],
+      }),
+      appsFolderScanner: {
+        scan: async () => ({
+          apps: [
+            {
+              name: '1Password',
+              appUserModelId: 'DC5C6510.2032887045529_2v019pwa6amcg!Agilebits.OnePassword',
+            },
+          ],
+          failures: [],
+        }),
+      },
+    });
+
+    await expect(scanner.scan()).resolves.toEqual({
+      shortcuts: [
+        {
+          name: '1Password',
+          appUserModelId: 'DC5C6510.2032887045529_2v019pwa6amcg!Agilebits.OnePassword',
+          opensApplication: true,
+          shortcutPath:
+            'shell:AppsFolder\\DC5C6510.2032887045529_2v019pwa6amcg!Agilebits.OnePassword',
+        },
+      ],
+      failures: [],
+    });
+  });
+
   it('scans configured desktop directories without recursing and keeps unresolved desktop shortcuts', async () => {
     const resolvedShortcutPaths: string[] = [];
     const scanner = createWindowsStartMenuScanner({
+      appsFolderScanner: emptyAppsFolderScanner,
       desktopDirectories: ['C:\\Users\\Ada\\Desktop'],
       startMenuDirectories: ['C:\\StartMenu'],
       fileSystem: createFileSystem({
@@ -213,6 +308,7 @@ describe('Windows start menu scanner', () => {
   it('ignores non-lnk files and entries that are neither files nor directories', async () => {
     const resolvedShortcutPaths: string[] = [];
     const scanner = createWindowsStartMenuScanner({
+      appsFolderScanner: emptyAppsFolderScanner,
       startMenuDirectories: ['C:\\StartMenu'],
       fileSystem: createFileSystem({
         'C:\\StartMenu': [
@@ -250,6 +346,7 @@ describe('Windows start menu scanner', () => {
       },
     };
     const scanner = createWindowsStartMenuScanner({
+      appsFolderScanner: emptyAppsFolderScanner,
       startMenuDirectories: ['C:\\StartMenu'],
       fileSystem: createFileSystem({
         'C:\\StartMenu': [

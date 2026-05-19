@@ -10,7 +10,7 @@ import {
   type StorageJsonValue,
 } from '../storage/database.js';
 
-const APP_INDEX_CACHE_VERSION = 1;
+const APP_INDEX_CACHE_VERSION = 2;
 const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const APP_INDEX_COMMAND_ACTION_TYPES = new Set<CommandActionType>(['open-app', 'open-path']);
 

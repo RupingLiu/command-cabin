@@ -5,6 +5,8 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_SHORTCUT_RESOLVER_TIMEOUT_MS = 5_000;
+const DEFAULT_APPS_FOLDER_SCANNER_TIMEOUT_MS = 3_000;
+const WINDOWS_APPS_FOLDER_PATH = 'shell:AppsFolder';
 
 export type StartMenuDirectoryEntryKind = 'file' | 'directory' | 'other';
 
@@ -63,6 +65,20 @@ export interface StartMenuScanFailure {
   message: string;
 }
 
+export interface AppsFolderApp {
+  name: string;
+  appUserModelId: string;
+}
+
+export interface AppsFolderScanResult {
+  apps: AppsFolderApp[];
+  failures: StartMenuScanFailure[];
+}
+
+export interface WindowsAppsFolderScanner {
+  scan: () => Promise<AppsFolderScanResult>;
+}
+
 export interface StartMenuScanResult {
   shortcuts: StartMenuShortcut[];
   failures: StartMenuScanFailure[];
@@ -78,6 +94,7 @@ export interface WindowsStartMenuScannerOptions {
   startMenuDirectories?: readonly string[];
   fileSystem?: StartMenuFileSystem;
   shortcutResolver?: ShortcutResolver;
+  appsFolderScanner?: WindowsAppsFolderScanner;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -86,6 +103,11 @@ interface PowerShellShortcutJson {
   arguments?: unknown;
   workingDirectory?: unknown;
   iconPath?: unknown;
+  appUserModelId?: unknown;
+}
+
+interface PowerShellAppsFolderAppJson {
+  name?: unknown;
   appUserModelId?: unknown;
 }
 
@@ -125,6 +147,34 @@ try {
 `;
 }
 
+function createPowerShellAppsFolderScannerScript(): string {
+  return `
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$apps = New-Object System.Collections.Generic.List[object]
+$shell = New-Object -ComObject Shell.Application
+$folder = $shell.Namespace('shell:AppsFolder')
+if ($null -ne $folder) {
+  foreach ($item in @($folder.Items())) {
+    $name = $item.Name
+    $appUserModelId = $item.Path
+    if (
+      $name -is [string] -and
+      $name.Trim().Length -gt 0 -and
+      $appUserModelId -is [string] -and
+      $appUserModelId.Contains('!') -and
+      -not $appUserModelId.Contains('\\')
+    ) {
+      [void]$apps.Add([pscustomobject]@{
+        name = $name
+        appUserModelId = $appUserModelId
+      })
+    }
+  }
+}
+$apps | ConvertTo-Json -Compress
+`;
+}
+
 function createEncodedPowerShellCommand(script: string): string {
   return Buffer.from(script, 'utf16le').toString('base64');
 }
@@ -143,6 +193,52 @@ function getOptionalString(value: unknown): string | undefined {
   }
 
   return value.length > 0 ? value : undefined;
+}
+
+function normalizeJsonArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [value];
+}
+
+function isValidAppUserModelId(value: string): boolean {
+  const trimmedValue = value.trim();
+  const separatorIndex = trimmedValue.indexOf('!');
+
+  return (
+    separatorIndex > 0 && separatorIndex < trimmedValue.length - 1 && !trimmedValue.includes('\\')
+  );
+}
+
+function parseAppsFolderScannerOutput(stdout: string): AppsFolderApp[] {
+  const trimmedOutput = stdout.trim();
+
+  if (trimmedOutput.length === 0) {
+    return [];
+  }
+
+  return normalizeJsonArray(JSON.parse(trimmedOutput))
+    .map((entry): AppsFolderApp | undefined => {
+      if (!entry || typeof entry !== 'object') {
+        return undefined;
+      }
+
+      const parsed = entry as PowerShellAppsFolderAppJson;
+      const name = getOptionalString(parsed.name);
+      const appUserModelId = getOptionalString(parsed.appUserModelId);
+
+      if (
+        name === undefined ||
+        appUserModelId === undefined ||
+        !isValidAppUserModelId(appUserModelId)
+      ) {
+        return undefined;
+      }
+
+      return {
+        name,
+        appUserModelId,
+      };
+    })
+    .filter((entry): entry is AppsFolderApp => entry !== undefined);
 }
 
 function createDefaultFileSystem(): StartMenuFileSystem {
@@ -261,6 +357,61 @@ export function createWindowsShortcutResolver(
   };
 }
 
+export function createWindowsAppsFolderScanner(
+  options: WindowsShortcutResolverOptions = {},
+): WindowsAppsFolderScanner {
+  const platform = options.platform ?? process.platform;
+  const runExecFile = options.execFile ?? defaultWindowsShortcutResolverExecFile;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_APPS_FOLDER_SCANNER_TIMEOUT_MS;
+
+  return {
+    scan: async () => {
+      if (platform !== 'win32') {
+        return {
+          apps: [],
+          failures: [],
+        };
+      }
+
+      try {
+        const { stdout } = await runExecFile(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-EncodedCommand',
+            createEncodedPowerShellCommand(createPowerShellAppsFolderScannerScript()),
+          ],
+          {
+            windowsHide: true,
+            timeout: timeoutMs,
+            encoding: 'utf8',
+          },
+        );
+
+        return {
+          apps: parseAppsFolderScannerOutput(stdout),
+          failures: [],
+        };
+      } catch (error) {
+        return {
+          apps: [],
+          failures: [
+            {
+              directoryPath: WINDOWS_APPS_FOLDER_PATH,
+              message: isExecFileTimeoutError(error)
+                ? `AppsFolder scan timed out after ${timeoutMs} ms.`
+                : formatThrownValue(error),
+            },
+          ],
+        };
+      }
+    },
+  };
+}
+
 function compareDirectoryEntries(
   left: StartMenuDirectoryEntry,
   right: StartMenuDirectoryEntry,
@@ -301,6 +452,15 @@ function mergeShortcut(
   }
 
   return shortcut;
+}
+
+function createAppsFolderShortcut(app: AppsFolderApp): StartMenuShortcut {
+  return {
+    name: app.name,
+    appUserModelId: app.appUserModelId,
+    opensApplication: true,
+    shortcutPath: `${WINDOWS_APPS_FOLDER_PATH}\\${app.appUserModelId}`,
+  };
 }
 
 export function getDefaultWindowsStartMenuDirectories(
@@ -348,6 +508,7 @@ export function createWindowsStartMenuScanner(
   const fileSystem = options.fileSystem ?? createDefaultFileSystem();
   const shortcutResolver = options.shortcutResolver ?? createWindowsShortcutResolver();
   const desktopShortcutResolver = options.desktopShortcutResolver ?? shortcutResolver;
+  const appsFolderScanner = options.appsFolderScanner ?? createWindowsAppsFolderScanner();
   const startMenuDirectories =
     options.startMenuDirectories ?? getDefaultWindowsStartMenuDirectories(options.env);
   const desktopDirectories = options.desktopDirectories ?? [];
@@ -428,6 +589,10 @@ export function createWindowsStartMenuScanner(
           shortcutResolver: desktopShortcutResolver,
         });
       }
+
+      const appsFolderResult = await appsFolderScanner.scan();
+      result.shortcuts.push(...appsFolderResult.apps.map(createAppsFolderShortcut));
+      result.failures.push(...appsFolderResult.failures);
 
       return result;
     },

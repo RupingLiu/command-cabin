@@ -203,12 +203,15 @@ export type {
   IndexCacheOptions,
 } from './indexer/indexCache.js';
 export {
+  createWindowsAppsFolderScanner,
   createWindowsShortcutResolver,
   createWindowsStartMenuScanner,
   getDefaultWindowsDesktopDirectories,
   getDefaultWindowsStartMenuDirectories,
 } from './indexer/windows/startMenuScanner.js';
 export type {
+  AppsFolderApp,
+  AppsFolderScanResult,
   ResolvedShortcut,
   ShortcutResolver,
   StartMenuDirectoryEntry,
@@ -217,6 +220,7 @@ export type {
   StartMenuScanFailure,
   StartMenuScanResult,
   StartMenuShortcut,
+  WindowsAppsFolderScanner,
   WindowsStartMenuScanner,
   WindowsStartMenuScannerOptions,
   WindowsShortcutResolverExecFile,

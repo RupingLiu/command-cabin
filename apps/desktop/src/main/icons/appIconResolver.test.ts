@@ -393,6 +393,34 @@ describe('createAppIconResolver', () => {
     expect(getFileIcon).not.toHaveBeenCalled();
   });
 
+  it('uses direct AppUserModelID icon candidates from AppsFolder commands', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,GENERIC',
+    }));
+    const resolveAppUserModelIcon = vi.fn(async () => 'data:image/png;base64,ONEPASSWORD');
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      resolveAppUserModelIcon,
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['DC5C6510.2032887045529_2v019pwa6amcg!Agilebits.OnePassword'],
+        id: 'app.1password',
+        score: 1,
+        source: 'app',
+        title: '1Password',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,ONEPASSWORD',
+    });
+
+    expect(resolveAppUserModelIcon).toHaveBeenCalledWith(
+      'DC5C6510.2032887045529_2v019pwa6amcg!Agilebits.OnePassword',
+    );
+    expect(getFileIcon).not.toHaveBeenCalled();
+  });
+
   it('uses packaged application image assets before generic executable icons', async () => {
     const getFileIcon = vi.fn(async () => ({
       toDataURL: () => 'data:image/png;base64,GENERIC_EXE',

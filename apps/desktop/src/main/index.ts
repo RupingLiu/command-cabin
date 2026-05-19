@@ -20,7 +20,6 @@ import {
   type AppIndexer,
   type CommandCabinDatabase,
   type CommandCabinSettingsStore,
-  type CommandPayload,
   type PluginRuntime,
   type PluginRepository,
 } from '@command-cabin/core';
@@ -48,6 +47,7 @@ import { createWindowsAppUserModelIconResolver } from './icons/windowsAppUserMod
 import { startAppIndexing } from './launcher/appIndexStartup.js';
 import { listDesktopShortcutCommands } from './launcher/desktopShortcutCommands.js';
 import { createExchangeRateCache } from './launcher/exchangeRateCache.js';
+import { createOpenAppCommand } from './launcher/openAppCommand.js';
 import {
   createAppCandidateService,
   listShortcutFilesInDirectories,
@@ -144,6 +144,10 @@ const appIconResolver = createAppIconResolver({
   },
   resolveAppUserModelIcon: (appUserModelId) => appUserModelIconResolver.resolve(appUserModelId),
   resolveShortcut: (path) => shortcutResolver.resolve(path),
+});
+const openAppCommand = createOpenAppCommand({
+  openExternal: (url) => shell.openExternal(url),
+  openPath: (path) => shell.openPath(path),
 });
 const pluginWebviewPolicyStore = createPluginWebviewPolicyStore({
   expectedPreloadPath: getPluginBridgePreloadPath(windowEntryPaths.preloadPath),
@@ -338,20 +342,6 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
       clipboard.writeText(text);
     },
   });
-}
-
-async function openAppCommand(payload: CommandPayload): Promise<void> {
-  const shortcutPath = payload.shortcutPath;
-
-  if (typeof shortcutPath !== 'string' || shortcutPath.trim().length === 0) {
-    throw new Error('App shortcut path is missing.');
-  }
-
-  const errorMessage = await shell.openPath(shortcutPath);
-
-  if (errorMessage.trim().length > 0) {
-    throw new Error(errorMessage);
-  }
 }
 
 function createPersistentClipboardHistoryRuntime(

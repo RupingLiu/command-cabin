@@ -6,13 +6,14 @@ import { getUiStrings, localizeLauncherResult } from '../i18n.js';
 interface ResultItemProps {
   id: string;
   index: number;
+  isManageable?: boolean | undefined;
   isDisabled: boolean;
   isSelected: boolean;
   language?: CommandCabinLanguage | undefined;
   onExecute: () => void;
-  onOpenPinnedAppMenu?:
+  onOpenAppMenu?:
     | ((
-        favoriteId: string,
+        result: LauncherResultItem,
         position: {
           x: number;
           y: number;
@@ -35,11 +36,12 @@ function isImageDataUrl(icon: string | undefined): icon is string {
 export function ResultItem({
   id,
   index,
+  isManageable = false,
   isDisabled,
   isSelected,
   language,
   onExecute,
-  onOpenPinnedAppMenu,
+  onOpenAppMenu,
   onSelect,
   result: rawResult,
   variant = 'detailed',
@@ -47,17 +49,16 @@ export function ResultItem({
   const isCompact = variant === 'compact';
   const strings = getUiStrings(language);
   const result = localizeLauncherResult(rawResult, strings);
-  const canOpenPinnedAppMenu =
-    result.source === 'app' && result.favoriteId !== undefined && onOpenPinnedAppMenu !== undefined;
+  const canOpenAppMenu = result.source === 'app' && isManageable && onOpenAppMenu !== undefined;
 
   return (
     <li
-      aria-haspopup={canOpenPinnedAppMenu ? 'menu' : undefined}
+      aria-haspopup={canOpenAppMenu ? 'menu' : undefined}
       aria-disabled={isDisabled}
       aria-selected={isSelected}
       className={isCompact ? 'result-item result-item--recent-app' : 'result-item'}
       data-disabled={isDisabled}
-      data-manageable={canOpenPinnedAppMenu}
+      data-manageable={canOpenAppMenu}
       data-selected={isSelected}
       id={id}
       onClick={() => {
@@ -74,13 +75,13 @@ export function ResultItem({
         }
       }}
       onContextMenu={(event) => {
-        if (!canOpenPinnedAppMenu) {
+        if (!canOpenAppMenu) {
           return;
         }
 
         event.preventDefault();
         onSelect(index);
-        onOpenPinnedAppMenu(result.favoriteId!, {
+        onOpenAppMenu(result, {
           x: event.clientX,
           y: event.clientY,
         });

@@ -19,10 +19,12 @@ function createAppResult(overrides: Partial<LauncherResultItem> = {}): LauncherR
 
 function renderResultList({
   onAddPinnedApp,
+  onRemoveRecentApp,
   query,
   results,
 }: {
   onAddPinnedApp?: (() => void) | undefined;
+  onRemoveRecentApp?: ((commandId: string) => void) | undefined;
   query: string;
   results: LauncherResultItem[];
 }): string {
@@ -33,6 +35,7 @@ function renderResultList({
       listboxId: 'launcher-results-listbox',
       onAddPinnedApp,
       onExecute: vi.fn(),
+      onRemoveRecentApp,
       onSelect: vi.fn(),
       query,
       results,
@@ -74,6 +77,17 @@ describe('ResultList', () => {
     expect(markup).toContain('result-list--recent-apps');
     expect(markup).toContain('result-item--add-app');
     expect(markup).toContain('添加应用');
+  });
+
+  it('lets recent app tiles expose a context menu when recent removal is available', () => {
+    const markup = renderResultList({
+      onRemoveRecentApp: vi.fn(),
+      query: '',
+      results: [createAppResult()],
+    });
+
+    expect(markup).toContain('aria-haspopup="menu"');
+    expect(markup).toContain('data-manageable="true"');
   });
 
   it('renders an add app tile for an empty blank query instead of an empty state', () => {

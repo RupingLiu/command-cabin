@@ -18,6 +18,7 @@ interface ResultListProps {
   onEditPinnedApp?: ((favoriteId: string) => void) | undefined;
   onExecute: () => void;
   onRemovePinnedApp?: ((favoriteId: string) => void) | undefined;
+  onRemoveRecentApp?: ((commandId: string) => void) | undefined;
   onSelect: (index: number) => void;
   query: string;
   results: LauncherResultItem[];
@@ -71,7 +72,8 @@ function LoadingRows({ ariaLabel, listboxId }: { ariaLabel: string; listboxId: s
 }
 
 interface PinnedAppMenuState {
-  favoriteId: string;
+  favoriteId?: string | undefined;
+  commandId: string;
   x: number;
   y: number;
 }
@@ -120,6 +122,7 @@ export function ResultList({
   onEditPinnedApp,
   onExecute,
   onRemovePinnedApp,
+  onRemoveRecentApp,
   onSelect,
   language,
   query,
@@ -129,7 +132,18 @@ export function ResultList({
 }: ResultListProps) {
   const strings = getUiStrings(language);
   const [pinnedAppMenu, setPinnedAppMenu] = useState<PinnedAppMenuState | undefined>(undefined);
-  const canManagePinnedApps = onEditPinnedApp !== undefined || onRemovePinnedApp !== undefined;
+
+  function canManageAppResult(result: LauncherResultItem): boolean {
+    if (result.source !== 'app') {
+      return false;
+    }
+
+    if (result.favoriteId !== undefined) {
+      return onEditPinnedApp !== undefined || onRemovePinnedApp !== undefined;
+    }
+
+    return onRemoveRecentApp !== undefined;
+  }
 
   useEffect(() => {
     if (pinnedAppMenu === undefined) {
@@ -217,15 +231,17 @@ export function ResultList({
           <ResultItem
             id={getLauncherOptionId(result.id)}
             index={index}
+            isManageable={canManageAppResult(result)}
             isDisabled={isExecutionDisabled}
             isSelected={index === selectedIndex}
             key={result.id}
             language={language}
-            onOpenPinnedAppMenu={
-              canManagePinnedApps
-                ? (favoriteId, position) => {
+            onOpenAppMenu={
+              canManageAppResult(result)
+                ? (menuResult, position) => {
                     setPinnedAppMenu({
-                      favoriteId,
+                      commandId: menuResult.id,
+                      favoriteId: menuResult.favoriteId,
                       x: position.x,
                       y: position.y,
                     });
@@ -254,12 +270,17 @@ export function ResultList({
             event.stopPropagation();
           }}
         >
-          {onEditPinnedApp ? (
+          {pinnedAppMenu.favoriteId !== undefined && onEditPinnedApp ? (
             <button
               role="menuitem"
               type="button"
               onClick={() => {
-                const { favoriteId } = pinnedAppMenu;
+                const favoriteId = pinnedAppMenu.favoriteId;
+
+                if (favoriteId === undefined) {
+                  return;
+                }
+
                 setPinnedAppMenu(undefined);
                 onEditPinnedApp(favoriteId);
               }}
@@ -267,14 +288,32 @@ export function ResultList({
               {strings.launcher.pinnedAppMenu.edit}
             </button>
           ) : null}
-          {onRemovePinnedApp ? (
+          {pinnedAppMenu.favoriteId !== undefined && onRemovePinnedApp ? (
             <button
               role="menuitem"
               type="button"
               onClick={() => {
-                const { favoriteId } = pinnedAppMenu;
+                const favoriteId = pinnedAppMenu.favoriteId;
+
+                if (favoriteId === undefined) {
+                  return;
+                }
+
                 setPinnedAppMenu(undefined);
                 onRemovePinnedApp(favoriteId);
+              }}
+            >
+              {strings.launcher.pinnedAppMenu.remove}
+            </button>
+          ) : null}
+          {pinnedAppMenu.favoriteId === undefined && onRemoveRecentApp ? (
+            <button
+              role="menuitem"
+              type="button"
+              onClick={() => {
+                const { commandId } = pinnedAppMenu;
+                setPinnedAppMenu(undefined);
+                onRemoveRecentApp(commandId);
               }}
             >
               {strings.launcher.pinnedAppMenu.remove}

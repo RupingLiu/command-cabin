@@ -55,6 +55,7 @@ export interface LauncherCommandService {
   executeCommand: (commandId: string) => Promise<CommandExecutionResult>;
   listFavorites: () => FavoriteRecord[];
   removeFavorite: (id: string) => boolean;
+  removeRecentApp: (commandId: string) => boolean;
   searchCommands: (query: string) => Promise<LauncherCommandSearchResult[]>;
   updatePinnedApp: (
     id: string,
@@ -72,6 +73,7 @@ export interface LauncherPinnedAppInput {
 
 export interface LauncherCommandServiceOptions {
   actionHandlers?: CommandActionHandlers;
+  appVersion?: string | undefined;
   appCommands?: () => readonly Command[];
   clipboardHistoryRepository?: ClipboardHistoryRepository;
   commandRegistry?: CommandRegistry;
@@ -86,60 +88,67 @@ export interface LauncherCommandServiceOptions {
   writeClipboardText?: (text: string) => Promise<void> | void;
 }
 
-const DEMO_COMMANDS: readonly Command[] = [
-  {
-    id: 'system.open-settings',
-    source: 'system',
-    title: 'Open Settings',
-    subtitle: 'CommandCabin preferences',
-    keywords: ['settings', 'preferences', 'configuration'],
-    action: {
-      type: 'run-system',
-      payload: {
-        command: 'open-settings',
+function createSystemCommands(appVersion: string | undefined): readonly Command[] {
+  const versionText =
+    appVersion !== undefined && appVersion.trim().length > 0
+      ? `CommandCabin ${appVersion.trim()}`
+      : 'CommandCabin version unavailable';
+
+  return [
+    {
+      id: 'system.open-settings',
+      source: 'system',
+      title: 'Open Settings',
+      subtitle: 'CommandCabin preferences',
+      keywords: ['settings', 'preferences', 'configuration'],
+      action: {
+        type: 'run-system',
+        payload: {
+          command: 'open-settings',
+        },
       },
     },
-  },
-  {
-    id: 'system.reload-launcher',
-    source: 'system',
-    title: 'Reload Launcher',
-    subtitle: 'Refresh the desktop shell',
-    keywords: ['reload', 'refresh', 'restart'],
-    action: {
-      type: 'run-system',
-      payload: {
-        command: 'reload-launcher',
+    {
+      id: 'system.reload-launcher',
+      source: 'system',
+      title: 'Reload Launcher',
+      subtitle: 'Refresh the desktop shell',
+      keywords: ['reload', 'refresh', 'restart'],
+      action: {
+        type: 'run-system',
+        payload: {
+          command: 'reload-launcher',
+        },
       },
     },
-  },
-  {
-    id: 'system.copy-version',
-    source: 'system',
-    title: 'Copy Version Info',
-    subtitle: 'Copy runtime details for diagnostics',
-    keywords: ['copy', 'version', 'diagnostics'],
-    action: {
-      type: 'copy-text',
-      payload: {
-        text: 'CommandCabin 0.1.0',
+    {
+      id: 'system.copy-version',
+      source: 'system',
+      title: 'Copy Version Info',
+      subtitle: 'Copy runtime details for diagnostics',
+      keywords: ['copy', 'version', 'diagnostics'],
+      action: {
+        type: 'copy-text',
+        payload: {
+          text: versionText,
+        },
       },
     },
-  },
-  {
-    id: 'system.open-diagnostics',
-    source: 'system',
-    title: 'Open Diagnostics',
-    subtitle: 'Runtime and startup details',
-    keywords: ['diagnostics', 'logs', 'status'],
-    action: {
-      type: 'run-system',
-      payload: {
-        command: 'open-diagnostics',
+    {
+      id: 'system.open-diagnostics',
+      source: 'system',
+      title: 'Open Diagnostics',
+      subtitle: 'Runtime and startup details',
+      keywords: ['diagnostics', 'logs', 'status'],
+      action: {
+        type: 'run-system',
+        payload: {
+          command: 'open-diagnostics',
+        },
       },
     },
-  },
-];
+  ];
+}
 
 function getStringPayloadValue(payload: CommandPayload, key: string): string | undefined {
   const value = payload[key];
@@ -332,7 +341,7 @@ export function createLauncherCommandService(
   const options: LauncherCommandServiceOptions = isCommandList(optionsOrCommands)
     ? { commands: optionsOrCommands }
     : optionsOrCommands;
-  const commands = options.commands ?? DEMO_COMMANDS;
+  const commands = options.commands ?? createSystemCommands(options.appVersion);
   const registry = options.commandRegistry ?? createCommandRegistry();
   const appCommandIds = new Set<string>();
   const clipboardHistoryCommandIds = new Set<string>();
@@ -784,6 +793,13 @@ export function createLauncherCommandService(
       }
 
       return removed;
+    },
+    removeRecentApp: (commandId) => {
+      if (!options.historyRepository) {
+        return false;
+      }
+
+      return options.historyRepository.removeByCommandId(commandId);
     },
     searchCommands: async (query) => {
       refreshAppCommands();

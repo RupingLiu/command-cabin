@@ -80,7 +80,7 @@ describe('createAppCandidateService', () => {
 
     await expect(service.listCandidates('')).resolves.toMatchObject([
       {
-        iconCandidates: [],
+        iconCandidates: ['C:\\Users\\Ada\\Desktop\\Codex.lnk'],
         resolutionStatus: 'unresolved-shortcut',
         shortcutPath: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
         source: 'desktop',
@@ -113,6 +113,7 @@ describe('createAppCandidateService', () => {
         iconCandidates: [
           'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe,0',
           'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe',
+          'C:\\Users\\Ada\\Desktop\\Codex.lnk',
         ],
         iconPath: 'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe,0',
         resolutionStatus: 'resolved',
@@ -133,7 +134,7 @@ describe('createAppCandidateService', () => {
 
     await expect(service.listCandidates('claude')).resolves.toMatchObject([
       {
-        iconCandidates: [],
+        iconCandidates: ['C:\\Users\\Ada\\Desktop\\Claude.lnk'],
         resolutionStatus: 'unresolved-shortcut',
         shortcutPath: 'C:\\Users\\Ada\\Desktop\\Claude.lnk',
         source: 'desktop',

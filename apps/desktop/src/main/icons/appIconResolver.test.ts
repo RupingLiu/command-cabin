@@ -129,15 +129,187 @@ describe('createAppIconResolver', () => {
       Promise.race([resultPromise, Promise.resolve('still-pending')]),
     ).resolves.toMatchObject({
       favoriteId: 'favorite-codex',
+      icon: 'data:image/png;base64,LNK',
       id: 'favorite.codex',
       source: 'app',
       title: 'Codex',
     });
-    expect(getFileIcon).not.toHaveBeenCalled();
+    expect(getFileIcon).toHaveBeenCalledWith('C:\\Users\\Ada\\Desktop\\Codex.lnk');
     expect(logger.warn).toHaveBeenCalledOnce();
   });
 
-  it('does not read native icons from unresolved shortcut files', async () => {
+  it('retries executable icon paths after a timeout instead of poisoning the cache', async () => {
+    vi.useFakeTimers();
+    let attempt = 0;
+    const resolver = createAppIconResolver({
+      getFileIcon: vi.fn(() => {
+        attempt += 1;
+
+        if (attempt === 1) {
+          return new Promise(() => undefined);
+        }
+
+        return Promise.resolve({
+          toDataURL: () => 'data:image/png;base64,RECOVERED',
+        });
+      }),
+      iconTimeoutMs: 25,
+      logger: {
+        warn: vi.fn(),
+      },
+    });
+    const firstResultPromise = resolver.resolveSearchResultIcon({
+      iconCandidates: ['C:\\Program Files\\Slow\\Slow.exe'],
+      id: 'app.slow',
+      score: 1,
+      source: 'app',
+      title: 'Slow',
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(firstResultPromise).resolves.not.toHaveProperty('icon');
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['C:\\Program Files\\Slow\\Slow.exe'],
+        id: 'app.slow',
+        score: 1,
+        source: 'app',
+        title: 'Slow',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,RECOVERED',
+    });
+  });
+
+  it('does not keep timed-out shortcut expansions as permanent weak fallbacks', async () => {
+    vi.useFakeTimers();
+    let shortcutAttempts = 0;
+    const getFileIcon = vi.fn(async (iconPath: string) => ({
+      toDataURL: () => `data:image/png;base64,${iconPath.endsWith('.lnk') ? 'LNK' : 'EXE'}`,
+    }));
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      logger: {
+        warn: vi.fn(),
+      },
+      resolveShortcut: vi.fn(() => {
+        shortcutAttempts += 1;
+
+        if (shortcutAttempts === 1) {
+          return new Promise(() => undefined);
+        }
+
+        return Promise.resolve({
+          targetPath: 'C:\\Program Files\\Slow\\Slow.exe',
+        });
+      }),
+      shortcutTimeoutMs: 25,
+    });
+    const firstResultPromise = resolver.resolveSearchResultIcon({
+      iconCandidates: ['C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Slow.lnk'],
+      id: 'app.slow',
+      score: 1,
+      source: 'app',
+      title: 'Slow',
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(firstResultPromise).resolves.toMatchObject({
+      icon: 'data:image/png;base64,LNK',
+    });
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Slow.lnk'],
+        id: 'app.slow',
+        score: 1,
+        source: 'app',
+        title: 'Slow',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,EXE',
+    });
+  });
+
+  it('does not show generic shortcut icons when executable candidates are available', async () => {
+    vi.useFakeTimers();
+    const getFileIcon = vi.fn((iconPath: string) => {
+      if (iconPath.endsWith('.exe')) {
+        return new Promise(() => undefined);
+      }
+
+      return Promise.resolve({
+        toDataURL: () => 'data:image/png;base64,LNK',
+      });
+    });
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      iconTimeoutMs: 25,
+      logger: {
+        warn: vi.fn(),
+      },
+      resolveShortcut: vi.fn(async () => {
+        throw new Error('shortcut unavailable');
+      }),
+    });
+    const resultPromise = resolver.resolveSearchResultIcon({
+      iconCandidates: [
+        'C:\\Program Files\\Slow\\Slow.exe',
+        'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Slow.lnk',
+      ],
+      id: 'app.slow',
+      score: 1,
+      source: 'app',
+      title: 'Slow',
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(resultPromise).resolves.not.toHaveProperty('icon');
+    expect(getFileIcon).toHaveBeenCalledWith('C:\\Program Files\\Slow\\Slow.exe');
+    expect(getFileIcon).not.toHaveBeenCalledWith(
+      'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Slow.lnk',
+    );
+  });
+
+  it('waits long enough for normal Windows shortcut metadata by default', async () => {
+    vi.useFakeTimers();
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,LNK',
+    }));
+    const resolveAppUserModelIcon = vi.fn(async () => 'data:image/png;base64,CODEX');
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      resolveAppUserModelIcon,
+      resolveShortcut: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              resolve({
+                appUserModelId: 'OpenAI.Codex_2p2nqsd0c76g0!App',
+                iconPath: ',0',
+              });
+            }, 325);
+          }),
+      ),
+    });
+    const resultPromise = resolver.resolveSearchResultIcon({
+      iconCandidates: ['C:\\Users\\Ada\\Desktop\\Codex.lnk'],
+      id: 'app.codex',
+      score: 1,
+      source: 'app',
+      title: 'Codex',
+    });
+
+    await vi.advanceTimersByTimeAsync(325);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      icon: 'data:image/png;base64,CODEX',
+    });
+  });
+
+  it('uses native shortcut icons when shortcut resolution fails', async () => {
     const logger = { warn: vi.fn() };
     const getFileIcon = vi.fn(async () => ({
       toDataURL: () => 'data:image/png;base64,LNK',
@@ -161,12 +333,105 @@ describe('createAppIconResolver', () => {
       }),
     ).resolves.toMatchObject({
       favoriteId: 'favorite-codex',
+      icon: 'data:image/png;base64,LNK',
       id: 'favorite.codex',
       source: 'app',
       title: 'Codex',
     });
-    expect(getFileIcon).not.toHaveBeenCalled();
+    expect(getFileIcon).toHaveBeenCalledWith('C:\\Users\\Ada\\Desktop\\Codex.lnk');
     expect(logger.warn).toHaveBeenCalledOnce();
+  });
+
+  it('uses native shortcut icons when no shortcut resolver is configured', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,LNK',
+    }));
+    const resolver = createAppIconResolver({ getFileIcon });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['C:\\Users\\Ada\\Desktop\\Codex.lnk'],
+        id: 'app.codex',
+        score: 1,
+        source: 'app',
+        title: 'Codex',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,LNK',
+    });
+
+    expect(getFileIcon).toHaveBeenCalledWith('C:\\Users\\Ada\\Desktop\\Codex.lnk');
+  });
+
+  it('uses AppUserModelID icons before native shortcut icons', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,GENERIC_SHORTCUT',
+    }));
+    const resolveAppUserModelIcon = vi.fn(async () => 'data:image/png;base64,CODEX');
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      resolveAppUserModelIcon,
+      resolveShortcut: vi.fn(async () => ({
+        appUserModelId: 'OpenAI.Codex_2p2nqsd0c76g0!App',
+        iconPath: ',0',
+      })),
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['C:\\Users\\Ada\\Desktop\\Codex.lnk'],
+        id: 'app.codex',
+        score: 1,
+        source: 'app',
+        title: 'Codex',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,CODEX',
+    });
+
+    expect(resolveAppUserModelIcon).toHaveBeenCalledWith('OpenAI.Codex_2p2nqsd0c76g0!App');
+    expect(getFileIcon).not.toHaveBeenCalled();
+  });
+
+  it('uses packaged application image assets before generic executable icons', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,GENERIC_EXE',
+    }));
+    const fileExists = vi.fn(async (iconPath: string) =>
+      iconPath.endsWith('\\resources\\app\\static\\logo-256x256.png'),
+    );
+    const readImageDataUrl = vi.fn(async () => 'data:image/png;base64,UGIT');
+    const resolver = createAppIconResolver({
+      fileExists,
+      getFileIcon,
+      readImageDataUrl,
+      resolveShortcut: vi.fn(async () => ({
+        iconPath: 'C:\\Users\\Ada\\AppData\\Local\\UGit\\UGit.exe,0',
+        targetPath: 'C:\\Users\\Ada\\AppData\\Local\\UGit\\UGit.exe',
+        workingDirectory: 'C:\\Users\\Ada\\AppData\\Local\\UGit\\app-5.47.1',
+      })),
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: [
+          'C:\\Users\\Ada\\AppData\\Local\\UGit\\UGit.exe,0',
+          'C:\\Users\\Ada\\AppData\\Local\\UGit\\UGit.exe',
+          'C:\\Users\\Ada\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\UGit.lnk',
+        ],
+        id: 'app.ugit',
+        score: 1,
+        source: 'app',
+        title: 'UGit',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,UGIT',
+    });
+
+    expect(readImageDataUrl).toHaveBeenCalledWith(
+      'C:\\Users\\Ada\\AppData\\Local\\UGit\\app-5.47.1\\resources\\app\\static\\logo-256x256.png',
+    );
+    expect(getFileIcon).not.toHaveBeenCalled();
   });
 
   it('skips invalid icon locations and tries executable candidates before shortcuts', async () => {
@@ -197,7 +462,7 @@ describe('createAppIconResolver', () => {
     expect(getFileIcon).toHaveBeenCalledWith('C:\\Program Files\\Tencent\\Weixin\\Weixin.exe');
   });
 
-  it('skips shortcut candidates when executable icon resolution fails', async () => {
+  it('uses shortcut candidates when executable icon resolution fails', async () => {
     const getFileIcon = vi.fn(async (path: string) => {
       if (path.endsWith('.exe')) {
         throw new Error('executable icon unavailable');
@@ -226,18 +491,48 @@ describe('createAppIconResolver', () => {
         title: '微信',
       }),
     ).resolves.toMatchObject({
-      id: 'app.wechat',
-      source: 'app',
-      title: '微信',
+      icon: 'data:image/png;base64,SHORTCUT',
     });
 
-    expect(getFileIcon).toHaveBeenCalledOnce();
+    expect(getFileIcon).toHaveBeenCalledTimes(2);
   });
 
-  it('does not resolve shortcut fallbacks when a direct icon candidate is present', async () => {
-    const getFileIcon = vi.fn(async () => {
-      throw new Error('direct icon unavailable');
+  it('uses direct executable candidates before weak shortcut fallbacks when shortcut resolution fails', async () => {
+    const getFileIcon = vi.fn(async (iconPath: string) => ({
+      toDataURL: () => `data:image/png;base64,${iconPath.endsWith('.lnk') ? 'LNK' : 'EXE'}`,
+    }));
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      logger: {
+        warn: vi.fn(),
+      },
+      resolveShortcut: vi.fn(async () => {
+        throw new Error('shortcut unavailable');
+      }),
     });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        id: 'app.wps',
+        iconCandidates: [
+          'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+          'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\WPS Office.lnk',
+        ],
+        score: 1,
+        source: 'app',
+        title: 'WPS Office',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,EXE',
+    });
+
+    expect(getFileIcon).toHaveBeenCalledWith('C:\\Program Files\\WPS Office\\ksolaunch.exe');
+  });
+
+  it('resolves shortcut metadata even when a direct icon candidate is present', async () => {
+    const getFileIcon = vi.fn(async (iconPath: string) => ({
+      toDataURL: () => `data:image/png;base64,${iconPath.endsWith('.lnk') ? 'LNK' : 'EXE'}`,
+    }));
     const resolveShortcut = vi.fn(async () => ({
       targetPath: 'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe',
     }));
@@ -261,13 +556,13 @@ describe('createAppIconResolver', () => {
         title: 'Codex',
       }),
     ).resolves.toMatchObject({
-      id: 'app.codex',
-      source: 'app',
-      title: 'Codex',
+      icon: 'data:image/png;base64,EXE',
     });
 
-    expect(getFileIcon).toHaveBeenCalledOnce();
-    expect(resolveShortcut).not.toHaveBeenCalled();
+    expect(getFileIcon).toHaveBeenCalledWith(
+      'C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe',
+    );
+    expect(resolveShortcut).toHaveBeenCalledOnce();
   });
 
   it('leaves non-app results and icon failures usable', async () => {

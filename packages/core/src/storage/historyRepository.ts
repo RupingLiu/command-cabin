@@ -104,6 +104,7 @@ export interface HistoryRepository {
   recordExecution: (input: RecordCommandExecutionInput) => CommandHistoryEntry;
   getByCommandId: (commandId: string) => CommandHistoryEntry | undefined;
   listRecent: (limit?: number) => CommandHistoryEntry[];
+  removeByCommandId: (commandId: string) => boolean;
   clear: () => void;
 }
 
@@ -160,6 +161,9 @@ export function createHistoryRepository(database: CommandCabinDatabase): History
     `,
   );
   const clearHistory = database.prepare('DELETE FROM command_history');
+  const deleteByCommandId = database.prepare<[string]>(
+    'DELETE FROM command_history WHERE command_id = ?',
+  );
 
   return {
     recordExecution: (input) => {
@@ -195,6 +199,7 @@ export function createHistoryRepository(database: CommandCabinDatabase): History
     },
     listRecent: (limit = DEFAULT_RECENT_HISTORY_LIMIT) =>
       selectRecent.all(normalizeRecentHistoryLimit(limit)).map(mapCommandHistoryRow),
+    removeByCommandId: (commandId) => deleteByCommandId.run(commandId).changes > 0,
     clear: () => {
       clearHistory.run();
     },

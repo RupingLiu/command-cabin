@@ -76,6 +76,35 @@ describe('SQLite command history repository', () => {
     }
   });
 
+  it('removes one command history entry by command id', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createHistoryRepository(database);
+
+      repository.recordExecution({
+        commandId: 'app.wps',
+        title: 'WPS Office',
+        source: 'app',
+        executedAt: new Date('2026-05-15T10:00:00.000Z'),
+      });
+      repository.recordExecution({
+        commandId: 'app.notepad',
+        title: 'Notepad',
+        source: 'app',
+        executedAt: new Date('2026-05-15T10:01:00.000Z'),
+      });
+
+      expect(repository.removeByCommandId('app.wps')).toBe(true);
+      expect(repository.getByCommandId('app.wps')).toBeUndefined();
+      expect(repository.listRecent().map((entry) => entry.commandId)).toEqual(['app.notepad']);
+      expect(repository.removeByCommandId('app.missing')).toBe(false);
+    } finally {
+      database.close();
+    }
+  });
+
   it('returns no rows for a zero recent-history limit', () => {
     const database = openInMemoryCommandCabinDatabase();
 

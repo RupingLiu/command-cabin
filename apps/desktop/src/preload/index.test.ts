@@ -12,6 +12,7 @@ import {
   OPEN_DATA_DIRECTORY_CHANNEL,
   OPEN_SETTINGS_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
+  REMOVE_RECENT_APP_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
   STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
@@ -180,6 +181,10 @@ describe('preload desktopApi settings bridge', () => {
     electronMock.invoke.mockResolvedValueOnce(true);
     await expect(api.removePlugin(plugin.id)).resolves.toBe(true);
     expect(electronMock.invoke).toHaveBeenLastCalledWith(REMOVE_PLUGIN_CHANNEL, plugin.id);
+
+    electronMock.invoke.mockResolvedValueOnce(true);
+    await expect(api.removeRecentApp('app.wps')).resolves.toBe(true);
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(REMOVE_RECENT_APP_CHANNEL, 'app.wps');
 
     electronMock.invoke.mockResolvedValueOnce({ path: 'C:\\CommandCabin' });
     await expect(api.getDataDirectory()).resolves.toEqual({ path: 'C:\\CommandCabin' });

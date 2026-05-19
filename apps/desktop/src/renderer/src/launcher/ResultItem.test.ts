@@ -79,14 +79,38 @@ describe('ResultItem', () => {
       createElement(ResultItem, {
         id: 'launcher-option-app-codex',
         index: 0,
+        isManageable: true,
         isDisabled: false,
         isSelected: true,
         onExecute: vi.fn(),
-        onOpenPinnedAppMenu: vi.fn(),
+        onOpenAppMenu: vi.fn(),
         onSelect: vi.fn(),
         result: createResult({
           favoriteId: 'favorite-codex',
           id: 'favorite.codex',
+          title: 'Codex',
+        }),
+        variant: 'compact',
+      }),
+    );
+
+    expect(markup).toContain('aria-haspopup="menu"');
+    expect(markup).toContain('data-manageable="true"');
+  });
+
+  it('marks recent app results as context-menu manageable when the list can remove them', () => {
+    const markup = renderToStaticMarkup(
+      createElement(ResultItem, {
+        id: 'launcher-option-app-codex',
+        index: 0,
+        isManageable: true,
+        isDisabled: false,
+        isSelected: true,
+        onExecute: vi.fn(),
+        onOpenAppMenu: vi.fn(),
+        onSelect: vi.fn(),
+        result: createResult({
+          id: 'app.codex',
           title: 'Codex',
         }),
         variant: 'compact',
@@ -102,10 +126,11 @@ describe('ResultItem', () => {
       createElement(ResultItem, {
         id: 'launcher-option-file-docs',
         index: 0,
+        isManageable: true,
         isDisabled: false,
         isSelected: false,
         onExecute: vi.fn(),
-        onOpenPinnedAppMenu: vi.fn(),
+        onOpenAppMenu: vi.fn(),
         onSelect: vi.fn(),
         result: createResult({
           favoriteId: 'favorite-docs',

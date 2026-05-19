@@ -86,6 +86,7 @@ interface PowerShellShortcutJson {
   arguments?: unknown;
   workingDirectory?: unknown;
   iconPath?: unknown;
+  appUserModelId?: unknown;
 }
 
 function createPowerShellShortcutResolverScript(shortcutPath: string): string {
@@ -96,11 +97,30 @@ function createPowerShellShortcutResolverScript(shortcutPath: string): string {
 $ShortcutPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encodedShortcutPath}'))
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($ShortcutPath)
+$appUserModelId = $null
+try {
+  $shellApplication = New-Object -ComObject Shell.Application
+  $folderPath = [System.IO.Path]::GetDirectoryName($ShortcutPath)
+  $fileName = [System.IO.Path]::GetFileName($ShortcutPath)
+  $folder = $shellApplication.Namespace($folderPath)
+  if ($null -ne $folder) {
+    $item = $folder.ParseName($fileName)
+    if ($null -ne $item) {
+      $linkTarget = $folder.GetDetailsOf($item, 204)
+      if ($linkTarget -is [string] -and $linkTarget.Contains('!') -and -not $linkTarget.Contains('\\')) {
+        $appUserModelId = $linkTarget
+      }
+    }
+  }
+} catch {
+  $appUserModelId = $null
+}
 [pscustomobject]@{
   targetPath = $shortcut.TargetPath
   arguments = $shortcut.Arguments
   workingDirectory = $shortcut.WorkingDirectory
   iconPath = $shortcut.IconLocation
+  appUserModelId = $appUserModelId
 } | ConvertTo-Json -Compress
 `;
 }
@@ -218,6 +238,7 @@ export function createWindowsShortcutResolver(
       const shortcutArguments = getOptionalString(parsed.arguments);
       const workingDirectory = getOptionalString(parsed.workingDirectory);
       const iconPath = getOptionalString(parsed.iconPath);
+      const appUserModelId = getOptionalString(parsed.appUserModelId);
 
       if (targetPath !== undefined) {
         shortcut.targetPath = targetPath;
@@ -230,6 +251,9 @@ export function createWindowsShortcutResolver(
       }
       if (iconPath !== undefined) {
         shortcut.iconPath = iconPath;
+      }
+      if (appUserModelId !== undefined) {
+        shortcut.appUserModelId = appUserModelId;
       }
 
       return shortcut;

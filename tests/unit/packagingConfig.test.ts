@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 
 const repoRoot = process.cwd();
 const builderConfigPath = join(repoRoot, 'electron-builder.yml');
+const rootPackagePath = join(repoRoot, 'package.json');
 const desktopPackagePath = join(repoRoot, 'apps', 'desktop', 'package.json');
 const installerIncludePath = join(repoRoot, 'apps', 'desktop', 'build', 'installer.nsh');
 const afterPackIconHookPath = join(
@@ -16,9 +17,20 @@ const afterPackIconHookPath = join(
   'after-pack-windows-icon.cjs',
 );
 const windowsIconPath = join(repoRoot, 'apps', 'desktop', 'build', 'icon.ico');
+const versioningPolicyPath = join(repoRoot, 'docs', 'product', 'versioning-policy.md');
 const unpackedAppPath = join(repoRoot, 'release', 'win-unpacked');
 const unpackedResourcesAppPath = join(unpackedAppPath, 'resources', 'app');
-const installerPath = join(repoRoot, 'release', 'CommandCabin-0.1.0-x64-Setup.exe');
+const workspacePackagePaths = [
+  rootPackagePath,
+  desktopPackagePath,
+  join(repoRoot, 'packages', 'core', 'package.json'),
+  join(repoRoot, 'packages', 'plugin-api', 'package.json'),
+  join(repoRoot, 'packages', 'built-in-plugins', 'calculator', 'package.json'),
+  join(repoRoot, 'packages', 'built-in-plugins', 'clipboard-history', 'package.json'),
+  join(repoRoot, 'packages', 'built-in-plugins', 'quick-converter', 'package.json'),
+  join(repoRoot, 'packages', 'built-in-plugins', 'text-tools', 'package.json'),
+] as const;
+const strictProductVersionPattern = /^\d+\.\d+\.\d+$/;
 
 interface BuilderConfig {
   afterPack?: string;
@@ -65,6 +77,12 @@ interface DesktopPackageJson {
   main?: string;
   productName?: string;
   scripts?: Record<string, string>;
+  version?: string;
+}
+
+interface PackageJson {
+  name?: string;
+  version?: string;
 }
 
 interface PackagedAppMetadata {
@@ -80,6 +98,24 @@ function readBuilderConfig(): BuilderConfig {
 
 function readDesktopPackageJson(): DesktopPackageJson {
   return JSON.parse(readFileSync(desktopPackagePath, 'utf8')) as DesktopPackageJson;
+}
+
+function readPackageJson(path: string): PackageJson {
+  return JSON.parse(readFileSync(path, 'utf8')) as PackageJson;
+}
+
+function readRootPackageVersion(): string {
+  const version = readPackageJson(rootPackagePath).version;
+
+  if (version === undefined) {
+    throw new Error('Root package version is missing.');
+  }
+
+  return version;
+}
+
+function getInstallerPath(): string {
+  return join(repoRoot, 'release', `CommandCabin-${readRootPackageVersion()}-x64-Setup.exe`);
 }
 
 function readIcoDirectory(path: string): { bitsPerPixel: number; height: number; width: number } {
@@ -116,6 +152,31 @@ function listFilesRecursive(directory: string): string[] {
 }
 
 describe('desktop packaging configuration', () => {
+  test('documents the CommandCabin x.y.z product version policy', () => {
+    const policy = readFileSync(versioningPolicyPath, 'utf8');
+
+    expect(policy).toContain('x.y.z');
+    expect(policy).toContain('x:');
+    expect(policy).toContain('y:');
+    expect(policy).toContain('z:');
+    expect(policy).toContain('breaking');
+    expect(policy).toContain('user-visible');
+    expect(policy).toContain('Bug fixes');
+  });
+
+  test('keeps workspace package versions aligned to strict x.y.z', () => {
+    const rootPackage = readPackageJson(rootPackagePath);
+
+    expect(rootPackage.version).toMatch(strictProductVersionPattern);
+
+    for (const packagePath of workspacePackagePaths) {
+      const packageJson = readPackageJson(packagePath);
+
+      expect(packageJson.version).toBe(rootPackage.version);
+      expect(packageJson.version).toMatch(strictProductVersionPattern);
+    }
+  });
+
   test('uses an explicit root electron-builder project with the desktop app directory', () => {
     const config = readBuilderConfig();
 
@@ -224,7 +285,7 @@ describe('desktop packaging configuration', () => {
       main: 'out/main/index.js',
       name: 'command-cabin',
       productName: 'CommandCabin',
-      version: '0.1.0',
+      version: readRootPackageVersion(),
     });
     expect(appFiles).toEqual(expect.arrayContaining(['/out/main/index.js']));
     expect(appFiles.some((path) => path.endsWith('.tsbuildinfo'))).toBe(false);
@@ -235,6 +296,8 @@ describe('desktop packaging configuration', () => {
   });
 
   test('NSIS installer artifact is present after dist:win packaging has run', () => {
+    const installerPath = getInstallerPath();
+
     if (!existsSync(installerPath)) {
       return;
     }

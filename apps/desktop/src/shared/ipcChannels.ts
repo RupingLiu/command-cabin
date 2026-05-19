@@ -14,6 +14,7 @@ export const LIST_APP_CANDIDATES_CHANNEL = 'command-cabin:list-app-candidates';
 export const UPDATE_PINNED_APP_CHANNEL = 'command-cabin:update-pinned-app';
 export const UPDATE_FAVORITE_CHANNEL = 'command-cabin:update-favorite';
 export const REMOVE_FAVORITE_CHANNEL = 'command-cabin:remove-favorite';
+export const REMOVE_RECENT_APP_CHANNEL = 'command-cabin:remove-recent-app';
 export const CLEAR_CLIPBOARD_HISTORY_CHANNEL = 'command-cabin:clear-clipboard-history';
 export const REGISTER_PLUGIN_HOST_ENTRY_CHANNEL = 'command-cabin:register-plugin-host-entry';
 export const RELEASE_PLUGIN_HOST_ENTRY_CHANNEL = 'command-cabin:release-plugin-host-entry';

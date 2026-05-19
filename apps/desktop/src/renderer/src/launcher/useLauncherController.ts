@@ -235,6 +235,7 @@ const fallbackDesktopApi: DesktopApi = {
   },
   removeFavorite: async () => false,
   removePlugin: async () => false,
+  removeRecentApp: async () => false,
   searchCommands: async (query) => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -735,6 +736,21 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     [desktopApi, refreshCurrentQuery],
   );
 
+  const removeRecentApp = useCallback(
+    async (commandId: string) => {
+      try {
+        await desktopApi.removeRecentApp(commandId);
+        refreshCurrentQuery();
+      } catch (error) {
+        dispatch({
+          errorMessage: formatUnknownError(error, 'Recent app could not be removed.'),
+          type: 'execution-failed',
+        });
+      }
+    },
+    [desktopApi, refreshCurrentQuery],
+  );
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
       const intent = getLauncherKeyIntent(event.key, isHorizontalLauncherNavigation(state));
@@ -870,6 +886,7 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     selectResult,
     setQuery,
     removePinnedApp,
+    removeRecentApp,
     state,
   };
 }

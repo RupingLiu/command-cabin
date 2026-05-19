@@ -14,8 +14,10 @@ import type { AppCandidate } from '../../shared/appCandidatesApi.js';
 import type { LauncherPinnedAppInput } from './launcherCommandService.js';
 
 export interface ResolvedAppShortcut {
+  appUserModelId?: string | undefined;
   iconPath?: string | undefined;
   targetPath?: string | undefined;
+  workingDirectory?: string | undefined;
 }
 
 export interface InternalAppCandidate extends AppCandidate {
@@ -203,6 +205,7 @@ async function createDesktopCandidate(
 
   addCandidateValue(iconCandidates, iconPath);
   addCandidateValue(iconCandidates, executablePath);
+  addCandidateValue(iconCandidates, shortcutPath);
 
   const title = createDesktopShortcutTitle(shortcutPath);
   const candidate: InternalAppCandidate = {

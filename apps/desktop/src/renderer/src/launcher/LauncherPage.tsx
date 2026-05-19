@@ -89,6 +89,7 @@ export function LauncherPage({ language, onOpenPluginPage, onOpenSettings }: Lau
     selectResult,
     setQuery,
     removePinnedApp,
+    removeRecentApp,
     state,
   } = useLauncherController({
     onOpenPluginPage,
@@ -142,6 +143,7 @@ export function LauncherPage({ language, onOpenPluginPage, onOpenSettings }: Lau
           onEditPinnedApp={editPinnedApp}
           onExecute={executeSelectedCommand}
           onRemovePinnedApp={removePinnedApp}
+          onRemoveRecentApp={removeRecentApp}
           onSelect={selectResult}
           query={state.query}
           results={state.results}

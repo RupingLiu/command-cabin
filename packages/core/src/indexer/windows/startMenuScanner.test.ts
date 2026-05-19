@@ -35,6 +35,7 @@ describe('Windows start menu scanner', () => {
             arguments: '--new-window',
             workingDirectory: 'C:\\用户\\Ada\\工作区',
             iconPath: 'C:\\Program Files\\示例\\图标.ico',
+            appUserModelId: 'Sample.App_abc123!App',
           }),
         };
       },
@@ -47,6 +48,7 @@ describe('Windows start menu scanner', () => {
       arguments: '--new-window',
       workingDirectory: 'C:\\用户\\Ada\\工作区',
       iconPath: 'C:\\Program Files\\示例\\图标.ico',
+      appUserModelId: 'Sample.App_abc123!App',
     });
     expect(execFileCalls).toHaveLength(1);
     expect(execFileCalls[0]?.file).toBe('powershell.exe');
@@ -75,6 +77,7 @@ describe('Windows start menu scanner', () => {
     expect(embeddedPath).toEqual(expect.any(String));
     expect(Buffer.from(embeddedPath ?? '', 'base64').toString('utf8')).toBe(shortcutPath);
     expect(commandScript).toContain('$shell.CreateShortcut($ShortcutPath)');
+    expect(commandScript).toContain('$folder.GetDetailsOf($item, 204)');
     expect(commandScript).not.toContain(shortcutPath);
     expect(commandScript).not.toContain('$args[0]');
   });

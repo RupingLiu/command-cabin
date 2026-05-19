@@ -7,14 +7,19 @@ export interface AppIconNativeImage {
 }
 
 export interface AppIconResolvedShortcut {
+  appUserModelId?: string | undefined;
   iconPath?: string | undefined;
   targetPath?: string | undefined;
+  workingDirectory?: string | undefined;
 }
 
 export interface AppIconResolverOptions {
+  fileExists?: ((path: string) => Promise<boolean>) | undefined;
   getFileIcon: (path: string) => Promise<AppIconNativeImage>;
   iconTimeoutMs?: number;
   logger?: Pick<Console, 'warn'>;
+  readImageDataUrl?: ((path: string) => Promise<string | undefined>) | undefined;
+  resolveAppUserModelIcon?: ((appUserModelId: string) => Promise<string | undefined>) | undefined;
   resolveShortcut?: ((path: string) => Promise<AppIconResolvedShortcut>) | undefined;
   shortcutTimeoutMs?: number;
 }
@@ -28,7 +33,17 @@ export interface AppIconResolver {
 const ICON_INDEX_SUFFIX_PATTERN = /,\d+$/;
 const ENV_VAR_PATTERN = /%([^%]+)%/g;
 const DEFAULT_ICON_TIMEOUT_MS = 700;
-const DEFAULT_SHORTCUT_TIMEOUT_MS = 250;
+const DEFAULT_SHORTCUT_TIMEOUT_MS = 750;
+const IMAGE_FILE_EXTENSIONS = new Set(['.ico', '.jpg', '.jpeg', '.png', '.webp']);
+const PACKAGED_APP_ASSET_PATHS = [
+  ['resources', 'app', 'static', 'logo-256x256.png'],
+  ['resources', 'app', 'static', 'icon-logo.ico'],
+  ['resources', 'app', 'static', 'icon.png'],
+  ['resources', 'app', 'build', 'icon.ico'],
+  ['resources', 'app', 'assets', 'icon.png'],
+  ['resources', 'app', 'icon.png'],
+  ['resources', 'app', 'icon.ico'],
+];
 
 function isImageDataUrl(icon: string): boolean {
   return icon.startsWith('data:image/');
@@ -65,9 +80,12 @@ function createPublicSearchResult(
 }
 
 export function createAppIconResolver({
+  fileExists,
   getFileIcon,
   iconTimeoutMs = DEFAULT_ICON_TIMEOUT_MS,
   logger = console,
+  readImageDataUrl,
+  resolveAppUserModelIcon,
   resolveShortcut,
   shortcutTimeoutMs = DEFAULT_SHORTCUT_TIMEOUT_MS,
 }: AppIconResolverOptions): AppIconResolver {
@@ -101,7 +119,6 @@ export function createAppIconResolver({
     }
 
     if (didTimeout) {
-      failedIconPaths.add(iconPath);
       logger.warn('Timed out resolving app icon.', new Error(`Icon path: ${iconPath}`));
     }
 
@@ -134,7 +151,7 @@ export function createAppIconResolver({
       }
 
       try {
-        const dataUrl = await getFileIconDataUrl(iconPath);
+        const dataUrl = (await getImageDataUrl(iconPath)) ?? (await getFileIconDataUrl(iconPath));
 
         if (dataUrl !== undefined) {
           iconCache.set(iconPath, dataUrl);
@@ -149,24 +166,24 @@ export function createAppIconResolver({
     return undefined;
   }
 
+  async function getImageDataUrl(iconPath: string): Promise<string | undefined> {
+    if (readImageDataUrl === undefined || !isImageFilePath(iconPath)) {
+      return undefined;
+    }
+
+    return readImageDataUrl(iconPath);
+  }
+
+  function isImageFilePath(iconPath: string): boolean {
+    return IMAGE_FILE_EXTENSIONS.has(path.extname(iconPath).toLowerCase());
+  }
+
   function isShortcutPath(iconPath: string): boolean {
     return path.extname(iconPath).toLowerCase() === '.lnk';
   }
 
-  function hasDirectIconCandidate(candidates: readonly (string | undefined)[]): boolean {
-    return candidates.some((icon) => {
-      const candidate = getIconFilePathCandidate(icon);
-
-      if (!candidate) {
-        return false;
-      }
-
-      if (isImageDataUrl(candidate)) {
-        return true;
-      }
-
-      return !isShortcutPath(expandEnvironmentVariables(candidate));
-    });
+  function createShortcutFallbackCandidates(shortcutPath: string): string[] {
+    return [shortcutPath];
   }
 
   async function getShortcutCandidates(shortcutPath: string): Promise<string[]> {
@@ -177,20 +194,24 @@ export function createAppIconResolver({
     }
 
     if (resolveShortcut === undefined || failedShortcutPaths.has(shortcutPath)) {
-      return [];
+      return createShortcutFallbackCandidates(shortcutPath);
     }
 
     try {
       const resolvedShortcut = await resolveShortcutData(shortcutPath);
 
       if (resolvedShortcut === undefined) {
-        failedShortcutPaths.add(shortcutPath);
-        return [];
+        const fallbackCandidates = createShortcutFallbackCandidates(shortcutPath);
+        return fallbackCandidates;
       }
 
       const candidates: string[] = [];
 
+      const appUserModelIcon = await getAppUserModelIcon(resolvedShortcut.appUserModelId);
+
       for (const candidate of [
+        appUserModelIcon,
+        ...(await getPackagedAppAssetCandidates(resolvedShortcut)),
         resolvedShortcut.iconPath,
         resolvedShortcut.targetPath,
         shortcutPath,
@@ -205,8 +226,60 @@ export function createAppIconResolver({
     } catch (error) {
       failedShortcutPaths.add(shortcutPath);
       logger.warn('Failed to resolve app shortcut icon candidates.', error);
+      const fallbackCandidates = createShortcutFallbackCandidates(shortcutPath);
+      shortcutCandidateCache.set(shortcutPath, fallbackCandidates);
+      return fallbackCandidates;
+    }
+  }
+
+  async function getAppUserModelIcon(
+    appUserModelId: string | undefined,
+  ): Promise<string | undefined> {
+    if (appUserModelId === undefined || resolveAppUserModelIcon === undefined) {
+      return undefined;
+    }
+
+    try {
+      return await resolveAppUserModelIcon(appUserModelId);
+    } catch (error) {
+      logger.warn('Failed to resolve AppUserModelID app icon.', error);
+      return undefined;
+    }
+  }
+
+  async function getPackagedAppAssetCandidates(
+    resolvedShortcut: AppIconResolvedShortcut,
+  ): Promise<string[]> {
+    if (fileExists === undefined || readImageDataUrl === undefined) {
       return [];
     }
+
+    const rootDirectories = new Set<string>();
+
+    if (resolvedShortcut.workingDirectory !== undefined) {
+      rootDirectories.add(resolvedShortcut.workingDirectory);
+    }
+    if (resolvedShortcut.targetPath !== undefined) {
+      rootDirectories.add(path.dirname(resolvedShortcut.targetPath));
+    }
+
+    const existingCandidates: string[] = [];
+
+    for (const rootDirectory of rootDirectories) {
+      for (const assetPath of PACKAGED_APP_ASSET_PATHS) {
+        const candidate = path.join(rootDirectory, ...assetPath);
+
+        try {
+          if ((await fileExists(candidate)) && !existingCandidates.includes(candidate)) {
+            existingCandidates.push(candidate);
+          }
+        } catch (error) {
+          logger.warn('Failed to check packaged app icon candidate.', error);
+        }
+      }
+    }
+
+    return existingCandidates;
   }
 
   async function resolveShortcutData(
@@ -251,7 +324,9 @@ export function createAppIconResolver({
     candidates: readonly (string | undefined)[],
   ): Promise<string[]> {
     const expandedCandidates: string[] = [];
-    const shouldResolveShortcuts = !hasDirectIconCandidate(candidates);
+    const dataUrlCandidates: string[] = [];
+    const directCandidates: string[] = [];
+    const shortcutCandidates: string[] = [];
 
     for (const icon of candidates) {
       const candidate = getIconFilePathCandidate(icon);
@@ -261,25 +336,77 @@ export function createAppIconResolver({
       }
 
       if (isImageDataUrl(candidate)) {
-        expandedCandidates.push(candidate);
+        dataUrlCandidates.push(candidate);
         continue;
       }
 
       const iconPath = expandEnvironmentVariables(candidate);
-      const nextCandidates = isShortcutPath(iconPath)
-        ? shouldResolveShortcuts
-          ? await getShortcutCandidates(iconPath)
-          : []
-        : [iconPath];
 
-      for (const nextCandidate of nextCandidates) {
-        if (!expandedCandidates.includes(nextCandidate)) {
-          expandedCandidates.push(nextCandidate);
-        }
+      if (isShortcutPath(iconPath)) {
+        shortcutCandidates.push(iconPath);
+      } else {
+        directCandidates.push(iconPath);
       }
     }
 
+    pushUniqueCandidates(expandedCandidates, dataUrlCandidates);
+
+    if (resolveShortcut !== undefined) {
+      const weakShortcutFallbackCandidates: string[] = [];
+
+      for (const shortcutPath of shortcutCandidates) {
+        const nextCandidates = await getShortcutCandidates(shortcutPath);
+
+        if (isWeakShortcutExpansion(shortcutPath, nextCandidates)) {
+          pushUniqueCandidates(weakShortcutFallbackCandidates, nextCandidates);
+          continue;
+        }
+
+        pushUniqueCandidates(expandedCandidates, nextCandidates);
+      }
+
+      pushUniqueCandidates(expandedCandidates, directCandidates);
+      if (directCandidates.length === 0) {
+        pushUniqueCandidates(expandedCandidates, weakShortcutFallbackCandidates);
+      }
+    } else {
+      pushUniqueCandidates(expandedCandidates, directCandidates);
+      pushUniqueCandidates(expandedCandidates, shortcutCandidates);
+    }
+
     return expandedCandidates;
+  }
+
+  function isWeakShortcutExpansion(shortcutPath: string, candidates: readonly string[]): boolean {
+    const meaningfulCandidates = candidates
+      .map((candidate) => getIconFilePathCandidate(candidate))
+      .filter((candidate): candidate is string => candidate !== undefined);
+
+    if (meaningfulCandidates.length === 0) {
+      return true;
+    }
+
+    const normalizedShortcutPath = normalizeCandidatePath(shortcutPath);
+
+    return meaningfulCandidates.every((candidate) => {
+      if (isImageDataUrl(candidate)) {
+        return false;
+      }
+
+      return normalizeCandidatePath(candidate) === normalizedShortcutPath;
+    });
+  }
+
+  function normalizeCandidatePath(candidate: string): string {
+    return expandEnvironmentVariables(candidate).trim().toLowerCase();
+  }
+
+  function pushUniqueCandidates(target: string[], candidates: readonly string[]): void {
+    for (const candidate of candidates) {
+      if (!target.includes(candidate)) {
+        target.push(candidate);
+      }
+    }
   }
 
   return {

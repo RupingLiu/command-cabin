@@ -20,6 +20,7 @@ import {
   OPEN_SETTINGS_CHANNEL,
   REMOVE_FAVORITE_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
+  REMOVE_RECENT_APP_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
@@ -135,6 +136,7 @@ export interface DesktopApi {
   pluginHost: PluginHostPreloadApi;
   removeFavorite: (id: string) => Promise<boolean>;
   removePlugin: (id: string) => Promise<boolean>;
+  removeRecentApp: (commandId: string) => Promise<boolean>;
   searchCommands: (query: string) => Promise<LauncherCommandSearchResult[]>;
   setPluginEnabled: (id: string, enabled: boolean) => Promise<PluginListRecord | undefined>;
   startHotkeyInputCapture: () => Promise<boolean>;
@@ -325,6 +327,14 @@ const desktopApi = {
   removePlugin: async (id) =>
     parsePluginRemovalResult(
       await ipcRenderer.invoke(REMOVE_PLUGIN_CHANNEL, parseNonEmptyString(id, 'Plugin id')),
+    ),
+  removeRecentApp: async (commandId) =>
+    parseBoolean(
+      await ipcRenderer.invoke(
+        REMOVE_RECENT_APP_CHANNEL,
+        parseNonEmptyString(commandId, 'Recent app command id'),
+      ),
+      'Recent app removal response',
     ),
   searchCommands: async (query) =>
     parseLauncherCommandSearchResults(await ipcRenderer.invoke(SEARCH_COMMANDS_CHANNEL, query)),

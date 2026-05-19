@@ -31,16 +31,19 @@ import {
   dialog,
   globalShortcut,
   ipcMain,
+  nativeImage,
   shell,
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
 } from 'electron';
+import { access } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createDesktopApplicationController } from './desktopApplication.js';
 import { createAltSpaceHotkeyCaptureController } from './hotkey/altSpaceHotkeyCapture.js';
 import { createAppIconResolver } from './icons/appIconResolver.js';
+import { createWindowsAppUserModelIconResolver } from './icons/windowsAppUserModelIconResolver.js';
 import { startAppIndexing } from './launcher/appIndexStartup.js';
 import { listDesktopShortcutCommands } from './launcher/desktopShortcutCommands.js';
 import { createExchangeRateCache } from './launcher/exchangeRateCache.js';
@@ -90,6 +93,7 @@ import {
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
   REMOVE_FAVORITE_CHANNEL,
+  REMOVE_RECENT_APP_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
@@ -113,8 +117,25 @@ const shortcutResolver = createWindowsShortcutResolver();
 const appCandidateShortcutResolver = createWindowsShortcutResolver({
   timeoutMs: 750,
 });
+const appUserModelIconResolver = createWindowsAppUserModelIconResolver({
+  logger: console,
+});
 const appIconResolver = createAppIconResolver({
+  fileExists: async (path) => {
+    try {
+      await access(path);
+      return true;
+    } catch {
+      return false;
+    }
+  },
   getFileIcon: (path) => app.getFileIcon(path),
+  readImageDataUrl: async (path) => {
+    const image = nativeImage.createFromPath(path);
+
+    return image.isEmpty() ? undefined : image.toDataURL();
+  },
+  resolveAppUserModelIcon: (appUserModelId) => appUserModelIconResolver.resolve(appUserModelId),
   resolveShortcut: (path) => shortcutResolver.resolve(path),
 });
 const pluginWebviewPolicyStore = createPluginWebviewPolicyStore({
@@ -269,6 +290,7 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
     actionHandlers: {
       'run-plugin': pluginRuntime.createRunPluginCommandHandler(),
     },
+    appVersion: app.getVersion(),
     appCommands: getLauncherAppCommands,
     clipboardHistoryRepository,
     commandRegistry,
@@ -547,6 +569,10 @@ ipcMain.handle(UPDATE_FAVORITE_CHANNEL, (_event, id: unknown, input: unknown) =>
 
 ipcMain.handle(REMOVE_FAVORITE_CHANNEL, (_event, id: unknown) =>
   launcherCommandService.removeFavorite(parseFavoriteId(id)),
+);
+
+ipcMain.handle(REMOVE_RECENT_APP_CHANNEL, (_event, commandId: unknown) =>
+  launcherCommandService.removeRecentApp(typeof commandId === 'string' ? commandId : ''),
 );
 
 ipcMain.handle(CLEAR_CLIPBOARD_HISTORY_CHANNEL, () =>

@@ -46,6 +46,27 @@ describe('launcher command service', () => {
     });
   });
 
+  it('copies the injected app version for diagnostics', async () => {
+    const copiedText: string[] = [];
+    const service = createLauncherCommandService({
+      appVersion: '1.2.3',
+      writeClipboardText: (text) => {
+        copiedText.push(text);
+      },
+    });
+
+    await expect(service.executeCommand('system.copy-version')).resolves.toMatchObject({
+      actionType: 'copy-text',
+      commandId: 'system.copy-version',
+      metadata: {
+        copied: true,
+        text: 'CommandCabin 1.2.3',
+      },
+      status: 'success',
+    });
+    expect(copiedText).toEqual(['CommandCabin 1.2.3']);
+  });
+
   it('returns a calculator result for math queries and copies it on execution', async () => {
     const copiedText: string[] = [];
     const service = createLauncherCommandService({
@@ -728,6 +749,64 @@ describe('launcher command service', () => {
       await service.executeCommand('app.notepad');
       includeWps = false;
 
+      await expect(service.searchCommands('')).resolves.toMatchObject([
+        {
+          id: 'app.notepad',
+        },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('removes a recent app entry from the home screen without touching other history', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const historyRepository = createHistoryRepository(database);
+      const service = createLauncherCommandService({
+        appCommands: () => [
+          {
+            id: 'app.wps',
+            source: 'app',
+            title: 'WPS Office',
+            subtitle: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+            keywords: ['wps office'],
+            action: {
+              type: 'open-app',
+              payload: {
+                executablePath: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+                shortcutPath: 'C:\\Users\\Ada\\Start Menu\\Programs\\WPS Office.lnk',
+              },
+            },
+          },
+          {
+            id: 'app.notepad',
+            source: 'app',
+            title: 'Notepad',
+            subtitle: 'C:\\Windows\\System32\\notepad.exe',
+            keywords: ['notepad'],
+            action: {
+              type: 'open-app',
+              payload: {
+                executablePath: 'C:\\Windows\\System32\\notepad.exe',
+                shortcutPath:
+                  'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Notepad.lnk',
+              },
+            },
+          },
+        ],
+        commands: [],
+        historyRepository,
+        openApp: () => undefined,
+      });
+
+      await service.executeCommand('app.wps');
+      await service.executeCommand('app.notepad');
+
+      expect(service.removeRecentApp('app.wps')).toBe(true);
+      expect(service.removeRecentApp('app.missing')).toBe(false);
       await expect(service.searchCommands('')).resolves.toMatchObject([
         {
           id: 'app.notepad',

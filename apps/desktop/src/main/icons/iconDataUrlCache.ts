@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const DEFAULT_MAX_ENTRIES = 256;
 
 export interface IconDataUrlCache {

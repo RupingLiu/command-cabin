@@ -520,6 +520,32 @@ describe('createAppIconResolver', () => {
     expect(getFileIcon).not.toHaveBeenCalled();
   });
 
+  it('uses AppUserModelID icons from shell AppsFolder candidates instead of generic shell icons', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,GENERIC_SHELL',
+    }));
+    const resolveAppUserModelIcon = vi.fn(async () => 'data:image/png;base64,CODEX');
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      resolveAppUserModelIcon,
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App'],
+        id: 'app.codex',
+        score: 1,
+        source: 'app',
+        title: 'Codex',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,CODEX',
+    });
+
+    expect(resolveAppUserModelIcon).toHaveBeenCalledWith('OpenAI.Codex_2p2nqsd0c76g0!App');
+    expect(getFileIcon).not.toHaveBeenCalled();
+  });
+
   it('uses packaged application image assets before generic executable icons', async () => {
     const getFileIcon = vi.fn(async () => ({
       toDataURL: () => 'data:image/png;base64,GENERIC_EXE',

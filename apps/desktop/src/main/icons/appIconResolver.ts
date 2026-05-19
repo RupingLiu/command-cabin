@@ -43,6 +43,7 @@ const DEFAULT_ICON_TIMEOUT_MS = 700;
 const DEFAULT_SHORTCUT_TIMEOUT_MS = 750;
 const IMAGE_FILE_EXTENSIONS = new Set(['.ico', '.jpg', '.jpeg', '.png', '.webp']);
 const RESULT_ICON_CACHE_HASH_LENGTH = 16;
+const WINDOWS_APPS_FOLDER_CANDIDATE_PATTERN = /^shell:AppsFolder[\\/](.+)$/i;
 const PACKAGED_APP_ASSET_PATHS = [
   ['resources', 'app', 'static', 'logo-256x256.png'],
   ['resources', 'app', 'static', 'icon-logo.ico'],
@@ -76,6 +77,13 @@ function isAppUserModelIdCandidate(icon: string): boolean {
     !icon.includes('\\') &&
     !icon.includes('/')
   );
+}
+
+function getAppUserModelIdCandidate(icon: string): string | undefined {
+  const shellAppsFolderMatch = WINDOWS_APPS_FOLDER_CANDIDATE_PATTERN.exec(icon.trim());
+  const candidate = shellAppsFolderMatch?.[1] ?? icon;
+
+  return isAppUserModelIdCandidate(candidate) ? candidate : undefined;
 }
 
 export function getIconFilePathCandidate(icon: string | undefined): string | undefined {
@@ -189,8 +197,10 @@ export function createAppIconResolver({
         };
       }
 
-      if (isAppUserModelIdCandidate(candidate)) {
-        const appUserModelIcon = await getAppUserModelIcon(candidate);
+      const appUserModelId = getAppUserModelIdCandidate(candidate);
+
+      if (appUserModelId !== undefined) {
+        const appUserModelIcon = await getAppUserModelIcon(appUserModelId);
 
         if (appUserModelIcon !== undefined) {
           return {

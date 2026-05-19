@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_APP_USER_MODEL_ICON_TIMEOUT_MS = 1_500;
+const DEFAULT_APP_USER_MODEL_ICON_TIMEOUT_MS = 3_000;
 const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
 export interface WindowsAppUserModelIconResolverExecFileOptions {

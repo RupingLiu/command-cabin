@@ -66,4 +66,19 @@ describe('createWindowsAppUserModelIconResolver', () => {
 
     expect(execFile).toHaveBeenCalledOnce();
   });
+
+  it('uses enough time for packaged app icon resolution by default', async () => {
+    const execFile = vi.fn(async () => ({
+      stdout: '',
+    }));
+    const resolver = createWindowsAppUserModelIconResolver({
+      execFile,
+    });
+
+    await resolver.resolve('OpenAI.Codex_2p2nqsd0c76g0!App');
+
+    expect(execFile.mock.calls[0]?.[2]).toMatchObject({
+      timeout: 3_000,
+    });
+  });
 });

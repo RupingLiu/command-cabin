@@ -210,7 +210,8 @@ describe('desktop packaging configuration', () => {
         '!**/*.map',
         '!**/*.test.*',
         '!**/*.tsbuildinfo',
-        '!**/src/**',
+        '!src/**',
+        '!node_modules/@command-cabin/**/src/**',
         '!**/tests/**',
         '!**/vitest.config.*',
         '!**/tsconfig*.json',
@@ -226,6 +227,15 @@ describe('desktop packaging configuration', () => {
         repo: 'command-cabin',
       },
     ]);
+  });
+
+  test('does not strip runtime source entrypoints from third-party dependencies', () => {
+    const config = readBuilderConfig();
+
+    expect(config.files).not.toContain('!**/src/**');
+    expect(config.files).toEqual(
+      expect.arrayContaining(['!src/**', '!node_modules/@command-cabin/**/src/**']),
+    );
   });
 
   test('configures Windows NSIS x64 installer metadata and a valid icon', () => {
@@ -316,6 +326,12 @@ describe('desktop packaging configuration', () => {
     expect(appFiles.some((path) => path.endsWith('/tsconfig.json'))).toBe(false);
     expect(appFiles.some((path) => path.includes('/node_modules/better-sqlite3/'))).toBe(false);
     expect(appFiles.some((path) => path.endsWith('.node'))).toBe(false);
+    expect(appFiles).toEqual(
+      expect.arrayContaining([
+        '/node_modules/debug/src/index.js',
+        '/node_modules/debug/src/node.js',
+      ]),
+    );
   });
 
   test('NSIS installer artifact is present after dist:win packaging has run', () => {

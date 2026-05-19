@@ -147,6 +147,11 @@ const fallbackDesktopApi: DesktopApi = {
       title: candidate.title,
     }),
   clearClipboardHistory: async () => 0,
+  checkForUpdates: async () => ({
+    canCheck: false,
+    canInstall: false,
+    phase: 'unavailable',
+  }),
   executeCommand: async (commandId) => ({
     status: 'success',
     actionType: 'run-system',
@@ -157,6 +162,7 @@ const fallbackDesktopApi: DesktopApi = {
   }),
   getAppInfo: () => ({
     name: 'CommandCabin',
+    version: '0.0.0',
     versions: {
       chrome: 'Chromium',
       electron: 'Electron',
@@ -181,6 +187,11 @@ const fallbackDesktopApi: DesktopApi = {
     },
     theme: 'system',
   }),
+  getUpdateStatus: async () => ({
+    canCheck: false,
+    canInstall: false,
+    phase: 'unavailable',
+  }),
   hideLauncher: async () => undefined,
   installPlugin: async (pluginRoot) => {
     const timestamp = new Date(0).toISOString();
@@ -197,12 +208,17 @@ const fallbackDesktopApi: DesktopApi = {
       version: '0.1.0',
     };
   },
+  installUpdate: async () => ({
+    error: 'Update is not ready to install.',
+    ok: false,
+  }),
   listFavorites: async () => [],
   listAppCandidates: async () => [],
   listPlugins: async () => [],
   onFocusSearchInput: () => () => undefined,
   onHotkeyInputCapture: () => () => undefined,
   onOpenSettings: () => () => undefined,
+  onUpdateStatusChanged: () => () => undefined,
   openDataDirectory: async () => ({
     path: '',
   }),

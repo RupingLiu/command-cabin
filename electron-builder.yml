@@ -50,3 +50,8 @@ nsis:
   uninstallDisplayName: CommandCabin
   createDesktopShortcut: always
   createStartMenuShortcut: true
+
+publish:
+  - provider: github
+    owner: RupingLiu
+    repo: command-cabin

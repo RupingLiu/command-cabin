@@ -8,6 +8,7 @@ const repoRoot = process.cwd();
 const builderConfigPath = join(repoRoot, 'electron-builder.yml');
 const rootPackagePath = join(repoRoot, 'package.json');
 const desktopPackagePath = join(repoRoot, 'apps', 'desktop', 'package.json');
+const desktopMainEntryPath = join(repoRoot, 'apps', 'desktop', 'src', 'main', 'index.ts');
 const installerIncludePath = join(repoRoot, 'apps', 'desktop', 'build', 'installer.nsh');
 const afterPackIconHookPath = join(
   repoRoot,
@@ -46,6 +47,11 @@ interface BuilderConfig {
     name?: string;
     productName?: string;
   };
+  publish?: Array<{
+    owner?: string;
+    provider?: string;
+    repo?: string;
+  }>;
   electronVersion?: string;
   files?: string[];
   nsis?: {
@@ -73,6 +79,7 @@ interface BuilderConfig {
 }
 
 interface DesktopPackageJson {
+  dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   main?: string;
   productName?: string;
@@ -212,6 +219,13 @@ describe('desktop packaging configuration', () => {
         '!node_modules/@command-cabin/**/vitest.config.*',
       ]),
     );
+    expect(config.publish).toEqual([
+      {
+        owner: 'RupingLiu',
+        provider: 'github',
+        repo: 'command-cabin',
+      },
+    ]);
   });
 
   test('configures Windows NSIS x64 installer metadata and a valid icon', () => {
@@ -259,6 +273,7 @@ describe('desktop packaging configuration', () => {
 
     expect(packageJson.main).toBe('./out/main/index.js');
     expect(packageJson.productName).toBe('CommandCabin');
+    expect(packageJson.dependencies?.['electron-updater']).toBeDefined();
     expect(packageJson.devDependencies?.['electron-builder']).toBeDefined();
     expect(packageJson.scripts?.package).toBe('node scripts/package-with-pnpm-shim.js');
     expect(packageJson.scripts?.['package:dir']).toBe(
@@ -267,6 +282,14 @@ describe('desktop packaging configuration', () => {
     expect(packageJson.scripts?.['dist:win']).toBe(
       'node scripts/package-with-pnpm-shim.js --win --x64',
     );
+  });
+
+  test('loads electron-updater through CommonJS interop for the ESM main process', () => {
+    const mainEntry = readFileSync(desktopMainEntryPath, 'utf8');
+
+    expect(mainEntry).toContain('createRequire(import.meta.url)');
+    expect(mainEntry).toContain("require('electron-updater')");
+    expect(mainEntry).not.toContain("import { autoUpdater } from 'electron-updater'");
   });
 
   test('package:dir artifact contains app metadata and avoids native sqlite modules', () => {

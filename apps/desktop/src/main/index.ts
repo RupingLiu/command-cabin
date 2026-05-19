@@ -37,6 +37,7 @@ import {
   type OpenDialogOptions,
 } from 'electron';
 import { access } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -82,12 +83,15 @@ import {
   ADD_PINNED_APP_CANDIDATE_CHANNEL,
   ADD_FAVORITE_CHANNEL,
   ADD_PINNED_APP_CHANNEL,
+  CHECK_FOR_UPDATES_CHANNEL,
   CLEAR_CLIPBOARD_HISTORY_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
+  GET_UPDATE_STATUS_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
   INSTALL_PLUGIN_CHANNEL,
+  INSTALL_UPDATE_CHANNEL,
   LIST_APP_CANDIDATES_CHANNEL,
   LIST_FAVORITES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
@@ -110,7 +114,10 @@ import { parsePluginInstallRequest, parseSettingsPatch } from '../shared/setting
 import { updateSettingsWithHotkeyRegistration } from './settings/updateSettingsWithHotkeyRegistration.js';
 import { configureSingleInstance } from './singleInstance.js';
 import { createLaunchAtLoginController, isLaunchAtLoginStartup } from './startup/launchAtLogin.js';
+import { createUpdateController, type UpdateController } from './updater/updateController.js';
 
+const require = createRequire(import.meta.url);
+const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
 const mainDirectory = fileURLToPath(new URL('.', import.meta.url));
 const windowEntryPaths = resolveWindowEntryPaths(mainDirectory);
 const shortcutResolver = createWindowsShortcutResolver();
@@ -156,6 +163,7 @@ let launcherCommandService: LauncherCommandService = createLauncherCommandServic
 let pluginRepository: PluginRepository | undefined;
 let pluginRuntime: PluginRuntime | undefined;
 let trayController: CommandCabinTrayController | undefined;
+let updateController: UpdateController | undefined;
 let isShutdownResuming = false;
 let nextWindowShowOnReady = true;
 let startupPromise: Promise<void> | undefined;
@@ -196,6 +204,25 @@ async function createApplicationWindow({ showWindow }: { showWindow: boolean }):
       void desktopApplication.toggleLauncherWindow();
     },
   });
+  getUpdateController().startAutomaticCheck();
+}
+
+function getUpdateController(): UpdateController {
+  updateController ??= createUpdateController({
+    autoUpdater,
+    getWindows: () =>
+      BrowserWindow.getAllWindows().map((window) => ({
+        send: (channel, status) => {
+          if (!window.isDestroyed()) {
+            window.webContents.send(channel, status);
+          }
+        },
+      })),
+    isPackaged: app.isPackaged,
+    logger: console,
+  });
+
+  return updateController;
 }
 
 function getDesktopShortcutDirectories(): string[] {
@@ -580,6 +607,12 @@ ipcMain.handle(CLEAR_CLIPBOARD_HISTORY_CHANNEL, () =>
 );
 
 ipcMain.handle(GET_SETTINGS_CHANNEL, () => settingsStore.getSettings());
+
+ipcMain.handle(GET_UPDATE_STATUS_CHANNEL, () => getUpdateController().getStatus());
+
+ipcMain.handle(CHECK_FOR_UPDATES_CHANNEL, () => getUpdateController().checkForUpdates());
+
+ipcMain.handle(INSTALL_UPDATE_CHANNEL, () => getUpdateController().installUpdate());
 
 ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
   altSpaceHotkeyCapture.stop();

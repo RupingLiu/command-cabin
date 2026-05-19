@@ -8,6 +8,7 @@ import type {
 } from '@command-cabin/core';
 
 import { getUiStrings } from '../i18n.js';
+import { AboutSettings } from './AboutSettings.js';
 import { ClipboardHistorySettings } from './ClipboardHistorySettings.js';
 import { DataSettings } from './DataSettings.js';
 import { FavoritesSettings } from './FavoritesSettings.js';
@@ -19,6 +20,7 @@ import { StartupSettings } from './StartupSettings.js';
 import { ThemeSettings } from './ThemeSettings.js';
 
 export interface SettingsPageApi {
+  getAppInfo?: Window['desktopApi']['getAppInfo'] | undefined;
   getSettings: () => Promise<CommandCabinSettings>;
   updateSettings: (patch: CommandCabinSettingsPatch) => Promise<CommandCabinSettings>;
 }
@@ -55,6 +57,15 @@ export function SettingsPage({
   const currentLanguage = settings?.language ?? language;
   const currentTheme = settings?.theme ?? theme;
   const strings = getUiStrings(currentLanguage);
+  const appInfo = settingsApi?.getAppInfo?.() ?? {
+    name: 'CommandCabin',
+    version: '0.0.0',
+    versions: {
+      chrome: '',
+      electron: '',
+      node: '',
+    },
+  };
 
   useEffect(() => {
     if (!settingsApi) {
@@ -129,6 +140,7 @@ export function SettingsPage({
         ) : null}
 
         <div className="settings-grid">
+          <AboutSettings appInfo={appInfo} strings={strings.settings.about} />
           <HotkeySettings
             errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
             isSaving={isSaving}

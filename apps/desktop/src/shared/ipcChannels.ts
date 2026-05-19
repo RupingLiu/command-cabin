@@ -26,3 +26,7 @@ export const SET_PLUGIN_ENABLED_CHANNEL = 'command-cabin:set-plugin-enabled';
 export const REMOVE_PLUGIN_CHANNEL = 'command-cabin:remove-plugin';
 export const GET_DATA_DIRECTORY_CHANNEL = 'command-cabin:get-data-directory';
 export const OPEN_DATA_DIRECTORY_CHANNEL = 'command-cabin:open-data-directory';
+export const GET_UPDATE_STATUS_CHANNEL = 'command-cabin:get-update-status';
+export const CHECK_FOR_UPDATES_CHANNEL = 'command-cabin:check-for-updates';
+export const INSTALL_UPDATE_CHANNEL = 'command-cabin:install-update';
+export const UPDATE_STATUS_CHANGED_CHANNEL = 'command-cabin:update-status-changed';

@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ADD_PINNED_APP_CANDIDATE_CHANNEL,
+  CHECK_FOR_UPDATES_CHANNEL,
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
+  GET_UPDATE_STATUS_CHANNEL,
   HOTKEY_INPUT_CAPTURE_CHANNEL,
   ADD_PINNED_APP_CHANNEL,
   INSTALL_PLUGIN_CHANNEL,
+  INSTALL_UPDATE_CHANNEL,
   LIST_APP_CANDIDATES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
@@ -16,6 +19,7 @@ import {
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
   STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
+  UPDATE_STATUS_CHANGED_CHANNEL,
   UPDATE_SETTINGS_CHANNEL,
 } from '../shared/ipcChannels.js';
 import type { DesktopApi } from './index.js';
@@ -210,6 +214,54 @@ describe('preload desktopApi settings bridge', () => {
     expect(listener).toHaveBeenCalledOnce();
     expect(electronMock.removeListener).toHaveBeenCalledWith(
       OPEN_SETTINGS_CHANNEL,
+      registeredListener,
+    );
+  });
+
+  it('exposes update IPC methods and a removable update status listener', async () => {
+    const api = await loadDesktopApi();
+    const status = {
+      canCheck: true,
+      canInstall: false,
+      phase: 'up-to-date' as const,
+      version: '0.2.0',
+    };
+
+    electronMock.invoke.mockResolvedValueOnce(status);
+    await expect(api.getUpdateStatus()).resolves.toEqual({
+      ...status,
+      error: undefined,
+      percent: undefined,
+    });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(GET_UPDATE_STATUS_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce({ ...status, phase: 'checking' });
+    await expect(api.checkForUpdates()).resolves.toMatchObject({ phase: 'checking' });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(CHECK_FOR_UPDATES_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce({ ok: false, error: 'Update is not ready.' });
+    await expect(api.installUpdate()).resolves.toEqual({
+      error: 'Update is not ready.',
+      ok: false,
+    });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(INSTALL_UPDATE_CHANNEL);
+
+    const listener = vi.fn();
+    const removeListener = api.onUpdateStatusChanged(listener);
+    const registeredListener = electronMock.on.mock.calls.find(
+      ([channel]) => channel === UPDATE_STATUS_CHANGED_CHANNEL,
+    )?.[1] as ((_event: unknown, payload: unknown) => void) | undefined;
+
+    registeredListener?.(undefined, status);
+    removeListener();
+
+    expect(listener).toHaveBeenCalledWith({
+      ...status,
+      error: undefined,
+      percent: undefined,
+    });
+    expect(electronMock.removeListener).toHaveBeenCalledWith(
+      UPDATE_STATUS_CHANGED_CHANNEL,
       registeredListener,
     );
   });

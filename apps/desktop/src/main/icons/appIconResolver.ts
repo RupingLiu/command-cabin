@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { win32 as path } from 'node:path';
 
 import type { LauncherCommandSearchResult } from '../../shared/launcherApi.js';
@@ -13,9 +14,15 @@ export interface AppIconResolvedShortcut {
   workingDirectory?: string | undefined;
 }
 
+export interface AppIconDataUrlCache {
+  read: (key: string) => Promise<string | undefined>;
+  write: (key: string, dataUrl: string) => Promise<void>;
+}
+
 export interface AppIconResolverOptions {
   fileExists?: ((path: string) => Promise<boolean>) | undefined;
   getFileIcon: (path: string) => Promise<AppIconNativeImage>;
+  iconDataUrlCache?: AppIconDataUrlCache | undefined;
   iconTimeoutMs?: number;
   logger?: Pick<Console, 'warn'>;
   readImageDataUrl?: ((path: string) => Promise<string | undefined>) | undefined;
@@ -35,6 +42,7 @@ const ENV_VAR_PATTERN = /%([^%]+)%/g;
 const DEFAULT_ICON_TIMEOUT_MS = 700;
 const DEFAULT_SHORTCUT_TIMEOUT_MS = 750;
 const IMAGE_FILE_EXTENSIONS = new Set(['.ico', '.jpg', '.jpeg', '.png', '.webp']);
+const RESULT_ICON_CACHE_HASH_LENGTH = 16;
 const PACKAGED_APP_ASSET_PATHS = [
   ['resources', 'app', 'static', 'logo-256x256.png'],
   ['resources', 'app', 'static', 'icon-logo.ico'],
@@ -44,6 +52,16 @@ const PACKAGED_APP_ASSET_PATHS = [
   ['resources', 'app', 'icon.png'],
   ['resources', 'app', 'icon.ico'],
 ];
+
+interface ExpandedIconCandidates {
+  candidates: string[];
+  hasWeakShortcutExpansion: boolean;
+}
+
+interface ResolvedIconDataUrl {
+  cacheable: boolean;
+  dataUrl: string;
+}
 
 function isImageDataUrl(icon: string): boolean {
   return icon.startsWith('data:image/');
@@ -90,9 +108,25 @@ function createPublicSearchResult(
   return publicResult;
 }
 
+function getResultIconCandidates(result: LauncherCommandSearchResult): (string | undefined)[] {
+  return result.iconCandidates && result.iconCandidates.length > 0
+    ? result.iconCandidates
+    : [result.icon, result.subtitle];
+}
+
+function createResultIconCacheKey(result: LauncherCommandSearchResult): string {
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify(getResultIconCandidates(result)))
+    .digest('hex')
+    .slice(0, RESULT_ICON_CACHE_HASH_LENGTH);
+
+  return `app-result:${result.id}:${fingerprint}`;
+}
+
 export function createAppIconResolver({
   fileExists,
   getFileIcon,
+  iconDataUrlCache,
   iconTimeoutMs = DEFAULT_ICON_TIMEOUT_MS,
   logger = console,
   readImageDataUrl,
@@ -138,8 +172,10 @@ export function createAppIconResolver({
 
   async function resolveIconDataUrl(
     candidates: readonly (string | undefined)[],
-  ): Promise<string | undefined> {
-    for (const icon of await expandShortcutCandidates(candidates)) {
+  ): Promise<ResolvedIconDataUrl | undefined> {
+    const expandedCandidates = await expandShortcutCandidates(candidates);
+
+    for (const icon of expandedCandidates.candidates) {
       const candidate = getIconFilePathCandidate(icon);
 
       if (!candidate) {
@@ -147,14 +183,20 @@ export function createAppIconResolver({
       }
 
       if (isImageDataUrl(candidate)) {
-        return candidate;
+        return {
+          cacheable: !expandedCandidates.hasWeakShortcutExpansion,
+          dataUrl: candidate,
+        };
       }
 
       if (isAppUserModelIdCandidate(candidate)) {
         const appUserModelIcon = await getAppUserModelIcon(candidate);
 
         if (appUserModelIcon !== undefined) {
-          return appUserModelIcon;
+          return {
+            cacheable: !expandedCandidates.hasWeakShortcutExpansion,
+            dataUrl: appUserModelIcon,
+          };
         }
 
         continue;
@@ -164,7 +206,11 @@ export function createAppIconResolver({
       const cachedIcon = iconCache.get(iconPath);
 
       if (cachedIcon) {
-        return cachedIcon;
+        return {
+          cacheable:
+            !expandedCandidates.hasWeakShortcutExpansion && !isWeakResultIconPath(iconPath),
+          dataUrl: cachedIcon,
+        };
       }
 
       if (failedIconPaths.has(iconPath)) {
@@ -176,7 +222,11 @@ export function createAppIconResolver({
 
         if (dataUrl !== undefined) {
           iconCache.set(iconPath, dataUrl);
-          return dataUrl;
+          return {
+            cacheable:
+              !expandedCandidates.hasWeakShortcutExpansion && !isWeakResultIconPath(iconPath),
+            dataUrl,
+          };
         }
       } catch (error) {
         failedIconPaths.add(iconPath);
@@ -185,6 +235,10 @@ export function createAppIconResolver({
     }
 
     return undefined;
+  }
+
+  function isWeakResultIconPath(iconPath: string): boolean {
+    return isShortcutPath(iconPath);
   }
 
   async function getImageDataUrl(iconPath: string): Promise<string | undefined> {
@@ -343,11 +397,12 @@ export function createAppIconResolver({
 
   async function expandShortcutCandidates(
     candidates: readonly (string | undefined)[],
-  ): Promise<string[]> {
+  ): Promise<ExpandedIconCandidates> {
     const expandedCandidates: string[] = [];
     const dataUrlCandidates: string[] = [];
     const directCandidates: string[] = [];
     const shortcutCandidates: string[] = [];
+    let hasWeakShortcutExpansion = false;
 
     for (const icon of candidates) {
       const candidate = getIconFilePathCandidate(icon);
@@ -379,6 +434,7 @@ export function createAppIconResolver({
         const nextCandidates = await getShortcutCandidates(shortcutPath);
 
         if (isWeakShortcutExpansion(shortcutPath, nextCandidates)) {
+          hasWeakShortcutExpansion = true;
           pushUniqueCandidates(weakShortcutFallbackCandidates, nextCandidates);
           continue;
         }
@@ -395,7 +451,10 @@ export function createAppIconResolver({
       pushUniqueCandidates(expandedCandidates, shortcutCandidates);
     }
 
-    return expandedCandidates;
+    return {
+      candidates: expandedCandidates,
+      hasWeakShortcutExpansion,
+    };
   }
 
   function isWeakShortcutExpansion(shortcutPath: string, candidates: readonly string[]): boolean {
@@ -430,6 +489,33 @@ export function createAppIconResolver({
     }
   }
 
+  async function readCachedResultIcon(cacheKey: string): Promise<string | undefined> {
+    if (iconDataUrlCache === undefined) {
+      return undefined;
+    }
+
+    try {
+      const dataUrl = await iconDataUrlCache.read(cacheKey);
+
+      return dataUrl !== undefined && isImageDataUrl(dataUrl) ? dataUrl : undefined;
+    } catch (error) {
+      logger.warn('Failed to read cached app icon.', error);
+      return undefined;
+    }
+  }
+
+  async function writeCachedResultIcon(cacheKey: string, dataUrl: string): Promise<void> {
+    if (iconDataUrlCache === undefined) {
+      return;
+    }
+
+    try {
+      await iconDataUrlCache.write(cacheKey, dataUrl);
+    } catch (error) {
+      logger.warn('Failed to write cached app icon.', error);
+    }
+  }
+
   return {
     resolveSearchResultIcon: async (result) => {
       const publicResult = createPublicSearchResult(result);
@@ -438,13 +524,20 @@ export function createAppIconResolver({
         return publicResult;
       }
 
-      const dataUrl = await resolveIconDataUrl(
-        result.iconCandidates && result.iconCandidates.length > 0
-          ? result.iconCandidates
-          : [result.icon, result.subtitle],
-      );
+      const resultIconCacheKey = createResultIconCacheKey(result);
+      const cachedResultIcon = await readCachedResultIcon(resultIconCacheKey);
 
-      return dataUrl ? { ...publicResult, icon: dataUrl } : publicResult;
+      if (cachedResultIcon !== undefined) {
+        return { ...publicResult, icon: cachedResultIcon };
+      }
+
+      const resolvedIcon = await resolveIconDataUrl(getResultIconCandidates(result));
+
+      if (resolvedIcon !== undefined && resolvedIcon.cacheable) {
+        await writeCachedResultIcon(resultIconCacheKey, resolvedIcon.dataUrl);
+      }
+
+      return resolvedIcon ? { ...publicResult, icon: resolvedIcon.dataUrl } : publicResult;
     },
   };
 }

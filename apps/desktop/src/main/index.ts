@@ -43,6 +43,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDesktopApplicationController } from './desktopApplication.js';
 import { createAltSpaceHotkeyCaptureController } from './hotkey/altSpaceHotkeyCapture.js';
 import { createAppIconResolver } from './icons/appIconResolver.js';
+import { createIconDataUrlCache, type IconDataUrlCache } from './icons/iconDataUrlCache.js';
 import { createWindowsAppUserModelIconResolver } from './icons/windowsAppUserModelIconResolver.js';
 import { startAppIndexing } from './launcher/appIndexStartup.js';
 import { listDesktopShortcutCommands } from './launcher/desktopShortcutCommands.js';
@@ -137,6 +138,12 @@ const appIconResolver = createAppIconResolver({
     }
   },
   getFileIcon: (path) => app.getFileIcon(path),
+  iconDataUrlCache: {
+    read: async (key) => appIconDataUrlCache?.read(key),
+    write: async (key, dataUrl) => {
+      await appIconDataUrlCache?.write(key, dataUrl);
+    },
+  },
   readImageDataUrl: async (path) => {
     const image = nativeImage.createFromPath(path);
 
@@ -166,6 +173,7 @@ let appCandidateService: AppCandidateService = createAppCandidateService({
 let launcherCommandService: LauncherCommandService = createLauncherCommandService();
 let pluginRepository: PluginRepository | undefined;
 let pluginRuntime: PluginRuntime | undefined;
+let appIconDataUrlCache: IconDataUrlCache | undefined;
 let trayController: CommandCabinTrayController | undefined;
 let updateController: UpdateController | undefined;
 let isShutdownResuming = false;
@@ -249,6 +257,10 @@ function getLauncherAppCommands() {
 
 async function createPersistentLauncherCommandService(): Promise<LauncherCommandService> {
   const userDataPath = app.getPath('userData');
+  appIconDataUrlCache = createIconDataUrlCache({
+    cacheFilePath: join(userDataPath, 'app-icons.json'),
+    logger: console,
+  });
   const exchangeRateProvider = createExchangeRateCache({
     cacheFilePath: join(userDataPath, 'exchange-rates.json'),
     logger: console,
@@ -379,6 +391,7 @@ async function stopClipboardHistoryAndCloseDatabase(): Promise<void> {
 
   commandCabinDatabase?.close();
   commandCabinDatabase = undefined;
+  appIconDataUrlCache = undefined;
   pluginRepository = undefined;
   settingsStore = createInMemorySettingsStore();
 }

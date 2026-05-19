@@ -72,6 +72,105 @@ describe('createAppIconResolver', () => {
     expect(getFileIcon).toHaveBeenCalledOnce();
   });
 
+  it('uses stored app result icons before resolving native icons', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,CODEX',
+    }));
+    const iconDataUrlCache = {
+      read: vi.fn(async () => 'data:image/png;base64,CACHED_CODEX'),
+      write: vi.fn(async () => undefined),
+    };
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      iconDataUrlCache,
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe'],
+        id: 'app.codex',
+        score: 1,
+        source: 'app',
+        title: 'Codex',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,CACHED_CODEX',
+    });
+
+    expect(iconDataUrlCache.read).toHaveBeenCalledWith(
+      expect.stringMatching(/^app-result:app\.codex:/),
+    );
+    expect(getFileIcon).not.toHaveBeenCalled();
+  });
+
+  it('stores resolved app result icons for future resolver instances', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,CODEX',
+    }));
+    const iconDataUrlCache = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(async () => undefined),
+    };
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      iconDataUrlCache,
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['C:\\Users\\Ada\\AppData\\Local\\Programs\\Codex\\Codex.exe'],
+        id: 'app.codex',
+        score: 1,
+        source: 'app',
+        title: 'Codex',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,CODEX',
+    });
+
+    expect(iconDataUrlCache.write).toHaveBeenCalledWith(
+      expect.stringMatching(/^app-result:app\.codex:/),
+      'data:image/png;base64,CODEX',
+    );
+  });
+
+  it('does not store icons resolved while shortcut expansion is using weak fallbacks', async () => {
+    vi.useFakeTimers();
+    const getFileIcon = vi.fn(async (iconPath: string) => ({
+      toDataURL: () => `data:image/png;base64,${iconPath.endsWith('.exe') ? 'EXE' : 'LNK'}`,
+    }));
+    const iconDataUrlCache = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(async () => undefined),
+    };
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      iconDataUrlCache,
+      logger: {
+        warn: vi.fn(),
+      },
+      resolveShortcut: vi.fn(() => new Promise(() => undefined)),
+      shortcutTimeoutMs: 25,
+    });
+    const resultPromise = resolver.resolveSearchResultIcon({
+      iconCandidates: [
+        'C:\\Users\\Ada\\AppData\\Local\\Programs\\Slow\\Slow.exe',
+        'C:\\Users\\Ada\\Desktop\\Slow.lnk',
+      ],
+      id: 'app.slow',
+      score: 1,
+      source: 'app',
+      title: 'Slow',
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      icon: 'data:image/png;base64,EXE',
+    });
+    expect(iconDataUrlCache.write).not.toHaveBeenCalled();
+  });
+
   it('resolves shortcut candidates before reading native icons', async () => {
     const getFileIcon = vi.fn(async (path: string) => ({
       toDataURL: () => `data:image/png;base64,${path.endsWith('Codex.exe') ? 'CODEX' : 'LNK'}`,

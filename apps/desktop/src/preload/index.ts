@@ -1,18 +1,22 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
 import {
   ADD_PINNED_APP_CANDIDATE_CHANNEL,
   ADD_PINNED_APP_CHANNEL,
   ADD_FAVORITE_CHANNEL,
+  CHECK_FOR_UPDATES_CHANNEL,
   CLEAR_CLIPBOARD_HISTORY_CHANNEL,
   EXECUTE_COMMAND_CHANNEL,
   FOCUS_SEARCH_INPUT_CHANNEL,
   GET_DATA_DIRECTORY_CHANNEL,
   GET_SETTINGS_CHANNEL,
+  GET_UPDATE_STATUS_CHANNEL,
   HIDE_LAUNCHER_CHANNEL,
   HOTKEY_INPUT_CAPTURE_CHANNEL,
   INSTALL_PLUGIN_CHANNEL,
+  INSTALL_UPDATE_CHANNEL,
   LIST_APP_CANDIDATES_CHANNEL,
   LIST_FAVORITES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
@@ -27,6 +31,7 @@ import {
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
   STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
+  UPDATE_STATUS_CHANGED_CHANNEL,
   UPDATE_FAVORITE_CHANNEL,
   UPDATE_PINNED_APP_CHANNEL,
   UPDATE_SETTINGS_CHANNEL,
@@ -72,9 +77,22 @@ import {
   type SettingsUpdateRequest,
   type SettingsUpdateResponse,
 } from '../shared/settingsApi.js';
+import {
+  parseUpdateInstallResult,
+  parseUpdateStatus,
+  type UpdateCheckResult,
+  type UpdateInstallResult,
+  type UpdateStatus,
+} from '../shared/updateApi.js';
 
 const PLUGIN_BRIDGE_CHANNEL = 'command-cabin:plugin-bridge';
 const PLUGIN_BRIDGE_METHODS = Object.freeze(['close', 'reportError'] as const);
+const require = createRequire(import.meta.url);
+const desktopPackageJson = require('../../package.json') as { version?: string };
+const desktopPackageVersion =
+  typeof desktopPackageJson.version === 'string' && desktopPackageJson.version.trim().length > 0
+    ? desktopPackageJson.version.trim()
+    : '0.0.0';
 
 export type PluginHostBridgeMethod = (typeof PLUGIN_BRIDGE_METHODS)[number];
 
@@ -108,6 +126,7 @@ export interface PluginHostPreloadApi {
 
 export interface DesktopAppInfo {
   name: string;
+  version: string;
   versions: {
     chrome: string;
     electron: string;
@@ -119,19 +138,23 @@ export interface DesktopApi {
   addFavorite: (input: FavoriteCreateRequest) => Promise<FavoriteListRecord>;
   addPinnedApp: () => Promise<FavoriteListRecord | undefined>;
   addPinnedAppCandidate: (candidate: AppCandidate) => Promise<FavoriteListRecord>;
+  checkForUpdates: () => Promise<UpdateCheckResult>;
   clearClipboardHistory: () => Promise<number>;
   executeCommand: (commandId: string) => Promise<LauncherCommandExecutionResult>;
   getAppInfo: () => DesktopAppInfo;
   getDataDirectory: () => Promise<DataDirectoryResponse>;
   getSettings: () => Promise<SettingsReadResponse>;
+  getUpdateStatus: () => Promise<UpdateStatus>;
   hideLauncher: () => Promise<void>;
   installPlugin: (pluginRoot: string) => Promise<PluginListRecord>;
+  installUpdate: () => Promise<UpdateInstallResult>;
   listAppCandidates: (query?: string | undefined) => Promise<AppCandidate[]>;
   listFavorites: () => Promise<FavoriteListRecord[]>;
   listPlugins: () => Promise<PluginListRecord[]>;
   onFocusSearchInput: (listener: () => void) => () => void;
   onHotkeyInputCapture: (listener: (payload: HotkeyInputCapturePayload) => void) => () => void;
   onOpenSettings: (listener: () => void) => () => void;
+  onUpdateStatusChanged: (listener: (status: UpdateStatus) => void) => () => void;
   openDataDirectory: () => Promise<DataDirectoryResponse>;
   pluginHost: PluginHostPreloadApi;
   removeFavorite: (id: string) => Promise<boolean>;
@@ -236,6 +259,8 @@ const desktopApi = {
       await ipcRenderer.invoke(CLEAR_CLIPBOARD_HISTORY_CHANNEL),
       'Clipboard history clear response',
     ),
+  checkForUpdates: async () =>
+    parseUpdateStatus(await ipcRenderer.invoke(CHECK_FOR_UPDATES_CHANNEL)),
   executeCommand: async (commandId) =>
     parseLauncherCommandExecutionResult(
       await ipcRenderer.invoke(EXECUTE_COMMAND_CHANNEL, commandId),
@@ -244,6 +269,7 @@ const desktopApi = {
     parseDataDirectoryResponse(await ipcRenderer.invoke(GET_DATA_DIRECTORY_CHANNEL)),
   getAppInfo: () => ({
     name: 'CommandCabin',
+    version: desktopPackageVersion,
     versions: {
       chrome: process.versions.chrome,
       electron: process.versions.electron,
@@ -251,6 +277,8 @@ const desktopApi = {
     },
   }),
   getSettings: async () => parseSettings(await ipcRenderer.invoke(GET_SETTINGS_CHANNEL)),
+  getUpdateStatus: async () =>
+    parseUpdateStatus(await ipcRenderer.invoke(GET_UPDATE_STATUS_CHANNEL)),
   hideLauncher: () => ipcRenderer.invoke(HIDE_LAUNCHER_CHANNEL) as Promise<void>,
   installPlugin: async (pluginRoot) =>
     parsePluginRecord(
@@ -259,6 +287,8 @@ const desktopApi = {
         parsePluginInstallRequest(pluginRoot).pluginRoot,
       ),
     ),
+  installUpdate: async () =>
+    parseUpdateInstallResult(await ipcRenderer.invoke(INSTALL_UPDATE_CHANNEL)),
   listAppCandidates: async (query = '') =>
     parseAppCandidates(await ipcRenderer.invoke(LIST_APP_CANDIDATES_CHANNEL, query)),
   listFavorites: async () => parseFavoriteRecords(await ipcRenderer.invoke(LIST_FAVORITES_CHANNEL)),
@@ -294,6 +324,17 @@ const desktopApi = {
 
     return () => {
       ipcRenderer.removeListener(OPEN_SETTINGS_CHANNEL, handleOpenSettings);
+    };
+  },
+  onUpdateStatusChanged: (listener) => {
+    const handleUpdateStatusChanged = (_event: unknown, payload: unknown) => {
+      listener(parseUpdateStatus(payload));
+    };
+
+    ipcRenderer.on(UPDATE_STATUS_CHANGED_CHANNEL, handleUpdateStatusChanged);
+
+    return () => {
+      ipcRenderer.removeListener(UPDATE_STATUS_CHANGED_CHANNEL, handleUpdateStatusChanged);
     };
   },
   openDataDirectory: async () =>

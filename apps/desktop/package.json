@@ -25,6 +25,7 @@
     "@command-cabin/built-in-plugin-quick-converter": "workspace:*",
     "@command-cabin/built-in-plugin-text-tools": "workspace:*",
     "@command-cabin/core": "workspace:*",
+    "electron-updater": "^6.8.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

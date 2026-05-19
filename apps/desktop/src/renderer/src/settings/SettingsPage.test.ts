@@ -16,6 +16,8 @@ describe('SettingsPage', () => {
     expect(markup).toContain('CommandCabin');
     expect(markup).toContain('设置');
     expect(markup).toContain('返回');
+    expect(markup).toContain('关于与更新');
+    expect(markup).toContain('CommandCabin v0.0.0');
     expect(markup).toContain('快捷键');
     expect(markup).toContain('主题');
     expect(markup).toContain('语言');
@@ -43,6 +45,7 @@ describe('SettingsPage', () => {
     );
 
     expect(markup).toContain('設定');
+    expect(markup).toContain('關於與更新');
     expect(markup).toContain('快捷鍵');
     expect(markup).toContain('主題');
     expect(markup).toContain('語言');

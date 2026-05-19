@@ -30,6 +30,20 @@ describe('createWindowsAppUserModelIconResolver', () => {
     expect(script).toContain('Square150x150Logo');
   });
 
+  it('checks packaged app image resource directories when manifest logo paths omit them', async () => {
+    const execFile = vi.fn(async () => ({
+      stdout: 'data:image/png;base64,ONEPASSWORD',
+    }));
+    const resolver = createWindowsAppUserModelIconResolver({ execFile });
+
+    await resolver.resolve('DC5C6510.2032887045529_2v019pwa6amcg!Agilebits.OnePassword');
+
+    const encodedCommand = execFile.mock.calls[0]?.[1][5];
+    const script = Buffer.from(encodedCommand ?? '', 'base64').toString('utf16le');
+    expect(script).toContain("Join-Path $package.InstallLocation 'images'");
+    expect(script).toContain('$candidateRoots');
+  });
+
   it('skips invalid AppUserModelIDs without shelling out', async () => {
     const execFile = vi.fn(async () => ({
       stdout: 'data:image/png;base64,CODEX',

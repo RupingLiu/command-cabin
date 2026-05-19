@@ -71,16 +71,22 @@ $logoPaths = @(
   $manifest.Package.Properties.Logo
 ) | Where-Object { $_ -is [string] -and $_.Trim().Length -gt 0 }
 
+$candidateRoots = @(
+  $package.InstallLocation,
+  (Join-Path $package.InstallLocation 'images')
+)
 $candidates = New-Object System.Collections.Generic.List[string]
 foreach ($logoPath in $logoPaths) {
-  $fullPath = Join-Path $package.InstallLocation $logoPath
-  [void]$candidates.Add($fullPath)
-  $directory = [System.IO.Path]::GetDirectoryName($fullPath)
-  $fileName = [System.IO.Path]::GetFileNameWithoutExtension($fullPath)
-  $extension = [System.IO.Path]::GetExtension($fullPath)
+  foreach ($candidateRoot in $candidateRoots) {
+    $fullPath = Join-Path $candidateRoot $logoPath
+    [void]$candidates.Add($fullPath)
+    $directory = [System.IO.Path]::GetDirectoryName($fullPath)
+    $fileName = [System.IO.Path]::GetFileNameWithoutExtension($fullPath)
+    $extension = [System.IO.Path]::GetExtension($fullPath)
 
-  foreach ($suffix in @('.targetsize-256', '.targetsize-128', '.targetsize-96', '.targetsize-64', '.targetsize-48', '.scale-400', '.scale-200', '.scale-150', '.scale-100')) {
-    [void]$candidates.Add((Join-Path $directory "$fileName$suffix$extension"))
+    foreach ($suffix in @('.targetsize-256', '.targetsize-128', '.targetsize-96', '.targetsize-64', '.targetsize-48', '.scale-400', '.scale-200', '.scale-150', '.scale-100')) {
+      [void]$candidates.Add((Join-Path $directory "$fileName$suffix$extension"))
+    }
   }
 }
 

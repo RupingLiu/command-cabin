@@ -58,6 +58,12 @@ export interface ScreenshotOverlayViewProps {
   launchState: ScreenshotLaunchState;
 }
 
+export function getScreenshotCompletionAction(
+  launchState: Pick<ScreenshotLaunchState, 'mode'>,
+): 'copy' | 'ocr' {
+  return launchState.mode === 'ocr' ? 'ocr' : 'copy';
+}
+
 export function requireScreenshotApi(
   screenshotApi: Window['desktopApi']['screenshot'] | undefined,
 ): ScreenshotApi {
@@ -209,18 +215,41 @@ export function ScreenshotOverlayView({
     [launchState, state.annotations, state.draftAnnotation, state.selection],
   );
 
+  const runOcr = useCallback(
+    async (imageDataUrl: string) => {
+      const screenshotApi = requireScreenshotApi(desktopApi);
+
+      setOcrPanel({ status: 'running' });
+      const result = await screenshotApi.runOcr({ imageDataUrl, language: 'en-US' });
+      setOcrPanel(result);
+    },
+    [desktopApi],
+  );
+
   const finish = useCallback(async () => {
     clearTextPromptTimer();
     try {
       const imageDataUrl = await exportImage('png');
       const screenshotApi = requireScreenshotApi(desktopApi);
 
-      await screenshotApi.copyImage({ imageDataUrl });
-      await screenshotApi.cancel();
+      if (getScreenshotCompletionAction(launchState) === 'ocr') {
+        await runOcr(imageDataUrl);
+      } else {
+        await screenshotApi.copyImage({ imageDataUrl });
+        await screenshotApi.cancel();
+      }
     } catch (reason) {
-      setStatus(toStatus(reason));
+      if (getScreenshotCompletionAction(launchState) === 'ocr') {
+        setOcrPanel({
+          language: 'en-US',
+          message: reason instanceof Error ? reason.message : 'OCR failed.',
+          status: 'error',
+        });
+      } else {
+        setStatus(toStatus(reason));
+      }
     }
-  }, [clearTextPromptTimer, desktopApi, exportImage]);
+  }, [clearTextPromptTimer, desktopApi, exportImage, launchState, runOcr]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -342,9 +371,7 @@ export function ScreenshotOverlayView({
         await screenshotApi.pinImage({ imageDataUrl });
         setStatus({ tone: 'info', value: 'Pinned selection.' });
       } else {
-        setOcrPanel({ status: 'running' });
-        const result = await screenshotApi.runOcr({ imageDataUrl, language: 'en-US' });
-        setOcrPanel(result);
+        await runOcr(imageDataUrl);
       }
     } catch (reason) {
       if (action === 'ocr') {

@@ -6,6 +6,7 @@ import {
   OcrPanel,
   ScreenshotOverlayView,
   createPendingTextAnnotationController,
+  getScreenshotCompletionAction,
   requireScreenshotApi,
 } from './ScreenshotOverlay.js';
 import {
@@ -118,6 +119,13 @@ describe('ScreenshotOverlayView', () => {
     expect(() => requireScreenshotApi(undefined)).toThrow(
       'Screenshot controls are unavailable in this window.',
     );
+  });
+
+  it('uses OCR as the default completion action only for OCR launch mode', () => {
+    expect(getScreenshotCompletionAction({ mode: 'ocr' })).toBe('ocr');
+    expect(getScreenshotCompletionAction({ mode: 'capture' })).toBe('copy');
+    expect(getScreenshotCompletionAction({ mode: 'capture-delay-3' })).toBe('copy');
+    expect(getScreenshotCompletionAction({ mode: 'capture-delay-5' })).toBe('copy');
   });
 
   it('cancels stale delayed text annotation commits', () => {

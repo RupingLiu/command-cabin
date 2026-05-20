@@ -11,6 +11,7 @@ import {
   type PluginHostEntry,
   type PluginHostFailure,
 } from '../plugin-host/PluginHost.js';
+import { ScreenshotOverlay } from '../screenshot/ScreenshotOverlay.js';
 import { SettingsPage } from '../settings/SettingsPage.js';
 import { applyThemePreferenceToRoot } from '../settings/ThemeSettings.js';
 
@@ -135,12 +136,26 @@ export function subscribeToOpenSettings(
   return desktopApi?.onOpenSettings(listener);
 }
 
+export function isScreenshotRendererMode(href: string): boolean {
+  try {
+    return new URL(href).searchParams.get('mode') === 'screenshot';
+  } catch {
+    return false;
+  }
+}
+
 export function App() {
   const [state, dispatch] = useReducer(appReducer, initialAppState);
   const [language, setLanguage] = useState<CommandCabinLanguage>(DEFAULT_UI_LANGUAGE);
   const [theme, setTheme] = useState<CommandCabinTheme | undefined>();
+  const isScreenshotMode =
+    typeof window !== 'undefined' && isScreenshotRendererMode(window.location.href);
 
   useEffect(() => {
+    if (isScreenshotMode) {
+      return undefined;
+    }
+
     const desktopApi =
       typeof window !== 'undefined' && 'desktopApi' in window ? window.desktopApi : undefined;
 
@@ -157,13 +172,17 @@ export function App() {
         type: 'open-settings',
       });
     });
-  }, []);
+  }, [isScreenshotMode]);
 
   useEffect(() => {
-    if (theme && typeof document !== 'undefined') {
+    if (!isScreenshotMode && theme && typeof document !== 'undefined') {
       applyThemePreferenceToRoot(theme, document.documentElement);
     }
-  }, [theme]);
+  }, [isScreenshotMode, theme]);
+
+  if (isScreenshotMode) {
+    return <ScreenshotOverlay />;
+  }
 
   return (
     <AppView

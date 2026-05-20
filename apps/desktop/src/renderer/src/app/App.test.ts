@@ -6,6 +6,7 @@ import {
   AppView,
   appReducer,
   initialAppState,
+  isScreenshotRendererMode,
   subscribeToOpenSettings,
   type AppState,
 } from './App.js';
@@ -166,5 +167,11 @@ describe('App plugin host routing', () => {
 
     expect(subscribeToOpenSettings(desktopApi, onOpenSettings)).toBe(cleanup);
     expect(onOpenSettings).toHaveBeenCalledOnce();
+  });
+
+  it('detects screenshot renderer mode from the URL query', () => {
+    expect(isScreenshotRendererMode('https://command-cabin.local/?mode=screenshot')).toBe(true);
+    expect(isScreenshotRendererMode('https://command-cabin.local/?mode=launcher')).toBe(false);
+    expect(isScreenshotRendererMode('not a url')).toBe(false);
   });
 });

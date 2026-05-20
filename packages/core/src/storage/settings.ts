@@ -16,7 +16,7 @@ export interface CommandCabinSearchSettings {
 
 export interface CommandCabinSettings {
   hotkey: string;
-  screenshotHotkey?: string;
+  screenshotHotkey: string;
   hideOnBlur: boolean;
   theme: CommandCabinTheme;
   language: CommandCabinLanguage;

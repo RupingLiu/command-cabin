@@ -7,9 +7,8 @@ import type {
 export interface UpdateSettingsWithHotkeyRegistrationOptions {
   settingsPatch: CommandCabinSettingsPatch;
   settingsStore: CommandCabinSettingsStore;
-  tryRegisterLauncherHotkey?: (hotkey: string) => boolean;
-  tryRegisterScreenshotHotkey?: (hotkey: string) => boolean;
-  tryRegisterHotkey?: (hotkey: string) => boolean;
+  tryRegisterLauncherHotkey: (hotkey: string) => boolean;
+  tryRegisterScreenshotHotkey: (hotkey: string) => boolean;
 }
 
 export function updateSettingsWithHotkeyRegistration({
@@ -17,14 +16,11 @@ export function updateSettingsWithHotkeyRegistration({
   settingsStore,
   tryRegisterLauncherHotkey,
   tryRegisterScreenshotHotkey,
-  tryRegisterHotkey,
 }: UpdateSettingsWithHotkeyRegistrationOptions): CommandCabinSettings {
   const currentSettings = settingsStore.getSettings();
-  const registerLauncherHotkey = tryRegisterLauncherHotkey ?? tryRegisterHotkey;
-  const registerScreenshotHotkey = tryRegisterScreenshotHotkey ?? registerLauncherHotkey;
 
   if (settingsPatch.hotkey !== undefined && settingsPatch.hotkey !== currentSettings.hotkey) {
-    const registered = registerLauncherHotkey?.(settingsPatch.hotkey) ?? false;
+    const registered = tryRegisterLauncherHotkey(settingsPatch.hotkey);
 
     if (!registered) {
       throw new Error(
@@ -37,7 +33,7 @@ export function updateSettingsWithHotkeyRegistration({
     settingsPatch.screenshotHotkey !== undefined &&
     settingsPatch.screenshotHotkey !== currentSettings.screenshotHotkey
   ) {
-    const registered = registerScreenshotHotkey?.(settingsPatch.screenshotHotkey) ?? false;
+    const registered = tryRegisterScreenshotHotkey(settingsPatch.screenshotHotkey);
 
     if (!registered) {
       throw new Error(

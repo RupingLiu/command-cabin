@@ -47,6 +47,7 @@ export type ScreenshotAnnotationInput =
   | Omit<Extract<ScreenshotAnnotation, { type: 'text' }>, 'style'>;
 
 export interface ScreenshotState {
+  annotationAnchor: ScreenshotPoint | undefined;
   annotations: ScreenshotAnnotation[];
   draftAnnotation: ScreenshotAnnotation | undefined;
   redoAnnotations: ScreenshotAnnotation[];
@@ -93,6 +94,20 @@ export type ScreenshotAction =
       type: 'annotation-committed';
     }
   | {
+      point: ScreenshotPoint;
+      type: 'annotation-started';
+    }
+  | {
+      point: ScreenshotPoint;
+      type: 'annotation-updated';
+    }
+  | {
+      type: 'annotation-finished';
+    }
+  | {
+      type: 'annotation-canceled';
+    }
+  | {
       type: 'undo';
     }
   | {
@@ -101,6 +116,7 @@ export type ScreenshotAction =
 
 export function createInitialScreenshotState(): ScreenshotState {
   return {
+    annotationAnchor: undefined,
     annotations: [],
     draftAnnotation: undefined,
     redoAnnotations: [],
@@ -197,9 +213,52 @@ export function screenshotReducer(
     case 'annotation-committed':
       return {
         ...state,
+        annotationAnchor: undefined,
         annotations: [...state.annotations, withStyle(action.annotation, state.style)],
         draftAnnotation: undefined,
         redoAnnotations: [],
+      };
+    case 'annotation-started':
+      return {
+        ...state,
+        annotationAnchor: action.point,
+        draftAnnotation: createDraftAnnotation(state.tool, action.point, action.point, state.style),
+      };
+    case 'annotation-updated':
+      if (!state.annotationAnchor || !state.draftAnnotation) {
+        return state;
+      }
+
+      return {
+        ...state,
+        draftAnnotation: updateDraftAnnotation(
+          state.draftAnnotation,
+          state.annotationAnchor,
+          action.point,
+          state.style,
+        ),
+      };
+    case 'annotation-finished':
+      if (!state.draftAnnotation || !isCommittableAnnotation(state.draftAnnotation)) {
+        return {
+          ...state,
+          annotationAnchor: undefined,
+          draftAnnotation: undefined,
+        };
+      }
+
+      return {
+        ...state,
+        annotationAnchor: undefined,
+        annotations: [...state.annotations, state.draftAnnotation],
+        draftAnnotation: undefined,
+        redoAnnotations: [],
+      };
+    case 'annotation-canceled':
+      return {
+        ...state,
+        annotationAnchor: undefined,
+        draftAnnotation: undefined,
       };
     case 'undo': {
       const undone = state.annotations.at(-1);
@@ -227,6 +286,95 @@ export function screenshotReducer(
         redoAnnotations: remainingRedo,
       };
     }
+  }
+}
+
+function createDraftAnnotation(
+  tool: ScreenshotTool,
+  from: ScreenshotPoint,
+  to: ScreenshotPoint,
+  style: ScreenshotAnnotationStyle,
+): ScreenshotAnnotation {
+  switch (tool) {
+    case 'rectangle':
+    case 'ellipse':
+    case 'mosaic':
+      return {
+        rect: normalizeScreenshotRect(from, to),
+        style: { ...style },
+        type: tool,
+      };
+    case 'arrow':
+      return {
+        from,
+        style: { ...style },
+        to,
+        type: 'arrow',
+      };
+    case 'pen':
+      return {
+        points: [from],
+        style: { ...style },
+        type: 'pen',
+      };
+    case 'text':
+      return {
+        point: from,
+        style: { ...style },
+        text: '',
+        type: 'text',
+      };
+  }
+}
+
+function updateDraftAnnotation(
+  draftAnnotation: ScreenshotAnnotation,
+  from: ScreenshotPoint,
+  to: ScreenshotPoint,
+  style: ScreenshotAnnotationStyle,
+): ScreenshotAnnotation {
+  switch (draftAnnotation.type) {
+    case 'rectangle':
+    case 'ellipse':
+    case 'mosaic':
+      return {
+        rect: normalizeScreenshotRect(from, to),
+        style: { ...style },
+        type: draftAnnotation.type,
+      };
+    case 'arrow':
+      return {
+        from,
+        style: { ...style },
+        to,
+        type: 'arrow',
+      };
+    case 'pen':
+      return {
+        points: [...draftAnnotation.points, to],
+        style: { ...style },
+        type: 'pen',
+      };
+    case 'text':
+      return {
+        ...draftAnnotation,
+        style: { ...style },
+      };
+  }
+}
+
+function isCommittableAnnotation(annotation: ScreenshotAnnotation): boolean {
+  switch (annotation.type) {
+    case 'rectangle':
+    case 'ellipse':
+    case 'mosaic':
+      return isNonEmptyScreenshotRect(annotation.rect);
+    case 'arrow':
+      return annotation.from.x !== annotation.to.x || annotation.from.y !== annotation.to.y;
+    case 'pen':
+      return annotation.points.length > 1;
+    case 'text':
+      return annotation.text.trim().length > 0;
   }
 }
 

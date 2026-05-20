@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 
-import type {
-  ScreenshotLaunchState,
-  ScreenshotOcrLanguage,
-  ScreenshotSaveFormat,
-} from '../../../shared/screenshotApi.js';
+import type { ScreenshotLaunchState, ScreenshotSaveFormat } from '../../../shared/screenshotApi.js';
 import { composeScreenshotSelection } from './screenshotCanvas.js';
 import {
   createInitialScreenshotState,
   isScreenshotReadyToComplete,
-  normalizeScreenshotRect,
   screenshotReducer,
+  type ScreenshotAnnotation,
   type ScreenshotPoint,
   type ScreenshotRect,
+  type ScreenshotState,
   type ScreenshotTool,
 } from './screenshotState.js';
 
@@ -37,6 +34,7 @@ interface ScreenshotOverlayStatus {
 
 export interface ScreenshotOverlayViewProps {
   desktopApi?: Window['desktopApi']['screenshot'] | undefined;
+  initialState?: ScreenshotState | undefined;
   launchState: ScreenshotLaunchState;
 }
 
@@ -73,9 +71,24 @@ export function ScreenshotOverlay() {
   );
 }
 
-export function ScreenshotOverlayView({ desktopApi, launchState }: ScreenshotOverlayViewProps) {
-  const [state, dispatch] = useReducer(screenshotReducer, undefined, createInitialScreenshotState);
-  const [dragStart, setDragStart] = useState<ScreenshotPoint | undefined>();
+export function ScreenshotOverlayView({
+  desktopApi,
+  initialState,
+  launchState,
+}: ScreenshotOverlayViewProps) {
+  const [state, dispatch] = useReducer(
+    screenshotReducer,
+    initialState ?? createInitialScreenshotState(),
+  );
+  const [dragMode, setDragMode] = useState<'annotation' | 'selection' | undefined>();
+  const dragStartRef = useRef<
+    | {
+        mode: 'annotation' | 'selection';
+        point: ScreenshotPoint;
+      }
+    | undefined
+  >(undefined);
+  const textPromptTimerRef = useRef<number | undefined>(undefined);
   const [saveFormat, setSaveFormat] = useState<ScreenshotSaveFormat>('png');
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [pointer, setPointer] = useState<ScreenshotPoint>({
@@ -99,7 +112,9 @@ export function ScreenshotOverlayView({ desktopApi, launchState }: ScreenshotOve
       }
 
       return composeScreenshotSelection({
-        annotations: state.annotations,
+        annotations: state.draftAnnotation
+          ? [...state.annotations, state.draftAnnotation]
+          : state.annotations,
         format,
         launchState,
         selection: state.selection,
@@ -118,6 +133,13 @@ export function ScreenshotOverlayView({ desktopApi, launchState }: ScreenshotOve
     }
   }, [desktopApi, exportImage]);
 
+  const clearTextPromptTimer = useCallback(() => {
+    if (textPromptTimerRef.current !== undefined) {
+      window.clearTimeout(textPromptTimerRef.current);
+      textPromptTimerRef.current = undefined;
+    }
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -133,112 +155,99 @@ export function ScreenshotOverlayView({ desktopApi, launchState }: ScreenshotOve
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [cancel, finish, ready]);
 
-  const beginPointer = (point: ScreenshotPoint) => {
+  useEffect(() => clearTextPromptTimer, [clearTextPromptTimer]);
+
+  const beginPointer = (point: ScreenshotPoint, detail: number) => {
     setPointer(point);
 
-    if (state.selection && pointInRect(point, state.selection)) {
-      commitToolAnnotation(point);
+    if (detail > 1) {
+      clearTextPromptTimer();
       return;
     }
 
-    setDragStart(point);
+    if (state.selection && pointInRect(point, state.selection)) {
+      const localPoint = toSelectionPoint(point, state.selection);
+
+      setDragMode('annotation');
+      dragStartRef.current = { mode: 'annotation', point: localPoint };
+      dispatch({ point: localPoint, type: 'annotation-started' });
+      return;
+    }
+
+    setDragMode('selection');
+    dragStartRef.current = { mode: 'selection', point };
     dispatch({ point, type: 'selection-started' });
   };
 
   const movePointer = (point: ScreenshotPoint) => {
     setPointer(point);
 
-    if (dragStart) {
+    if (dragMode === 'selection') {
       dispatch({ point, type: 'selection-updated' });
+    } else if (dragMode === 'annotation' && state.selection) {
+      dispatch({
+        point: toSelectionPoint(point, state.selection),
+        type: 'annotation-updated',
+      });
     }
   };
 
-  const endPointer = (point: ScreenshotPoint) => {
+  const endPointer = (point: ScreenshotPoint, detail: number) => {
     setPointer(point);
 
-    if (!dragStart) {
+    if (detail > 1) {
+      clearTextPromptTimer();
+      setDragMode(undefined);
+      dragStartRef.current = undefined;
+      dispatch({ type: 'annotation-canceled' });
       return;
     }
 
-    const rect = normalizeScreenshotRect(dragStart, point);
-    setDragStart(undefined);
-    dispatch({ type: 'selection-ended' });
-
-    if (rect.width < 3 || rect.height < 3) {
-      commitToolAnnotation(point);
+    if (!dragMode) {
+      return;
     }
+
+    if (dragMode === 'selection') {
+      dispatch({ type: 'selection-ended' });
+    } else if (state.tool === 'text' && state.selection) {
+      const start = dragStartRef.current?.point;
+      const end = toSelectionPoint(point, state.selection);
+
+      dispatch({ type: 'annotation-canceled' });
+
+      if (start && distance(start, end) <= 3) {
+        scheduleTextAnnotation(end);
+      }
+    } else {
+      dispatch({ type: 'annotation-finished' });
+    }
+
+    setDragMode(undefined);
+    dragStartRef.current = undefined;
   };
 
-  const commitToolAnnotation = (point: ScreenshotPoint) => {
-    if (!state.selection || !pointInRect(point, state.selection)) {
-      return;
-    }
-
-    const localPoint = {
-      x: point.x - state.selection.x,
-      y: point.y - state.selection.y,
-    };
-    const rect = clampRectToSelection(
-      {
-        height: 56,
-        width: 92,
-        x: localPoint.x - 46,
-        y: localPoint.y - 28,
-      },
-      state.selection,
-    );
-
-    if (state.tool === 'arrow') {
-      dispatch({
-        annotation: {
-          from: { x: rect.x, y: rect.y + rect.height },
-          to: { x: rect.x + rect.width, y: rect.y },
-          type: 'arrow',
-        },
-        type: 'annotation-committed',
-      });
-      return;
-    }
-
-    if (state.tool === 'pen') {
-      dispatch({
-        annotation: {
-          points: [
-            { x: rect.x, y: rect.y + rect.height / 2 },
-            { x: rect.x + rect.width / 3, y: rect.y },
-            { x: rect.x + rect.width, y: rect.y + rect.height },
-          ],
-          type: 'pen',
-        },
-        type: 'annotation-committed',
-      });
-      return;
-    }
-
-    if (state.tool === 'text') {
+  const scheduleTextAnnotation = (point: ScreenshotPoint) => {
+    clearTextPromptTimer();
+    textPromptTimerRef.current = window.setTimeout(() => {
+      textPromptTimerRef.current = undefined;
       const text =
         typeof window !== 'undefined'
-          ? window.prompt('Text annotation', 'Text')?.trim() || 'Text'
+          ? window.prompt('Text annotation', 'Text')?.trim() || ''
           : 'Text';
+
+      if (!text) {
+        return;
+      }
 
       dispatch({
         annotation: {
-          point: { x: localPoint.x, y: localPoint.y },
+          point,
           text,
           type: 'text',
         },
         type: 'annotation-committed',
       });
-      return;
-    }
-
-    dispatch({
-      annotation: {
-        rect,
-        type: state.tool,
-      },
-      type: 'annotation-committed',
-    });
+    }, 220);
   };
 
   const runOutputAction = async (action: 'ocr' | 'pin' | 'save') => {
@@ -271,17 +280,20 @@ export function ScreenshotOverlayView({ desktopApi, launchState }: ScreenshotOve
       <div
         className="screenshot-stage"
         onDoubleClick={() => {
+          clearTextPromptTimer();
           if (ready) {
             void finish();
           }
         }}
         onMouseDown={(event) => {
           if (event.button === 0) {
-            beginPointer(toVirtualPoint(event, launchState.virtualBounds));
+            beginPointer(toVirtualPoint(event, launchState.virtualBounds), event.detail);
           }
         }}
         onMouseMove={(event) => movePointer(toVirtualPoint(event, launchState.virtualBounds))}
-        onMouseUp={(event) => endPointer(toVirtualPoint(event, launchState.virtualBounds))}
+        onMouseUp={(event) =>
+          endPointer(toVirtualPoint(event, launchState.virtualBounds), event.detail)
+        }
         role="application"
       >
         {launchState.displays.map((display) => (
@@ -313,6 +325,15 @@ export function ScreenshotOverlayView({ desktopApi, launchState }: ScreenshotOve
             <span className="screenshot-size-badge">
               {Math.round(offsetSelection.width)} x {Math.round(offsetSelection.height)}
             </span>
+            <AnnotationLayer
+              annotations={
+                state.draftAnnotation
+                  ? [...state.annotations, state.draftAnnotation]
+                  : state.annotations
+              }
+              draftAnnotation={state.draftAnnotation}
+              selection={state.selection}
+            />
           </div>
         ) : undefined}
         <div
@@ -450,6 +471,13 @@ function offsetRect(rect: ScreenshotRect, virtualBounds: ScreenshotRect): Screen
   };
 }
 
+function toSelectionPoint(point: ScreenshotPoint, selection: ScreenshotRect): ScreenshotPoint {
+  return {
+    x: Math.max(0, Math.min(point.x - selection.x, selection.width)),
+    y: Math.max(0, Math.min(point.y - selection.y, selection.height)),
+  };
+}
+
 function pointInRect(point: ScreenshotPoint, rect: ScreenshotRect): boolean {
   return (
     point.x >= rect.x &&
@@ -459,13 +487,8 @@ function pointInRect(point: ScreenshotPoint, rect: ScreenshotRect): boolean {
   );
 }
 
-function clampRectToSelection(rect: ScreenshotRect, selection: ScreenshotRect): ScreenshotRect {
-  return {
-    height: Math.min(rect.height, selection.height),
-    width: Math.min(rect.width, selection.width),
-    x: Math.max(0, Math.min(rect.x, selection.width - rect.width)),
-    y: Math.max(0, Math.min(rect.y, selection.height - rect.height)),
-  };
+function distance(from: ScreenshotPoint, to: ScreenshotPoint): number {
+  return Math.hypot(to.x - from.x, to.y - from.y);
 }
 
 function toolIcon(tool: ScreenshotTool): string {
@@ -483,6 +506,140 @@ function toolIcon(tool: ScreenshotTool): string {
     case 'mosaic':
       return '#';
   }
+}
+
+interface AnnotationLayerProps {
+  annotations: ScreenshotAnnotation[];
+  draftAnnotation: ScreenshotAnnotation | undefined;
+  selection: ScreenshotRect | undefined;
+}
+
+function AnnotationLayer({ annotations, draftAnnotation, selection }: AnnotationLayerProps) {
+  if (!selection) {
+    return undefined;
+  }
+
+  return (
+    <svg
+      className="screenshot-annotation-layer"
+      height={selection.height}
+      viewBox={`0 0 ${selection.width} ${selection.height}`}
+      width={selection.width}
+    >
+      {annotations.map((annotation, index) => (
+        <AnnotationShape
+          annotation={annotation}
+          isDraft={annotation === draftAnnotation}
+          key={`${annotation.type}-${index}`}
+        />
+      ))}
+    </svg>
+  );
+}
+
+interface AnnotationShapeProps {
+  annotation: ScreenshotAnnotation;
+  isDraft: boolean;
+}
+
+function AnnotationShape({ annotation, isDraft }: AnnotationShapeProps) {
+  const commonProps = {
+    'data-annotation-type': annotation.type,
+    'data-draft': isDraft ? 'true' : undefined,
+    fill: 'none',
+    stroke: annotation.style.color,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    strokeWidth: annotation.style.lineWidth,
+  };
+
+  switch (annotation.type) {
+    case 'rectangle':
+      return <rect {...commonProps} {...annotation.rect} />;
+    case 'ellipse':
+      return (
+        <ellipse
+          {...commonProps}
+          cx={annotation.rect.x + annotation.rect.width / 2}
+          cy={annotation.rect.y + annotation.rect.height / 2}
+          rx={annotation.rect.width / 2}
+          ry={annotation.rect.height / 2}
+        />
+      );
+    case 'mosaic':
+      return (
+        <rect
+          {...commonProps}
+          {...annotation.rect}
+          className="screenshot-annotation-mosaic"
+          fill={annotation.style.color}
+        />
+      );
+    case 'arrow':
+      return <ArrowShape annotation={annotation} isDraft={isDraft} />;
+    case 'pen':
+      return (
+        <polyline
+          {...commonProps}
+          points={annotation.points.map((point) => `${point.x},${point.y}`).join(' ')}
+        />
+      );
+    case 'text':
+      return (
+        <text
+          data-annotation-type={annotation.type}
+          data-draft={isDraft ? 'true' : undefined}
+          fill={annotation.style.color}
+          fontSize={annotation.style.fontSize}
+          x={annotation.point.x}
+          y={annotation.point.y + annotation.style.fontSize}
+        >
+          {annotation.text}
+        </text>
+      );
+  }
+}
+
+function ArrowShape({
+  annotation,
+  isDraft,
+}: {
+  annotation: Extract<ScreenshotAnnotation, { type: 'arrow' }>;
+  isDraft: boolean;
+}) {
+  const angle = Math.atan2(
+    annotation.to.y - annotation.from.y,
+    annotation.to.x - annotation.from.x,
+  );
+  const headLength = Math.max(10, annotation.style.lineWidth * 4);
+  const left = {
+    x: annotation.to.x - headLength * Math.cos(angle - Math.PI / 6),
+    y: annotation.to.y - headLength * Math.sin(angle - Math.PI / 6),
+  };
+  const right = {
+    x: annotation.to.x - headLength * Math.cos(angle + Math.PI / 6),
+    y: annotation.to.y - headLength * Math.sin(angle + Math.PI / 6),
+  };
+  const points = [
+    `${annotation.from.x},${annotation.from.y}`,
+    `${annotation.to.x},${annotation.to.y}`,
+    `${left.x},${left.y}`,
+    `${annotation.to.x},${annotation.to.y}`,
+    `${right.x},${right.y}`,
+  ].join(' ');
+
+  return (
+    <polyline
+      data-annotation-type={annotation.type}
+      data-draft={isDraft ? 'true' : undefined}
+      fill="none"
+      points={points}
+      stroke={annotation.style.color}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={annotation.style.lineWidth}
+    />
+  );
 }
 
 function toStatus(reason: unknown): ScreenshotOverlayStatus {

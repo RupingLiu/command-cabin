@@ -1485,6 +1485,24 @@ select {
   text-align: center;
 }
 
+.screenshot-annotation-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.screenshot-annotation-layer [data-draft='true'] {
+  opacity: 0.78;
+  stroke-dasharray: 6 5;
+}
+
+.screenshot-annotation-mosaic {
+  opacity: 0.32;
+}
+
 .screenshot-magnifier {
   position: absolute;
   z-index: 4;

@@ -110,4 +110,71 @@ describe('screenshotReducer', () => {
     ]);
     expect(branched.redoAnnotations).toEqual([]);
   });
+
+  it('builds and commits drag rectangle annotations as drafts', () => {
+    const selected = screenshotReducer(
+      screenshotReducer(createInitialScreenshotState(), {
+        rect: { height: 90, width: 120, x: 10, y: 20 },
+        type: 'selection-set',
+      }),
+      { tool: 'rectangle', type: 'tool-selected' },
+    );
+    const drafting = screenshotReducer(
+      screenshotReducer(selected, {
+        point: { x: 80, y: 60 },
+        type: 'annotation-started',
+      }),
+      {
+        point: { x: 20, y: 25 },
+        type: 'annotation-updated',
+      },
+    );
+    const committed = screenshotReducer(drafting, { type: 'annotation-finished' });
+
+    expect(drafting.draftAnnotation).toMatchObject({
+      rect: { height: 35, width: 60, x: 20, y: 25 },
+      type: 'rectangle',
+    });
+    expect(committed.annotations).toHaveLength(1);
+    expect(committed.draftAnnotation).toBeUndefined();
+  });
+
+  it('builds arrow and pen annotations from drag movement', () => {
+    const selected = screenshotReducer(createInitialScreenshotState(), {
+      rect: { height: 90, width: 120, x: 10, y: 20 },
+      type: 'selection-set',
+    });
+    const arrow = screenshotReducer(
+      screenshotReducer(screenshotReducer(selected, { tool: 'arrow', type: 'tool-selected' }), {
+        point: { x: 8, y: 12 },
+        type: 'annotation-started',
+      }),
+      {
+        point: { x: 48, y: 52 },
+        type: 'annotation-updated',
+      },
+    );
+    const pen = [
+      { point: { x: 5, y: 8 }, type: 'annotation-started' as const },
+      { point: { x: 9, y: 11 }, type: 'annotation-updated' as const },
+      { point: { x: 15, y: 18 }, type: 'annotation-updated' as const },
+    ].reduce(
+      screenshotReducer,
+      screenshotReducer(selected, { tool: 'pen', type: 'tool-selected' }),
+    );
+
+    expect(arrow.draftAnnotation).toMatchObject({
+      from: { x: 8, y: 12 },
+      to: { x: 48, y: 52 },
+      type: 'arrow',
+    });
+    expect(pen.draftAnnotation).toMatchObject({
+      points: [
+        { x: 5, y: 8 },
+        { x: 9, y: 11 },
+        { x: 15, y: 18 },
+      ],
+      type: 'pen',
+    });
+  });
 });

@@ -32,10 +32,22 @@ interface ScreenshotOverlayStatus {
   value: string;
 }
 
+type ScreenshotApi = NonNullable<Window['desktopApi']['screenshot']>;
+
 export interface ScreenshotOverlayViewProps {
   desktopApi?: Window['desktopApi']['screenshot'] | undefined;
   initialState?: ScreenshotState | undefined;
   launchState: ScreenshotLaunchState;
+}
+
+export function requireScreenshotApi(
+  screenshotApi: Window['desktopApi']['screenshot'] | undefined,
+): ScreenshotApi {
+  if (!screenshotApi) {
+    throw new Error('Screenshot controls are unavailable in this window.');
+  }
+
+  return screenshotApi;
 }
 
 export function ScreenshotOverlay() {
@@ -43,13 +55,21 @@ export function ScreenshotOverlay() {
   const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
-    const screenshotApi =
-      typeof window !== 'undefined' && 'desktopApi' in window
-        ? window.desktopApi.screenshot
-        : undefined;
+    let screenshotApi: ScreenshotApi;
+
+    try {
+      screenshotApi = requireScreenshotApi(
+        typeof window !== 'undefined' && 'desktopApi' in window
+          ? window.desktopApi.screenshot
+          : undefined,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to load screenshot capture.');
+      return;
+    }
 
     void screenshotApi
-      ?.getLaunchState()
+      .getLaunchState()
       .then(setLaunchState)
       .catch((reason: unknown) => {
         setError(reason instanceof Error ? reason.message : 'Unable to load screenshot capture.');
@@ -102,7 +122,11 @@ export function ScreenshotOverlayView({
   );
 
   const cancel = useCallback(() => {
-    void desktopApi?.cancel();
+    try {
+      void requireScreenshotApi(desktopApi).cancel();
+    } catch (reason) {
+      setStatus(toStatus(reason));
+    }
   }, [desktopApi]);
 
   const exportImage = useCallback(
@@ -120,14 +144,16 @@ export function ScreenshotOverlayView({
         selection: state.selection,
       });
     },
-    [launchState, state.annotations, state.selection],
+    [launchState, state.annotations, state.draftAnnotation, state.selection],
   );
 
   const finish = useCallback(async () => {
     try {
       const imageDataUrl = await exportImage('png');
-      await desktopApi?.copyImage({ imageDataUrl });
-      await desktopApi?.cancel();
+      const screenshotApi = requireScreenshotApi(desktopApi);
+
+      await screenshotApi.copyImage({ imageDataUrl });
+      await screenshotApi.cancel();
     } catch (reason) {
       setStatus(toStatus(reason));
     }
@@ -253,15 +279,16 @@ export function ScreenshotOverlayView({
   const runOutputAction = async (action: 'ocr' | 'pin' | 'save') => {
     try {
       const imageDataUrl = await exportImage(action === 'save' ? saveFormat : 'png');
+      const screenshotApi = requireScreenshotApi(desktopApi);
 
       if (action === 'save') {
-        const result = await desktopApi?.saveImage({ format: saveFormat, imageDataUrl });
+        const result = await screenshotApi.saveImage({ format: saveFormat, imageDataUrl });
         setStatus({ tone: 'info', value: result?.canceled ? 'Save canceled.' : 'Image saved.' });
       } else if (action === 'pin') {
-        await desktopApi?.pinImage({ imageDataUrl });
+        await screenshotApi.pinImage({ imageDataUrl });
         setStatus({ tone: 'info', value: 'Pinned selection.' });
       } else {
-        const result = await desktopApi?.runOcr({ imageDataUrl, language: 'en-US' });
+        const result = await screenshotApi.runOcr({ imageDataUrl, language: 'en-US' });
         setStatus({ tone: 'info', value: result?.text || 'No OCR text found.' });
       }
     } catch (reason) {
@@ -347,111 +374,113 @@ export function ScreenshotOverlayView({
         </div>
       </div>
 
-      <div className="screenshot-toolbar" role="toolbar">
-        <div className="screenshot-tool-group">
-          {(Object.keys(toolLabels) as ScreenshotTool[]).map((tool) => (
-            <button
-              data-active={state.tool === tool}
-              key={tool}
-              onClick={() => dispatch({ tool, type: 'tool-selected' })}
-              title={toolLabels[tool]}
-              type="button"
-            >
-              <span>{toolIcon(tool)}</span>
-              {toolLabels[tool]}
+      <div className="screenshot-controls">
+        {status ? (
+          <div className="screenshot-status" data-tone={status.tone}>
+            {status.value}
+          </div>
+        ) : undefined}
+        <div className="screenshot-toolbar" role="toolbar">
+          <div className="screenshot-tool-group">
+            {(Object.keys(toolLabels) as ScreenshotTool[]).map((tool) => (
+              <button
+                data-active={state.tool === tool}
+                key={tool}
+                onClick={() => dispatch({ tool, type: 'tool-selected' })}
+                title={toolLabels[tool]}
+                type="button"
+              >
+                <span>{toolIcon(tool)}</span>
+                {toolLabels[tool]}
+              </button>
+            ))}
+          </div>
+          <div className="screenshot-tool-group">
+            <button onClick={() => dispatch({ type: 'undo' })} type="button">
+              <span>&lt;</span>
+              Undo
             </button>
-          ))}
-        </div>
-        <div className="screenshot-tool-group">
-          <button onClick={() => dispatch({ type: 'undo' })} type="button">
-            <span>&lt;</span>
-            Undo
-          </button>
-          <button onClick={() => dispatch({ type: 'redo' })} type="button">
-            <span>&gt;</span>
-            Redo
-          </button>
-        </div>
-        <fieldset className="screenshot-tool-group">
-          <legend>Color</legend>
-          {colors.map((color) => (
-            <button
-              aria-label={`Color ${color}`}
-              data-active={state.style.color === color}
-              key={color}
-              onClick={() => dispatch({ color, type: 'color-selected' })}
-              style={{ backgroundColor: color }}
-              type="button"
-            />
-          ))}
-        </fieldset>
-        <fieldset className="screenshot-tool-group">
-          <legend>Line</legend>
-          {lineWidths.map((lineWidth) => (
-            <button
-              data-active={state.style.lineWidth === lineWidth}
-              key={lineWidth}
-              onClick={() => dispatch({ lineWidth, type: 'line-width-selected' })}
-              type="button"
-            >
-              {lineWidth}
+            <button onClick={() => dispatch({ type: 'redo' })} type="button">
+              <span>&gt;</span>
+              Redo
             </button>
-          ))}
-        </fieldset>
-        <fieldset className="screenshot-tool-group">
-          <legend>Font</legend>
-          {fontSizes.map((fontSize) => (
-            <button
-              data-active={state.style.fontSize === fontSize}
-              key={fontSize}
-              onClick={() => dispatch({ fontSize, type: 'font-size-selected' })}
-              type="button"
-            >
-              {fontSize}
+          </div>
+          <fieldset className="screenshot-tool-group">
+            <legend>Color</legend>
+            {colors.map((color) => (
+              <button
+                aria-label={`Color ${color}`}
+                data-active={state.style.color === color}
+                key={color}
+                onClick={() => dispatch({ color, type: 'color-selected' })}
+                style={{ backgroundColor: color }}
+                type="button"
+              />
+            ))}
+          </fieldset>
+          <fieldset className="screenshot-tool-group">
+            <legend>Line</legend>
+            {lineWidths.map((lineWidth) => (
+              <button
+                data-active={state.style.lineWidth === lineWidth}
+                key={lineWidth}
+                onClick={() => dispatch({ lineWidth, type: 'line-width-selected' })}
+                type="button"
+              >
+                {lineWidth}
+              </button>
+            ))}
+          </fieldset>
+          <fieldset className="screenshot-tool-group">
+            <legend>Font</legend>
+            {fontSizes.map((fontSize) => (
+              <button
+                data-active={state.style.fontSize === fontSize}
+                key={fontSize}
+                onClick={() => dispatch({ fontSize, type: 'font-size-selected' })}
+                type="button"
+              >
+                {fontSize}
+              </button>
+            ))}
+          </fieldset>
+          <fieldset className="screenshot-tool-group">
+            <legend>Format</legend>
+            {(['png', 'jpg'] as ScreenshotSaveFormat[]).map((format) => (
+              <button
+                data-active={saveFormat === format}
+                key={format}
+                onClick={() => setSaveFormat(format)}
+                type="button"
+              >
+                {format.toUpperCase()}
+              </button>
+            ))}
+          </fieldset>
+          <div className="screenshot-tool-group screenshot-tool-group--actions">
+            <button disabled={!ready} onClick={() => void runOutputAction('ocr')} type="button">
+              <span>Tx</span>
+              OCR
             </button>
-          ))}
-        </fieldset>
-        <fieldset className="screenshot-tool-group">
-          <legend>Format</legend>
-          {(['png', 'jpg'] as ScreenshotSaveFormat[]).map((format) => (
-            <button
-              data-active={saveFormat === format}
-              key={format}
-              onClick={() => setSaveFormat(format)}
-              type="button"
-            >
-              {format.toUpperCase()}
+            <button disabled={!ready} onClick={() => void runOutputAction('pin')} type="button">
+              <span>^</span>
+              Pin
             </button>
-          ))}
-        </fieldset>
-        <div className="screenshot-tool-group screenshot-tool-group--actions">
-          <button disabled={!ready} onClick={() => void runOutputAction('ocr')} type="button">
-            <span>Tx</span>
-            OCR
-          </button>
-          <button disabled={!ready} onClick={() => void runOutputAction('pin')} type="button">
-            <span>^</span>
-            Pin
-          </button>
-          <button disabled={!ready} onClick={() => void runOutputAction('save')} type="button">
-            <span>v</span>
-            Save
-          </button>
-          <button disabled={!ready} onClick={() => void finish()} type="button">
-            <span>OK</span>
-            Done
-          </button>
-          <button onClick={cancel} type="button">
-            <span>X</span>
-            Cancel
-          </button>
+            <button disabled={!ready} onClick={() => void runOutputAction('save')} type="button">
+              <span>v</span>
+              Save
+            </button>
+            <button disabled={!ready} onClick={() => void finish()} type="button">
+              <span>OK</span>
+              Done
+            </button>
+            <button onClick={cancel} type="button">
+              <span>X</span>
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
-      {status ? (
-        <div className="screenshot-status" data-tone={status.tone}>
-          {status.value}
-        </div>
-      ) : undefined}
     </div>
   );
 }
@@ -592,7 +621,7 @@ function AnnotationShape({ annotation, isDraft }: AnnotationShapeProps) {
           fill={annotation.style.color}
           fontSize={annotation.style.fontSize}
           x={annotation.point.x}
-          y={annotation.point.y + annotation.style.fontSize}
+          y={annotation.point.y}
         >
           {annotation.text}
         </text>

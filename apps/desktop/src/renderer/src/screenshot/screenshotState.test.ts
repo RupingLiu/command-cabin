@@ -177,4 +177,43 @@ describe('screenshotReducer', () => {
       type: 'pen',
     });
   });
+
+  it('clears selection-local annotations, drafts, and redo when selection changes', () => {
+    const selected = screenshotReducer(createInitialScreenshotState(), {
+      rect: { height: 90, width: 120, x: 10, y: 20 },
+      type: 'selection-set',
+    });
+    const annotated = screenshotReducer(
+      screenshotReducer(selected, {
+        annotation: { rect: { height: 10, width: 14, x: 2, y: 4 }, type: 'rectangle' },
+        type: 'annotation-committed',
+      }),
+      {
+        point: { x: 8, y: 12 },
+        type: 'annotation-started',
+      },
+    );
+    const undone = screenshotReducer(annotated, { type: 'undo' });
+    const resetByStart = screenshotReducer(undone, {
+      point: { x: 40, y: 50 },
+      type: 'selection-started',
+    });
+    const resetBySet = screenshotReducer(undone, {
+      rect: { height: 20, width: 30, x: 1, y: 2 },
+      type: 'selection-set',
+    });
+
+    expect(resetByStart).toMatchObject({
+      annotations: [],
+      draftAnnotation: undefined,
+      redoAnnotations: [],
+      selection: { height: 0, width: 0, x: 40, y: 50 },
+    });
+    expect(resetBySet).toMatchObject({
+      annotations: [],
+      draftAnnotation: undefined,
+      redoAnnotations: [],
+      selection: { height: 20, width: 30, x: 1, y: 2 },
+    });
+  });
 });

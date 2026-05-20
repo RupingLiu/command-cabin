@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { ScreenshotOverlayView } from './ScreenshotOverlay.js';
+import { ScreenshotOverlayView, requireScreenshotApi } from './ScreenshotOverlay.js';
 import {
   createInitialScreenshotState,
   screenshotReducer,
@@ -58,6 +58,14 @@ describe('ScreenshotOverlayView', () => {
     expect(markup).toContain('data-annotation-type="text"');
     expect(markup).toContain('data-annotation-type="mosaic"');
     expect(markup).toContain('data-draft="true"');
+    expect(markup).toContain('y="92"');
+    expect(markup).not.toContain('y="110"');
+  });
+
+  it('throws a readable error when screenshot preload APIs are unavailable', () => {
+    expect(() => requireScreenshotApi(undefined)).toThrow(
+      'Screenshot controls are unavailable in this window.',
+    );
   });
 });
 

@@ -159,6 +159,10 @@ export function screenshotReducer(
     case 'selection-started':
       return {
         ...state,
+        annotationAnchor: undefined,
+        annotations: [],
+        draftAnnotation: undefined,
+        redoAnnotations: [],
         selection: { height: 0, width: 0, x: action.point.x, y: action.point.y },
         selectionAnchor: action.point,
       };
@@ -178,6 +182,10 @@ export function screenshotReducer(
     case 'selection-set':
       return {
         ...state,
+        annotationAnchor: undefined,
+        annotations: [],
+        draftAnnotation: undefined,
+        redoAnnotations: [],
         selection: normalizePositiveRect(action.rect),
         selectionAnchor: undefined,
       };

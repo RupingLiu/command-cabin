@@ -62,7 +62,7 @@ describe('createPinnedImageWindow', () => {
     expect(MockBrowserWindow.instances[0]?.options).toMatchObject({
       alwaysOnTop: true,
       frame: false,
-      height: 540,
+      height: 570,
       movable: true,
       resizable: true,
       show: false,
@@ -120,7 +120,7 @@ describe('createPinnedImageWindow', () => {
     });
 
     expect(MockBrowserWindow.instances[0]?.options).toMatchObject({
-      height: 240,
+      height: 270,
       width: 320,
     });
   });
@@ -141,8 +141,8 @@ describe('createPinnedImageWindow', () => {
     });
 
     expect(MockBrowserWindow.instances[0]?.options).toMatchObject({
-      height: 48,
-      minHeight: 48,
+      height: 78,
+      minHeight: 78,
       minWidth: 320,
       width: 960,
     });
@@ -164,10 +164,30 @@ describe('createPinnedImageWindow', () => {
     });
 
     expect(MockBrowserWindow.instances[0]?.options).toMatchObject({
-      height: 720,
-      minHeight: 240,
+      height: 750,
+      minHeight: 270,
       minWidth: 36,
       width: 36,
     });
+  });
+
+  it('reports the pinned window before loading so state can be bound to its renderer', async () => {
+    const onWindowCreated = vi.fn();
+    const { createPinnedImageWindow } = await import('./createPinnedImageWindow.js');
+
+    await createPinnedImageWindow({
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      isPackaged: false,
+      onWindowCreated,
+      preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
+      rendererDevServerUrl: 'http://localhost:5173',
+      rendererIndexPath: 'C:\\CommandCabin\\dist\\renderer\\index.html',
+      token: 'pin-token-created',
+    });
+
+    expect(onWindowCreated).toHaveBeenCalledWith(MockBrowserWindow.instances[0]);
+    expect(onWindowCreated.mock.invocationCallOrder[0]).toBeLessThan(
+      MockBrowserWindow.instances[0]!.loadURL.mock.invocationCallOrder[0]!,
+    );
   });
 });

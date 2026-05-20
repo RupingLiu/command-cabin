@@ -33,12 +33,22 @@ export interface ScreenshotOverlayWindow {
   webContents: ScreenshotWebContents;
 }
 
+export interface ScreenshotPinnedImageWindow {
+  off?: (eventName: 'closed', listener: () => void) => unknown;
+  on: (eventName: 'closed', listener: () => void) => unknown;
+  removeListener?: (eventName: 'closed', listener: () => void) => unknown;
+  webContents: ScreenshotWebContents;
+}
+
 export interface CreateScreenshotControllerOptions {
   captureDisplays: () => Promise<ScreenshotDisplayCapture>;
   createOverlayWindow: (capture: ScreenshotDisplayCapture) => Promise<ScreenshotOverlayWindow>;
   createPinnedImageToken: () => string;
   hideLauncher: () => Promise<void> | void;
-  pinImage: (request: ScreenshotPinnedImageState) => Promise<unknown> | unknown;
+  pinImage: (
+    request: ScreenshotPinnedImageState,
+    registerWindow: (window: ScreenshotPinnedImageWindow) => void,
+  ) => Promise<ScreenshotPinnedImageWindow> | ScreenshotPinnedImageWindow;
   runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult> | ScreenshotOcrResult;
   showSaveDialog: (
     request: ScreenshotSaveImageRequest,
@@ -54,7 +64,10 @@ export interface ScreenshotController {
     request: unknown,
   ) => Promise<ScreenshotOperationResult>;
   getLaunchState: (sender: ScreenshotWebContents) => ScreenshotLaunchState;
-  getPinnedImageState: (token: unknown) => ScreenshotPinnedImageState;
+  getPinnedImageState: (
+    sender: ScreenshotWebContents,
+    token: unknown,
+  ) => ScreenshotPinnedImageState;
   pinImage: (sender: ScreenshotWebContents, request: unknown) => Promise<ScreenshotPinImageResult>;
   runOcr: (sender: ScreenshotWebContents, request: unknown) => Promise<ScreenshotOcrResult>;
   saveImage: (
@@ -68,6 +81,12 @@ interface ScreenshotOverlayState {
   handleClosed: () => void;
   launchState: ScreenshotLaunchState;
   window: ScreenshotOverlayWindow;
+}
+
+interface ScreenshotPinnedImageEntry {
+  handleClosed: () => void;
+  state: ScreenshotPinnedImageState;
+  window: ScreenshotPinnedImageWindow;
 }
 
 const delayByMode = new Map<ScreenshotLaunchMode, number>([
@@ -95,6 +114,15 @@ function assertLiveState(
 }
 
 function removeClosedListener(state: ScreenshotOverlayState): void {
+  if (state.window.off) {
+    state.window.off('closed', state.handleClosed);
+    return;
+  }
+
+  state.window.removeListener?.('closed', state.handleClosed);
+}
+
+function removePinnedClosedListener(state: ScreenshotPinnedImageEntry): void {
   if (state.window.off) {
     state.window.off('closed', state.handleClosed);
     return;
@@ -132,7 +160,7 @@ export function createScreenshotController({
   writeImageFile,
 }: CreateScreenshotControllerOptions): ScreenshotController {
   const states = new Map<number, ScreenshotOverlayState>();
-  const pinnedImages = new Map<string, ScreenshotPinnedImageState>();
+  const pinnedImages = new Map<string, ScreenshotPinnedImageEntry>();
 
   const rememberState = (window: ScreenshotOverlayWindow, launchState: ScreenshotLaunchState) => {
     const handleClosed = () => {
@@ -145,6 +173,24 @@ export function createScreenshotController({
     };
     window.on('closed', handleClosed);
     states.set(window.webContents.id, state);
+  };
+
+  const rememberPinnedImage = (
+    token: string,
+    state: ScreenshotPinnedImageState,
+    window: ScreenshotPinnedImageWindow,
+  ) => {
+    const handleClosed = () => {
+      pinnedImages.delete(token);
+    };
+    const entry = {
+      handleClosed,
+      state,
+      window,
+    };
+
+    window.on('closed', handleClosed);
+    pinnedImages.set(token, entry);
   };
 
   return {
@@ -167,15 +213,18 @@ export function createScreenshotController({
       return { ok: true };
     },
     getLaunchState: (sender) => assertLiveState(states, sender).launchState,
-    getPinnedImageState: (token) => {
+    getPinnedImageState: (sender, token) => {
       const parsedToken = parseScreenshotPinnedImageToken(token);
-      const state = pinnedImages.get(parsedToken);
+      const entry = pinnedImages.get(parsedToken);
 
-      if (!state) {
+      if (!entry || entry.window.webContents.id !== sender.id) {
         throw new Error('Unknown pinned image token.');
       }
 
-      return state;
+      pinnedImages.delete(parsedToken);
+      removePinnedClosedListener(entry);
+
+      return entry.state;
     },
     pinImage: async (sender, request) => {
       assertLiveState(states, sender);
@@ -185,9 +234,22 @@ export function createScreenshotController({
         ...parsedRequest,
         token,
       };
+      let windowRegistered = false;
+      const registerWindow = (window: ScreenshotPinnedImageWindow) => {
+        windowRegistered = true;
+        rememberPinnedImage(token, pinnedState, window);
+      };
 
-      pinnedImages.set(token, pinnedState);
-      await pinImage(pinnedState);
+      try {
+        const pinnedWindow = await pinImage(pinnedState, registerWindow);
+
+        if (!windowRegistered) {
+          rememberPinnedImage(token, pinnedState, pinnedWindow);
+        }
+      } catch (error) {
+        pinnedImages.delete(token);
+        throw error;
+      }
 
       return { id: token };
     },

@@ -491,7 +491,12 @@ const screenshotController = createScreenshotController({
   hideLauncher: () => {
     BrowserWindow.getFocusedWindow()?.hide();
   },
-  pinImage: (request) => createPinnedImageWindow({ ...getPinnedImageWindowOptions(), ...request }),
+  pinImage: (request, registerWindow) =>
+    createPinnedImageWindow({
+      ...getPinnedImageWindowOptions(),
+      ...request,
+      onWindowCreated: registerWindow,
+    }),
   runOcr: (request: ScreenshotOcrRequest) => runLocalOcr(request),
   showSaveDialog: async (request) => {
     const saveDialogOptions = {
@@ -746,8 +751,8 @@ ipcMain.handle(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL, (event) =>
   screenshotController.getLaunchState(event.sender),
 );
 
-ipcMain.handle(SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL, (_event, token: unknown) =>
-  screenshotController.getPinnedImageState(token),
+ipcMain.handle(SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL, (event, token: unknown) =>
+  screenshotController.getPinnedImageState(event.sender, token),
 );
 
 ipcMain.handle(SCREENSHOT_CANCEL_CHANNEL, (event) => screenshotController.cancel(event.sender));

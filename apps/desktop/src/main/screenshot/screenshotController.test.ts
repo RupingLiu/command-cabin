@@ -36,6 +36,25 @@ function createOverlayWindow(webContents: { id: number }) {
   };
 }
 
+function createPinnedWindow(webContents: { id: number }) {
+  let closedListener: (() => void) | undefined;
+
+  return {
+    off: vi.fn((_eventName: 'closed', listener: () => void) => {
+      if (closedListener === listener) {
+        closedListener = undefined;
+      }
+    }),
+    on: vi.fn((_eventName: 'closed', listener: () => void) => {
+      closedListener = listener;
+    }),
+    webContents,
+    emitClosed: () => {
+      closedListener?.();
+    },
+  };
+}
+
 describe('createScreenshotController', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -130,7 +149,12 @@ describe('createScreenshotController', () => {
     const writeClipboardImage = vi.fn();
     const showSaveDialog = vi.fn(async () => ({ canceled: false, filePath: 'C:\\capture.jpg' }));
     const writeImageFile = vi.fn();
-    const pinImage = vi.fn(async () => ({ id: 'pin-1' }));
+    const pinnedWindow = createPinnedWindow({ id: 145 });
+    const pinImage = vi.fn(async (_request, registerWindow) => {
+      registerWindow(pinnedWindow);
+
+      return pinnedWindow;
+    });
     const runOcr = vi.fn(async () => ({
       language: 'en-US' as const,
       lines: ['hello'],
@@ -166,10 +190,13 @@ describe('createScreenshotController', () => {
         imageDataUrl: 'data:image/png;base64,AAAA',
       }),
     ).resolves.toEqual({ id: 'pin-1' });
-    expect(controller.getPinnedImageState('pin-1')).toEqual({
+    expect(controller.getPinnedImageState(pinnedWindow.webContents, 'pin-1')).toEqual({
       imageDataUrl: 'data:image/png;base64,AAAA',
       token: 'pin-1',
     });
+    expect(() => controller.getPinnedImageState(pinnedWindow.webContents, 'pin-1')).toThrow(
+      /unknown pinned image/i,
+    );
     await expect(
       controller.runOcr(overlayWindow.webContents, {
         imageDataUrl: 'data:image/png;base64,AAAA',
@@ -188,32 +215,100 @@ describe('createScreenshotController', () => {
       format: 'jpg',
       imageDataUrl: 'data:image/jpeg;base64,BBBB',
     });
-    expect(pinImage).toHaveBeenCalledWith({
-      imageDataUrl: 'data:image/png;base64,AAAA',
-      token: 'pin-1',
-    });
+    expect(pinImage).toHaveBeenCalledWith(
+      {
+        imageDataUrl: 'data:image/png;base64,AAAA',
+        token: 'pin-1',
+      },
+      expect.any(Function),
+    );
     expect(overlayWindow.close).toHaveBeenCalledOnce();
   });
 
-  it('rejects unknown pinned image tokens', async () => {
+  it('rejects unknown pinned image tokens and senders', async () => {
+    const overlayWindow = createOverlayWindow({ id: 48 });
+    const pinnedWindow = createPinnedWindow({ id: 148 });
     const controller = createScreenshotController({
       captureDisplays: vi.fn(async () => launchState),
-      createOverlayWindow: vi.fn(async () => ({
-        close: vi.fn(),
-        isDestroyed: () => false,
-        on: vi.fn(),
-        webContents: { id: 48 },
-      })),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
       hideLauncher: vi.fn(),
       writeClipboardImage: vi.fn(),
       showSaveDialog: vi.fn(),
       writeImageFile: vi.fn(),
-      createPinnedImageToken: vi.fn(() => 'pin-unused'),
-      pinImage: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-owned'),
+      pinImage: vi.fn(async (_request, registerWindow) => {
+        registerWindow(pinnedWindow);
+
+        return pinnedWindow;
+      }),
       runOcr: vi.fn(),
     });
 
-    expect(() => controller.getPinnedImageState('missing')).toThrow(/unknown pinned image/i);
+    await controller.start('capture');
+    await controller.pinImage(overlayWindow.webContents, {
+      imageDataUrl: 'data:image/png;base64,AAAA',
+    });
+
+    expect(() => controller.getPinnedImageState(pinnedWindow.webContents, 'missing')).toThrow(
+      /unknown pinned image/i,
+    );
+    expect(() => controller.getPinnedImageState({ id: 999 }, 'pin-owned')).toThrow(
+      /unknown pinned image/i,
+    );
+  });
+
+  it('cleans pinned image state when window creation fails or the pinned window closes', async () => {
+    const overlayWindow = createOverlayWindow({ id: 49 });
+    const controllerWithFailure = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      hideLauncher: vi.fn(),
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-failed'),
+      pinImage: vi.fn(async () => {
+        throw new Error('window failed');
+      }),
+      runOcr: vi.fn(),
+    });
+
+    await controllerWithFailure.start('capture');
+    await expect(
+      controllerWithFailure.pinImage(overlayWindow.webContents, {
+        imageDataUrl: 'data:image/png;base64,AAAA',
+      }),
+    ).rejects.toThrow(/window failed/i);
+    expect(() => controllerWithFailure.getPinnedImageState({ id: 149 }, 'pin-failed')).toThrow(
+      /unknown pinned image/i,
+    );
+
+    const pinnedWindow = createPinnedWindow({ id: 150 });
+    const controllerWithClose = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      hideLauncher: vi.fn(),
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-closed'),
+      pinImage: vi.fn(async (_request, registerWindow) => {
+        registerWindow(pinnedWindow);
+
+        return pinnedWindow;
+      }),
+      runOcr: vi.fn(),
+    });
+
+    await controllerWithClose.start('capture');
+    await controllerWithClose.pinImage(overlayWindow.webContents, {
+      imageDataUrl: 'data:image/png;base64,AAAA',
+    });
+    pinnedWindow.emitClosed();
+
+    expect(() =>
+      controllerWithClose.getPinnedImageState(pinnedWindow.webContents, 'pin-closed'),
+    ).toThrow(/unknown pinned image/i);
   });
 
   it('cleans launch state when the overlay closes without cancel', async () => {

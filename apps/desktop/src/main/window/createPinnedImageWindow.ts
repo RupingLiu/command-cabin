@@ -6,10 +6,12 @@ const MAX_PINNED_IMAGE_WIDTH = 960;
 const MAX_PINNED_IMAGE_HEIGHT = 720;
 const MIN_PINNED_IMAGE_WIDTH = 320;
 const MIN_PINNED_IMAGE_HEIGHT = 240;
+const PINNED_IMAGE_TITLEBAR_HEIGHT = 30;
 
 export interface CreatePinnedImageWindowOptions {
   imageDataUrl: string;
   isPackaged: boolean;
+  onWindowCreated?: ((window: BrowserWindow) => void) | undefined;
   preloadPath: string;
   rendererDevServerUrl?: string | undefined;
   rendererIndexPath: string;
@@ -34,8 +36,8 @@ function resolvePinnedImageWindowSize(imageDataUrl: string): {
 
   if (height <= 0 || width <= 0) {
     return {
-      height: MIN_PINNED_IMAGE_HEIGHT,
-      minHeight: MIN_PINNED_IMAGE_HEIGHT,
+      height: MIN_PINNED_IMAGE_HEIGHT + PINNED_IMAGE_TITLEBAR_HEIGHT,
+      minHeight: MIN_PINNED_IMAGE_HEIGHT + PINNED_IMAGE_TITLEBAR_HEIGHT,
       minWidth: MIN_PINNED_IMAGE_WIDTH,
       width: MIN_PINNED_IMAGE_WIDTH,
     };
@@ -48,8 +50,8 @@ function resolvePinnedImageWindowSize(imageDataUrl: string): {
   const scaledWidth = Math.max(1, Math.round(width * scale));
 
   return {
-    height: scaledHeight,
-    minHeight: Math.min(MIN_PINNED_IMAGE_HEIGHT, scaledHeight),
+    height: scaledHeight + PINNED_IMAGE_TITLEBAR_HEIGHT,
+    minHeight: Math.min(MIN_PINNED_IMAGE_HEIGHT, scaledHeight) + PINNED_IMAGE_TITLEBAR_HEIGHT,
     minWidth: Math.min(MIN_PINNED_IMAGE_WIDTH, scaledWidth),
     width: scaledWidth,
   };
@@ -58,6 +60,7 @@ function resolvePinnedImageWindowSize(imageDataUrl: string): {
 export async function createPinnedImageWindow({
   imageDataUrl,
   isPackaged,
+  onWindowCreated,
   preloadPath,
   rendererDevServerUrl,
   rendererIndexPath,
@@ -91,6 +94,7 @@ export async function createPinnedImageWindow({
   pinnedWindow.once('ready-to-show', () => {
     pinnedWindow.show();
   });
+  onWindowCreated?.(pinnedWindow);
 
   const safeRendererDevServerUrl = resolveSafeRendererDevServerUrl({
     isPackaged,

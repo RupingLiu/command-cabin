@@ -16,6 +16,12 @@ import {
   OPEN_SETTINGS_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
   REMOVE_RECENT_APP_CHANNEL,
+  SCREENSHOT_CANCEL_CHANNEL,
+  SCREENSHOT_COPY_IMAGE_CHANNEL,
+  SCREENSHOT_GET_LAUNCH_STATE_CHANNEL,
+  SCREENSHOT_PIN_IMAGE_CHANNEL,
+  SCREENSHOT_RUN_OCR_CHANNEL,
+  SCREENSHOT_SAVE_IMAGE_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
   STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
@@ -61,6 +67,7 @@ describe('preload desktopApi settings bridge', () => {
     const settings = {
       hideOnBlur: true,
       hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
       language: 'zh-CN',
       launchAtLogin: false,
       preserveSearchQuery: false,
@@ -307,5 +314,71 @@ describe('preload desktopApi settings bridge', () => {
     electronMock.invoke.mockResolvedValueOnce(true);
     await expect(api.stopHotkeyInputCapture()).resolves.toBe(true);
     expect(electronMock.invoke).toHaveBeenLastCalledWith(STOP_HOTKEY_INPUT_CAPTURE_CHANNEL);
+  });
+
+  it('exposes screenshot IPC methods with validated requests and parsed responses', async () => {
+    const api = await loadDesktopApi();
+    const launchState = {
+      mode: 'capture' as const,
+      displays: [
+        {
+          bounds: { height: 1080, width: 1920, x: 0, y: 0 },
+          id: 1,
+          imageDataUrl: 'data:image/png;base64,AAAA',
+          scaleFactor: 1,
+          sourceId: 'screen:1',
+        },
+      ],
+      virtualBounds: { height: 1080, width: 1920, x: 0, y: 0 },
+    };
+
+    electronMock.invoke.mockResolvedValueOnce(launchState);
+    await expect(api.screenshot!.getLaunchState()).resolves.toEqual(launchState);
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce(true);
+    await expect(api.screenshot!.cancel()).resolves.toBe(true);
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_CANCEL_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce({ ok: true });
+    await expect(
+      api.screenshot!.copyImage({ imageDataUrl: 'data:image/png;base64,AAAA' }),
+    ).resolves.toEqual({ ok: true });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_COPY_IMAGE_CHANNEL, {
+      imageDataUrl: 'data:image/png;base64,AAAA',
+    });
+
+    electronMock.invoke.mockResolvedValueOnce({ canceled: false, filePath: 'C:\\capture.jpg' });
+    await expect(
+      api.screenshot!.saveImage({
+        format: 'jpg',
+        imageDataUrl: 'data:image/jpeg;base64,BBBB',
+      }),
+    ).resolves.toEqual({ canceled: false, filePath: 'C:\\capture.jpg' });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_SAVE_IMAGE_CHANNEL, {
+      format: 'jpg',
+      imageDataUrl: 'data:image/jpeg;base64,BBBB',
+    });
+
+    electronMock.invoke.mockResolvedValueOnce({ id: 'pin-1' });
+    await expect(
+      api.screenshot!.pinImage({ imageDataUrl: 'data:image/png;base64,AAAA' }),
+    ).resolves.toEqual({ id: 'pin-1' });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_PIN_IMAGE_CHANNEL, {
+      imageDataUrl: 'data:image/png;base64,AAAA',
+    });
+
+    electronMock.invoke.mockResolvedValueOnce({ language: 'en-US', text: 'hello' });
+    await expect(
+      api.screenshot!.runOcr({ imageDataUrl: 'data:image/png;base64,AAAA', language: 'en-US' }),
+    ).resolves.toEqual({ language: 'en-US', text: 'hello' });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_RUN_OCR_CHANNEL, {
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      language: 'en-US',
+    });
+
+    await expect(
+      api.screenshot!.copyImage({ imageDataUrl: 'data:image/gif;base64,AAAA' }),
+    ).rejects.toThrow(/image data url/i);
   });
 });

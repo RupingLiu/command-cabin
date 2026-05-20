@@ -25,6 +25,12 @@ import {
   REMOVE_FAVORITE_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
   REMOVE_RECENT_APP_CHANNEL,
+  SCREENSHOT_CANCEL_CHANNEL,
+  SCREENSHOT_COPY_IMAGE_CHANNEL,
+  SCREENSHOT_GET_LAUNCH_STATE_CHANNEL,
+  SCREENSHOT_PIN_IMAGE_CHANNEL,
+  SCREENSHOT_RUN_OCR_CHANNEL,
+  SCREENSHOT_SAVE_IMAGE_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
@@ -62,6 +68,25 @@ import {
   type LauncherCommandExecutionResult,
   type LauncherCommandSearchResult,
 } from '../shared/launcherApi.js';
+import {
+  parseScreenshotCopyImageRequest,
+  parseScreenshotLaunchState,
+  parseScreenshotOcrRequest,
+  parseScreenshotOcrResult,
+  parseScreenshotOperationResult,
+  parseScreenshotPinImageRequest,
+  parseScreenshotPinImageResult,
+  parseScreenshotSaveImageRequest,
+  parseScreenshotSaveImageResult,
+  type ScreenshotImageRequest,
+  type ScreenshotLaunchState,
+  type ScreenshotOcrRequest,
+  type ScreenshotOcrResult,
+  type ScreenshotOperationResult,
+  type ScreenshotPinImageResult,
+  type ScreenshotSaveImageRequest,
+  type ScreenshotSaveImageResult,
+} from '../shared/screenshotApi.js';
 import {
   parseDataDirectoryResponse,
   parsePluginInstallRequest,
@@ -134,6 +159,15 @@ export interface DesktopAppInfo {
   };
 }
 
+export interface ScreenshotPreloadApi {
+  cancel: () => Promise<boolean>;
+  copyImage: (request: ScreenshotImageRequest) => Promise<ScreenshotOperationResult>;
+  getLaunchState: () => Promise<ScreenshotLaunchState>;
+  pinImage: (request: ScreenshotImageRequest) => Promise<ScreenshotPinImageResult>;
+  runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult>;
+  saveImage: (request: ScreenshotSaveImageRequest) => Promise<ScreenshotSaveImageResult>;
+}
+
 export interface DesktopApi {
   addFavorite: (input: FavoriteCreateRequest) => Promise<FavoriteListRecord>;
   addPinnedApp: () => Promise<FavoriteListRecord | undefined>;
@@ -162,6 +196,7 @@ export interface DesktopApi {
   removeRecentApp: (commandId: string) => Promise<boolean>;
   searchCommands: (query: string) => Promise<LauncherCommandSearchResult[]>;
   setPluginEnabled: (id: string, enabled: boolean) => Promise<PluginListRecord | undefined>;
+  screenshot?: ScreenshotPreloadApi;
   startHotkeyInputCapture: () => Promise<boolean>;
   stopHotkeyInputCapture: () => Promise<boolean>;
   updatePinnedApp: (id: string) => Promise<FavoriteListRecord | undefined>;
@@ -387,6 +422,40 @@ const desktopApi = {
         parseBoolean(enabled, 'Plugin enabled state'),
       ),
     ),
+  screenshot: {
+    cancel: async () =>
+      parseBoolean(
+        await ipcRenderer.invoke(SCREENSHOT_CANCEL_CHANNEL),
+        'Screenshot cancel response',
+      ),
+    copyImage: async (request) =>
+      parseScreenshotOperationResult(
+        await ipcRenderer.invoke(
+          SCREENSHOT_COPY_IMAGE_CHANNEL,
+          parseScreenshotCopyImageRequest(request),
+        ),
+      ),
+    getLaunchState: async () =>
+      parseScreenshotLaunchState(await ipcRenderer.invoke(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL)),
+    pinImage: async (request) =>
+      parseScreenshotPinImageResult(
+        await ipcRenderer.invoke(
+          SCREENSHOT_PIN_IMAGE_CHANNEL,
+          parseScreenshotPinImageRequest(request),
+        ),
+      ),
+    runOcr: async (request) =>
+      parseScreenshotOcrResult(
+        await ipcRenderer.invoke(SCREENSHOT_RUN_OCR_CHANNEL, parseScreenshotOcrRequest(request)),
+      ),
+    saveImage: async (request) =>
+      parseScreenshotSaveImageResult(
+        await ipcRenderer.invoke(
+          SCREENSHOT_SAVE_IMAGE_CHANNEL,
+          parseScreenshotSaveImageRequest(request),
+        ),
+      ),
+  },
   startHotkeyInputCapture: async () =>
     parseBoolean(
       await ipcRenderer.invoke(START_HOTKEY_INPUT_CAPTURE_CHANNEL),

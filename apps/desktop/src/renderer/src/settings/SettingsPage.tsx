@@ -35,6 +35,28 @@ export interface SettingsPageProps {
   theme?: CommandCabinTheme | undefined;
 }
 
+export type SettingsHotkeyRecorderId = 'launcher' | 'screenshot';
+
+export function createSettingsHotkeyPatch(
+  recorderId: SettingsHotkeyRecorderId,
+  hotkey: string,
+): CommandCabinSettingsPatch {
+  return recorderId === 'launcher' ? { hotkey } : { screenshotHotkey: hotkey };
+}
+
+export function startSettingsHotkeyRecorder(
+  recorderId: SettingsHotkeyRecorderId,
+): SettingsHotkeyRecorderId {
+  return recorderId;
+}
+
+export function isSettingsHotkeyRecorderActive(
+  activeRecorderId: SettingsHotkeyRecorderId | undefined,
+  recorderId: SettingsHotkeyRecorderId,
+): boolean {
+  return activeRecorderId === recorderId;
+}
+
 function getDefaultSettingsPageApi(): SettingsPageApi | undefined {
   if (typeof window === 'undefined') {
     return undefined;
@@ -55,6 +77,9 @@ export function SettingsPage({
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<CommandCabinSettings | undefined>();
+  const [activeHotkeyRecorder, setActiveHotkeyRecorder] = useState<
+    SettingsHotkeyRecorderId | undefined
+  >();
   const currentLanguage = settings?.language ?? language;
   const currentTheme = settings?.theme ?? theme;
   const strings = getUiStrings(currentLanguage);
@@ -121,6 +146,12 @@ export function SettingsPage({
     [onLanguageUpdated, onThemeUpdated, settingsApi, strings.settings.saveError],
   );
 
+  const stopHotkeyRecording = useCallback((recorderId: SettingsHotkeyRecorderId) => {
+    setActiveHotkeyRecorder((currentRecorderId) =>
+      currentRecorderId === recorderId ? undefined : currentRecorderId,
+    );
+  }, []);
+
   return (
     <main className="settings-shell">
       <section className="settings-frame" aria-label={strings.settings.ariaLabel}>
@@ -143,18 +174,34 @@ export function SettingsPage({
         <div className="settings-grid">
           <AboutSettings appInfo={appInfo} strings={strings.settings.about} />
           <HotkeySettings
+            activeRecorderId={activeHotkeyRecorder ?? null}
             errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
             isSaving={isSaving}
+            recorderId="launcher"
             strings={strings.settings.hotkey}
             value={settings?.hotkey ?? DEFAULT_COMMAND_CABIN_SETTINGS.hotkey}
-            onHotkeyChange={(hotkey) => updateSettings({ hotkey })}
+            onHotkeyChange={(hotkey) =>
+              updateSettings(createSettingsHotkeyPatch('launcher', hotkey))
+            }
+            onRecordingStart={() =>
+              setActiveHotkeyRecorder(startSettingsHotkeyRecorder('launcher'))
+            }
+            onRecordingStop={() => stopHotkeyRecording('launcher')}
           />
           <HotkeySettings
+            activeRecorderId={activeHotkeyRecorder ?? null}
             errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
             isSaving={isSaving}
+            recorderId="screenshot"
             strings={strings.settings.screenshotHotkey}
             value={settings?.screenshotHotkey ?? DEFAULT_COMMAND_CABIN_SETTINGS.screenshotHotkey}
-            onHotkeyChange={(screenshotHotkey) => updateSettings({ screenshotHotkey })}
+            onHotkeyChange={(hotkey) =>
+              updateSettings(createSettingsHotkeyPatch('screenshot', hotkey))
+            }
+            onRecordingStart={() =>
+              setActiveHotkeyRecorder(startSettingsHotkeyRecorder('screenshot'))
+            }
+            onRecordingStop={() => stopHotkeyRecording('screenshot')}
           />
           <ThemeSettings
             isSaving={isSaving}

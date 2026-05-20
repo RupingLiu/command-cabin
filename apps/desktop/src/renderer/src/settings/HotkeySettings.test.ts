@@ -7,6 +7,7 @@ import {
   createHotkeySettingsState,
   formatHotkeyFromKeyEvent,
   HotkeySettings,
+  isHotkeyRecorderActive,
   isModifierOnlyHotkeyEvent,
   saveRecordedHotkey,
 } from './HotkeySettings.js';
@@ -119,5 +120,45 @@ describe('HotkeySettings helpers', () => {
     expect(markup).toContain('<h2>Screenshot shortcut</h2>');
     expect(markup).toContain('<span>Ctrl+Alt+A</span>');
     expect(markup).toContain('Record shortcut');
+  });
+
+  it('uses the controlled active recorder to render recording state', () => {
+    const activeMarkup = renderToStaticMarkup(
+      createElement(HotkeySettings, {
+        activeRecorderId: 'screenshot',
+        recorderId: 'screenshot',
+        strings: getUiStrings('en-US').settings.screenshotHotkey,
+        value: 'Ctrl+Alt+A',
+      }),
+    );
+    const inactiveMarkup = renderToStaticMarkup(
+      createElement(HotkeySettings, {
+        activeRecorderId: 'screenshot',
+        recorderId: 'launcher',
+        strings: getUiStrings('en-US').settings.hotkey,
+        value: 'Alt+Space',
+      }),
+    );
+
+    expect(activeMarkup).toContain('Press shortcut');
+    expect(inactiveMarkup).toContain('Record shortcut');
+    expect(inactiveMarkup).not.toContain('Press shortcut');
+  });
+
+  it('treats a local recorder as inactive when another controlled recorder is active', () => {
+    expect(
+      isHotkeyRecorderActive({
+        activeRecorderId: 'screenshot',
+        localIsRecording: true,
+        recorderId: 'launcher',
+      }),
+    ).toBe(false);
+    expect(
+      isHotkeyRecorderActive({
+        activeRecorderId: 'screenshot',
+        localIsRecording: false,
+        recorderId: 'screenshot',
+      }),
+    ).toBe(true);
   });
 });

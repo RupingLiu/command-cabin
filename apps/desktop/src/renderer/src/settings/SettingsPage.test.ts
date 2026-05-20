@@ -2,7 +2,12 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { SettingsPage } from './SettingsPage.js';
+import {
+  createSettingsHotkeyPatch,
+  isSettingsHotkeyRecorderActive,
+  SettingsPage,
+  startSettingsHotkeyRecorder,
+} from './SettingsPage.js';
 
 describe('SettingsPage', () => {
   it('renders the settings page in Simplified Chinese', () => {
@@ -97,5 +102,26 @@ describe('SettingsPage', () => {
       /<label data-selected="true"><input type="radio" name="theme" checked="" value="light"\/><span>浅色<\/span><\/label>/,
     );
     expect(markup).toContain('<span>浅色</span>');
+  });
+
+  it('creates only a launcher hotkey patch for launcher recording', () => {
+    expect(createSettingsHotkeyPatch('launcher', 'Ctrl+Alt+K')).toEqual({
+      hotkey: 'Ctrl+Alt+K',
+    });
+  });
+
+  it('creates only a screenshot hotkey patch for screenshot recording', () => {
+    expect(createSettingsHotkeyPatch('screenshot', 'Ctrl+Shift+S')).toEqual({
+      screenshotHotkey: 'Ctrl+Shift+S',
+    });
+  });
+
+  it('keeps only one active hotkey recorder when another starts', () => {
+    const launcherActive = startSettingsHotkeyRecorder('launcher');
+    const screenshotActive = startSettingsHotkeyRecorder('screenshot');
+
+    expect(isSettingsHotkeyRecorderActive(launcherActive, 'launcher')).toBe(true);
+    expect(isSettingsHotkeyRecorderActive(screenshotActive, 'launcher')).toBe(false);
+    expect(isSettingsHotkeyRecorderActive(screenshotActive, 'screenshot')).toBe(true);
   });
 });

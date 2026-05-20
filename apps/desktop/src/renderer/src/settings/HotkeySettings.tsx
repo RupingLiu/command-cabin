@@ -15,9 +15,13 @@ export interface HotkeyEventLike {
 export type HotkeySettingsStrings = UiStrings['settings']['hotkey'];
 
 export interface HotkeySettingsProps {
+  activeRecorderId?: string | null | undefined;
   errorMessage?: string | undefined;
   isSaving?: boolean;
   onHotkeyChange?: (hotkey: string) => Promise<CommandCabinSettings | void> | void;
+  onRecordingStart?: (recorderId: string) => void;
+  onRecordingStop?: (recorderId: string) => void;
+  recorderId?: string | undefined;
   strings?: HotkeySettingsStrings | undefined;
   value?: string | undefined;
 }
@@ -27,6 +31,12 @@ export interface HotkeySettingsState {
   errorMessage: string | undefined;
   isRecording: boolean;
   persistedHotkey: string;
+}
+
+export interface HotkeyRecorderActivity {
+  activeRecorderId?: string | null | undefined;
+  localIsRecording: boolean;
+  recorderId?: string | undefined;
 }
 
 const modifierKeys = new Set(['Alt', 'Control', 'Meta', 'Shift']);
@@ -84,6 +94,16 @@ export function isModifierOnlyHotkeyEvent(event: HotkeyEventLike): boolean {
   return modifierKeys.has(event.key);
 }
 
+export function isHotkeyRecorderActive({
+  activeRecorderId,
+  localIsRecording,
+  recorderId,
+}: HotkeyRecorderActivity): boolean {
+  return activeRecorderId !== undefined && recorderId !== undefined
+    ? activeRecorderId === recorderId
+    : localIsRecording;
+}
+
 function formatHotkeyError(
   error: unknown,
   fallbackMessage = getUiStrings(undefined).settings.hotkey.saveError,
@@ -133,18 +153,28 @@ export async function saveRecordedHotkey(
 }
 
 export function HotkeySettings({
+  activeRecorderId,
   errorMessage,
   isSaving = false,
   onHotkeyChange,
+  onRecordingStart,
+  onRecordingStop,
+  recorderId,
   strings = getUiStrings(undefined).settings.hotkey,
   value = 'Alt+Space',
 }: HotkeySettingsProps) {
-  const [isRecording, setIsRecording] = useState(false);
+  const [localIsRecording, setLocalIsRecording] = useState(false);
   const [draftHotkey, setDraftHotkey] = useState<string | undefined>();
   const [localError, setLocalError] = useState<string | undefined>();
+  const isRecording = isHotkeyRecorderActive({
+    activeRecorderId,
+    localIsRecording,
+    recorderId,
+  });
   const recordingStateRef = useRef({ isRecording, isSaving });
   const currentHotkey = draftHotkey ?? value;
   const displayedError = localError ?? errorMessage;
+  recordingStateRef.current = { isRecording, isSaving };
 
   function startHotkeyInputCapture(): void {
     void getDesktopApi()
@@ -158,11 +188,24 @@ export function HotkeySettings({
       .catch(() => undefined);
   }
 
-  useEffect(() => {
-    recordingStateRef.current = { isRecording, isSaving };
-  }, [isRecording, isSaving]);
-
   useEffect(() => () => stopHotkeyInputCapture(), []);
+
+  function startRecording(): void {
+    if (recorderId !== undefined) {
+      onRecordingStart?.(recorderId);
+    }
+
+    setLocalIsRecording(true);
+    startHotkeyInputCapture();
+  }
+
+  function stopRecording(): void {
+    if (recorderId !== undefined) {
+      onRecordingStop?.(recorderId);
+    }
+
+    setLocalIsRecording(false);
+  }
 
   async function saveHotkey(hotkey: string): Promise<void> {
     setLocalError(undefined);
@@ -171,11 +214,10 @@ export function HotkeySettings({
     try {
       await onHotkeyChange?.(hotkey);
       stopHotkeyInputCapture();
-      setIsRecording(false);
+      stopRecording();
     } catch (error) {
       setDraftHotkey(undefined);
-      setIsRecording(true);
-      startHotkeyInputCapture();
+      startRecording();
       setLocalError(formatHotkeyError(error, strings.saveError));
     }
   }
@@ -241,8 +283,7 @@ export function HotkeySettings({
         type="button"
         onClick={() => {
           setLocalError(undefined);
-          setIsRecording(true);
-          startHotkeyInputCapture();
+          startRecording();
         }}
         onKeyDown={handleKeyDown}
       >

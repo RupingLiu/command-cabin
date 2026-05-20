@@ -12,11 +12,13 @@ export interface HotkeyEventLike {
   shiftKey: boolean;
 }
 
+export type HotkeySettingsStrings = UiStrings['settings']['hotkey'];
+
 export interface HotkeySettingsProps {
   errorMessage?: string | undefined;
   isSaving?: boolean;
   onHotkeyChange?: (hotkey: string) => Promise<CommandCabinSettings | void> | void;
-  strings?: UiStrings['settings']['hotkey'] | undefined;
+  strings?: HotkeySettingsStrings | undefined;
   value?: string | undefined;
 }
 

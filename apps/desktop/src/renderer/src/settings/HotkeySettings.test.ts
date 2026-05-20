@@ -1,8 +1,12 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+import { getUiStrings } from '../i18n.js';
 import {
   createHotkeySettingsState,
   formatHotkeyFromKeyEvent,
+  HotkeySettings,
   isModifierOnlyHotkeyEvent,
   saveRecordedHotkey,
 } from './HotkeySettings.js';
@@ -101,5 +105,19 @@ describe('HotkeySettings helpers', () => {
       isRecording: false,
     });
     expect(saveHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
+  });
+
+  it('renders a caller-provided screenshot shortcut string set', () => {
+    const markup = renderToStaticMarkup(
+      createElement(HotkeySettings, {
+        strings: getUiStrings('en-US').settings.screenshotHotkey,
+        value: 'Ctrl+Alt+A',
+      }),
+    );
+
+    expect(markup).toContain('aria-label="Screenshot shortcut settings"');
+    expect(markup).toContain('<h2>Screenshot shortcut</h2>');
+    expect(markup).toContain('<span>Ctrl+Alt+A</span>');
+    expect(markup).toContain('Record shortcut');
   });
 });

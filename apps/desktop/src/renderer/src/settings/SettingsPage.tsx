@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type {
-  CommandCabinLanguage,
-  CommandCabinSettings,
-  CommandCabinSettingsPatch,
-  CommandCabinTheme,
+import {
+  DEFAULT_COMMAND_CABIN_SETTINGS,
+  type CommandCabinLanguage,
+  type CommandCabinSettings,
+  type CommandCabinSettingsPatch,
+  type CommandCabinTheme,
 } from '@command-cabin/core';
 
 import { getUiStrings } from '../i18n.js';
@@ -145,8 +146,15 @@ export function SettingsPage({
             errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
             isSaving={isSaving}
             strings={strings.settings.hotkey}
-            value={settings?.hotkey}
+            value={settings?.hotkey ?? DEFAULT_COMMAND_CABIN_SETTINGS.hotkey}
             onHotkeyChange={(hotkey) => updateSettings({ hotkey })}
+          />
+          <HotkeySettings
+            errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
+            isSaving={isSaving}
+            strings={strings.settings.screenshotHotkey}
+            value={settings?.screenshotHotkey ?? DEFAULT_COMMAND_CABIN_SETTINGS.screenshotHotkey}
+            onHotkeyChange={(screenshotHotkey) => updateSettings({ screenshotHotkey })}
           />
           <ThemeSettings
             isSaving={isSaving}

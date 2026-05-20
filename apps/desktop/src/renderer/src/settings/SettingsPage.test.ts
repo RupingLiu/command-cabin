@@ -18,7 +18,9 @@ describe('SettingsPage', () => {
     expect(markup).toContain('返回');
     expect(markup).toContain('关于与更新');
     expect(markup).toContain('CommandCabin v0.0.0');
-    expect(markup).toContain('快捷键');
+    expect(markup).toContain('启动器快捷键');
+    expect(markup).toContain('截图快捷键');
+    expect(markup).toContain('Ctrl+Alt+A');
     expect(markup).toContain('主题');
     expect(markup).toContain('语言');
     expect(markup).toContain('启动');
@@ -46,7 +48,8 @@ describe('SettingsPage', () => {
 
     expect(markup).toContain('設定');
     expect(markup).toContain('關於與更新');
-    expect(markup).toContain('快捷鍵');
+    expect(markup).toContain('啟動器快捷鍵');
+    expect(markup).toContain('截圖快捷鍵');
     expect(markup).toContain('主題');
     expect(markup).toContain('語言');
     expect(markup).toContain('啟動');
@@ -56,6 +59,29 @@ describe('SettingsPage', () => {
     expect(markup).toContain('外掛管理');
     expect(markup).toContain('剪貼簿歷史');
     expect(markup).not.toContain('Hotkey');
+  });
+
+  it('renders the settings page in English', () => {
+    const markup = renderToStaticMarkup(
+      createElement(SettingsPage, {
+        language: 'en-US',
+        onReturnToLauncher: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('Settings');
+    expect(markup).toContain('About and Updates');
+    expect(markup).toContain('Launcher shortcut');
+    expect(markup).toContain('Screenshot shortcut');
+    expect(markup).toContain('Alt+Space');
+    expect(markup).toContain('Ctrl+Alt+A');
+    expect(markup).toContain('Theme');
+    expect(markup).toContain('Language');
+    expect(markup).toContain('Startup');
+    expect(markup).toContain('Launcher');
+    expect(markup).toContain('Plugin Management');
+    expect(markup).toContain('Clipboard History');
+    expect(markup).not.toContain('快捷键');
   });
 
   it('renders the current theme selection before persisted settings load', () => {

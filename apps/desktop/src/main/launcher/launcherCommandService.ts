@@ -33,6 +33,7 @@ import {
   isLauncherPinnedAppFavorite,
   type AddFavoriteInput,
   type Command,
+  type CommandExecutionMetadata,
   type CommandActionHandlers,
   type CommandExecutionResult,
   type CommandPayload,
@@ -47,6 +48,7 @@ import {
 } from '@command-cabin/core';
 
 import type { LauncherCommandSearchResult } from '../../shared/launcherApi.js';
+import { createScreenshotCommands } from '../screenshot/screenshotCommands.js';
 
 export interface LauncherCommandService {
   addFavorite: (input: AddFavoriteInput) => FavoriteRecord;
@@ -85,6 +87,9 @@ export interface LauncherCommandServiceOptions {
   openPath?: (path: string) => Promise<void> | void;
   openUrl?: (url: string) => Promise<void> | void;
   readClipboardText?: () => Promise<string> | string;
+  runSystemCommand?: (
+    command: string,
+  ) => Promise<CommandExecutionMetadata | void> | CommandExecutionMetadata | void;
   writeClipboardText?: (text: string) => Promise<void> | void;
 }
 
@@ -237,6 +242,10 @@ function isAppCommand(command: Command): boolean {
   return command.source === 'app' && command.action.type === 'open-app';
 }
 
+function isScreenshotSystemCommand(command: string): boolean {
+  return command.startsWith('screenshot.');
+}
+
 const PINNED_APP_EXTENSIONS = new Set(['.exe', '.lnk']);
 
 interface NormalizedPinnedAppInput {
@@ -342,7 +351,10 @@ export function createLauncherCommandService(
   const options: LauncherCommandServiceOptions = isCommandList(optionsOrCommands)
     ? { commands: optionsOrCommands }
     : optionsOrCommands;
-  const commands = options.commands ?? createSystemCommands(options.appVersion);
+  const commands = options.commands ?? [
+    ...createSystemCommands(options.appVersion),
+    ...createScreenshotCommands(),
+  ];
   const registry = options.commandRegistry ?? createCommandRegistry();
   const appCommandIds = new Set<string>();
   const clipboardHistoryCommandIds = new Set<string>();
@@ -467,10 +479,24 @@ export function createLauncherCommandService(
           };
         }
 
+        const systemCommand = String(command.action.payload.command ?? command.id);
+
+        if (isScreenshotSystemCommand(systemCommand)) {
+          const handlerMetadata = await options.runSystemCommand?.(systemCommand);
+
+          return {
+            metadata: {
+              ...(handlerMetadata ?? {}),
+              handled: true,
+              systemCommand,
+            },
+          };
+        }
+
         return {
           metadata: {
             handled: true,
-            systemCommand: String(command.action.payload.command ?? command.id),
+            systemCommand,
           },
         };
       },

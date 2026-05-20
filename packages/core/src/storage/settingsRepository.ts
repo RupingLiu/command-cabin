@@ -18,6 +18,7 @@ const SETTINGS_KEY = 'command-cabin';
 const SETTINGS_CONTEXT = { table: 'settings', key: SETTINGS_KEY };
 const SETTINGS_KEYS = new Set([
   'hotkey',
+  'screenshotHotkey',
   'hideOnBlur',
   'theme',
   'language',
@@ -95,6 +96,7 @@ function validateSettingsPatch(value: unknown): CommandCabinSettingsPatch {
   }
 
   validateOptionalString(value, 'hotkey');
+  validateOptionalString(value, 'screenshotHotkey');
   validateOptionalBoolean(value, 'hideOnBlur');
   validateOptionalBoolean(value, 'launchAtLogin');
   validateOptionalBoolean(value, 'preserveSearchQuery');

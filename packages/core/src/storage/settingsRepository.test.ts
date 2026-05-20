@@ -26,6 +26,7 @@ describe('SQLite settings repository', () => {
 
       expect(repository.getSettings()).toEqual({
         hotkey: 'Alt+Space',
+        screenshotHotkey: 'Ctrl+Alt+A',
         hideOnBlur: true,
         theme: 'system',
         language: 'zh-CN',
@@ -95,6 +96,7 @@ describe('SQLite settings repository', () => {
       runMigrations(secondDatabase);
       expect(createSettingsRepository(secondDatabase).getSettings()).toMatchObject({
         hotkey: 'Alt+Space',
+        screenshotHotkey: 'Ctrl+Alt+A',
         hideOnBlur: false,
         preserveSearchQuery: true,
         theme: 'dark',
@@ -117,6 +119,69 @@ describe('SQLite settings repository', () => {
 
       expect(repository.updateSettings({ language: 'zh-TW' }).language).toBe('zh-TW');
       expect(repository.getSettings().language).toBe('zh-TW');
+    } finally {
+      database.close();
+    }
+  });
+
+  it('merges the default screenshot hotkey into older persisted settings rows', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      database
+        .prepare(
+          `
+            INSERT INTO settings (key, value, updated_at)
+            VALUES (
+              'command-cabin',
+              '{"hotkey":"Ctrl+Space","theme":"dark","search":{"maxResults":12}}',
+              '2026-05-15T10:00:00.000Z'
+            )
+          `,
+        )
+        .run();
+
+      expect(createSettingsRepository(database).getSettings()).toMatchObject({
+        hotkey: 'Ctrl+Space',
+        screenshotHotkey: 'Ctrl+Alt+A',
+        theme: 'dark',
+        search: {
+          maxResults: 12,
+          historyBoost: 1.4,
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('persists screenshot hotkey updates', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createSettingsRepository(database);
+
+      expect(repository.updateSettings({ screenshotHotkey: 'Ctrl+Shift+S' })).toMatchObject({
+        screenshotHotkey: 'Ctrl+Shift+S',
+      });
+      expect(repository.getSettings().screenshotHotkey).toBe('Ctrl+Shift+S');
+    } finally {
+      database.close();
+    }
+  });
+
+  it('rejects non-string screenshot hotkey values before persistence', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createSettingsRepository(database);
+
+      expect(() => repository.updateSettings({ screenshotHotkey: 42 as never })).toThrow(
+        /Invalid settings in settings key "command-cabin": screenshotHotkey must be a string/,
+      );
     } finally {
       database.close();
     }

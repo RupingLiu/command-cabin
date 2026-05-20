@@ -46,6 +46,44 @@ describe('launcher command service', () => {
     });
   });
 
+  it('searches screenshot commands by default', async () => {
+    const service = createLauncherCommandService();
+
+    await expect(service.searchCommands('截图')).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'system.screenshot.capture',
+          source: 'system',
+        }),
+      ]),
+    );
+  });
+
+  it('dispatches screenshot system commands through the injected handler', async () => {
+    const handledCommands: string[] = [];
+    const service = createLauncherCommandService({
+      runSystemCommand: (command) => {
+        handledCommands.push(command);
+
+        return {
+          windowId: 7,
+        };
+      },
+    });
+
+    await expect(service.executeCommand('system.screenshot.capture')).resolves.toMatchObject({
+      actionType: 'run-system',
+      commandId: 'system.screenshot.capture',
+      metadata: {
+        handled: true,
+        systemCommand: 'screenshot.capture',
+        windowId: 7,
+      },
+      status: 'success',
+    });
+    expect(handledCommands).toEqual(['screenshot.capture']);
+  });
+
   it('copies the injected app version for diagnostics', async () => {
     const copiedText: string[] = [];
     const service = createLauncherCommandService({

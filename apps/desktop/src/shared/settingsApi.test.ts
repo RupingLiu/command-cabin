@@ -14,6 +14,7 @@ describe('settingsApi parsers', () => {
     expect(
       parseSettings({
         hotkey: 'Ctrl+Alt+K',
+        screenshotHotkey: 'Ctrl+Alt+A',
         hideOnBlur: true,
         language: 'zh-TW',
         launchAtLogin: false,
@@ -29,14 +30,22 @@ describe('settingsApi parsers', () => {
       }),
     ).toMatchObject({
       hotkey: 'Ctrl+Alt+K',
+      screenshotHotkey: 'Ctrl+Alt+A',
       language: 'zh-TW',
       preserveSearchQuery: true,
       theme: 'dark',
     });
 
-    expect(parseSettingsPatch({ language: 'zh-TW', preserveSearchQuery: true })).toEqual({
+    expect(
+      parseSettingsPatch({
+        language: 'zh-TW',
+        preserveSearchQuery: true,
+        screenshotHotkey: 'Ctrl+Shift+S',
+      }),
+    ).toEqual({
       language: 'zh-TW',
       preserveSearchQuery: true,
+      screenshotHotkey: 'Ctrl+Shift+S',
     });
     expect(() => parseSettingsPatch({ unknown: true })).toThrow(/unknown setting/i);
   });
@@ -47,6 +56,7 @@ describe('settingsApi parsers', () => {
 
     expect(() => parseSettingsPatch({ hotkey: 'Ctrl+Alt' })).toThrow(/non-modifier key/i);
     expect(() => parseSettingsPatch({ hotkey: 'K' })).toThrow(/modifier/i);
+    expect(() => parseSettingsPatch({ screenshotHotkey: 'S' })).toThrow(/modifier/i);
     expect(() => parseSettingsPatch({ hotkey: 'Ctrl+Banana' })).toThrow(/unsupported key/i);
   });
 

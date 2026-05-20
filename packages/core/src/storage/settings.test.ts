@@ -10,6 +10,7 @@ describe('CommandCabin settings', () => {
   it('uses Task 3 launcher defaults without requiring persistence', () => {
     expect(createDefaultCommandCabinSettings()).toEqual({
       hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
       hideOnBlur: true,
       theme: 'system',
       language: 'zh-CN',
@@ -57,6 +58,7 @@ describe('CommandCabin settings', () => {
 
     expect(updatedSettings).toMatchObject({
       hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
       hideOnBlur: false,
       search: {
         maxResults: 20,
@@ -81,6 +83,7 @@ describe('CommandCabin settings', () => {
     }).toThrow(TypeError);
     expect(createDefaultCommandCabinSettings()).toMatchObject({
       hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
       search: {
         maxResults: 20,
       },

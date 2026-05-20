@@ -10,7 +10,8 @@ describe('updateSettingsWithHotkeyRegistration', () => {
       hotkey: 'Alt+Space',
       theme: 'dark',
     });
-    const tryRegisterHotkey = vi.fn(() => false);
+    const tryRegisterLauncherHotkey = vi.fn(() => false);
+    const tryRegisterScreenshotHotkey = vi.fn(() => true);
 
     expect(() =>
       updateSettingsWithHotkeyRegistration({
@@ -19,7 +20,8 @@ describe('updateSettingsWithHotkeyRegistration', () => {
           theme: 'light',
         },
         settingsStore,
-        tryRegisterHotkey,
+        tryRegisterLauncherHotkey,
+        tryRegisterScreenshotHotkey,
       }),
     ).toThrow(/could not register/i);
 
@@ -27,24 +29,64 @@ describe('updateSettingsWithHotkeyRegistration', () => {
       hotkey: 'Alt+Space',
       theme: 'dark',
     });
-    expect(tryRegisterHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
+    expect(tryRegisterLauncherHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
+    expect(tryRegisterScreenshotHotkey).not.toHaveBeenCalled();
   });
 
-  it('persists settings after the new hotkey registers', () => {
+  it('persists settings after changed launcher and screenshot hotkeys register', () => {
     const settingsStore = createInMemorySettingsStore({
       hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
     });
+    const tryRegisterLauncherHotkey = vi.fn(() => true);
+    const tryRegisterScreenshotHotkey = vi.fn(() => true);
 
     expect(
       updateSettingsWithHotkeyRegistration({
         settingsPatch: {
           hotkey: 'Ctrl+Alt+K',
+          screenshotHotkey: 'Ctrl+Shift+S',
         },
         settingsStore,
-        tryRegisterHotkey: () => true,
+        tryRegisterLauncherHotkey,
+        tryRegisterScreenshotHotkey,
       }),
     ).toMatchObject({
       hotkey: 'Ctrl+Alt+K',
+      screenshotHotkey: 'Ctrl+Shift+S',
     });
+    expect(tryRegisterLauncherHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
+    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith('Ctrl+Shift+S');
+  });
+
+  it('does not persist either changed hotkey when screenshot registration fails', () => {
+    const settingsStore = createInMemorySettingsStore({
+      hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
+      theme: 'dark',
+    });
+    const tryRegisterLauncherHotkey = vi.fn(() => true);
+    const tryRegisterScreenshotHotkey = vi.fn(() => false);
+
+    expect(() =>
+      updateSettingsWithHotkeyRegistration({
+        settingsPatch: {
+          hotkey: 'Ctrl+Alt+K',
+          screenshotHotkey: 'Ctrl+Shift+S',
+          theme: 'light',
+        },
+        settingsStore,
+        tryRegisterLauncherHotkey,
+        tryRegisterScreenshotHotkey,
+      }),
+    ).toThrow(/could not register/i);
+
+    expect(settingsStore.getSettings()).toMatchObject({
+      hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
+      theme: 'dark',
+    });
+    expect(tryRegisterLauncherHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
+    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith('Ctrl+Shift+S');
   });
 });

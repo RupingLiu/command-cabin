@@ -16,6 +16,7 @@ export interface CommandCabinSearchSettings {
 
 export interface CommandCabinSettings {
   hotkey: string;
+  screenshotHotkey?: string;
   hideOnBlur: boolean;
   theme: CommandCabinTheme;
   language: CommandCabinLanguage;
@@ -48,6 +49,7 @@ function deepFreeze<T extends object>(value: T): DeepReadonly<T> {
 
 export const DEFAULT_COMMAND_CABIN_SETTINGS: DeepReadonly<CommandCabinSettings> = deepFreeze({
   hotkey: 'Alt+Space',
+  screenshotHotkey: 'Ctrl+Alt+A',
   hideOnBlur: true,
   theme: 'system',
   language: 'zh-CN',

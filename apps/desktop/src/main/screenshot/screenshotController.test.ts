@@ -55,6 +55,7 @@ describe('createScreenshotController', () => {
       writeClipboardImage: vi.fn(),
       showSaveDialog: vi.fn(),
       writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
       pinImage: vi.fn(),
       runOcr: vi.fn(),
     });
@@ -81,6 +82,7 @@ describe('createScreenshotController', () => {
       writeClipboardImage: vi.fn(),
       showSaveDialog: vi.fn(),
       writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
       pinImage: vi.fn(),
       runOcr: vi.fn(),
     });
@@ -107,6 +109,7 @@ describe('createScreenshotController', () => {
       writeClipboardImage: vi.fn(),
       showSaveDialog: vi.fn(),
       writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
       pinImage: vi.fn(),
       runOcr: vi.fn(),
     });
@@ -128,7 +131,12 @@ describe('createScreenshotController', () => {
     const showSaveDialog = vi.fn(async () => ({ canceled: false, filePath: 'C:\\capture.jpg' }));
     const writeImageFile = vi.fn();
     const pinImage = vi.fn(async () => ({ id: 'pin-1' }));
-    const runOcr = vi.fn(async () => ({ language: 'en-US' as const, text: 'hello' }));
+    const runOcr = vi.fn(async () => ({
+      language: 'en-US' as const,
+      lines: ['hello'],
+      status: 'success' as const,
+      text: 'hello',
+    }));
     const controller = createScreenshotController({
       captureDisplays: vi.fn(async () => launchState),
       createOverlayWindow: vi.fn(async () => overlayWindow),
@@ -136,6 +144,7 @@ describe('createScreenshotController', () => {
       writeClipboardImage,
       showSaveDialog,
       writeImageFile,
+      createPinnedImageToken: vi.fn(() => 'pin-1'),
       pinImage,
       runOcr,
     });
@@ -157,12 +166,21 @@ describe('createScreenshotController', () => {
         imageDataUrl: 'data:image/png;base64,AAAA',
       }),
     ).resolves.toEqual({ id: 'pin-1' });
+    expect(controller.getPinnedImageState('pin-1')).toEqual({
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      token: 'pin-1',
+    });
     await expect(
       controller.runOcr(overlayWindow.webContents, {
         imageDataUrl: 'data:image/png;base64,AAAA',
         language: 'en-US',
       }),
-    ).resolves.toEqual({ language: 'en-US', text: 'hello' });
+    ).resolves.toEqual({
+      language: 'en-US',
+      lines: ['hello'],
+      status: 'success',
+      text: 'hello',
+    });
     expect(controller.cancel(overlayWindow.webContents)).toBe(true);
 
     expect(writeClipboardImage).toHaveBeenCalledWith('data:image/png;base64,AAAA');
@@ -170,7 +188,32 @@ describe('createScreenshotController', () => {
       format: 'jpg',
       imageDataUrl: 'data:image/jpeg;base64,BBBB',
     });
+    expect(pinImage).toHaveBeenCalledWith({
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      token: 'pin-1',
+    });
     expect(overlayWindow.close).toHaveBeenCalledOnce();
+  });
+
+  it('rejects unknown pinned image tokens', async () => {
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => ({
+        close: vi.fn(),
+        isDestroyed: () => false,
+        on: vi.fn(),
+        webContents: { id: 48 },
+      })),
+      hideLauncher: vi.fn(),
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    expect(() => controller.getPinnedImageState('missing')).toThrow(/unknown pinned image/i);
   });
 
   it('cleans launch state when the overlay closes without cancel', async () => {
@@ -182,6 +225,7 @@ describe('createScreenshotController', () => {
       writeClipboardImage: vi.fn(),
       showSaveDialog: vi.fn(),
       writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
       pinImage: vi.fn(),
       runOcr: vi.fn(),
     });
@@ -209,6 +253,7 @@ describe('createScreenshotController', () => {
       writeClipboardImage: vi.fn(),
       showSaveDialog: vi.fn(async () => ({ canceled: false, filePath: 'C:\\capture.png' })),
       writeImageFile,
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
       pinImage: vi.fn(),
       runOcr: vi.fn(),
     });

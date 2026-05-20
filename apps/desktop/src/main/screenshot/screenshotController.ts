@@ -5,6 +5,8 @@ import type {
   ScreenshotOcrRequest,
   ScreenshotOcrResult,
   ScreenshotOperationResult,
+  ScreenshotPinnedImageState,
+  ScreenshotPinImageResult,
   ScreenshotSaveImageRequest,
   ScreenshotSaveImageResult,
 } from '../../shared/screenshotApi.js';
@@ -12,6 +14,7 @@ import {
   parseScreenshotCopyImageRequest,
   parseScreenshotLaunchMode,
   parseScreenshotOcrRequest,
+  parseScreenshotPinnedImageToken,
   parseScreenshotPinImageRequest,
   parseScreenshotSaveImageRequest,
 } from '../../shared/screenshotApi.js';
@@ -33,8 +36,9 @@ export interface ScreenshotOverlayWindow {
 export interface CreateScreenshotControllerOptions {
   captureDisplays: () => Promise<ScreenshotDisplayCapture>;
   createOverlayWindow: (capture: ScreenshotDisplayCapture) => Promise<ScreenshotOverlayWindow>;
+  createPinnedImageToken: () => string;
   hideLauncher: () => Promise<void> | void;
-  pinImage: (request: ScreenshotImageRequest) => Promise<unknown> | unknown;
+  pinImage: (request: ScreenshotPinnedImageState) => Promise<unknown> | unknown;
   runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult> | ScreenshotOcrResult;
   showSaveDialog: (
     request: ScreenshotSaveImageRequest,
@@ -50,7 +54,8 @@ export interface ScreenshotController {
     request: unknown,
   ) => Promise<ScreenshotOperationResult>;
   getLaunchState: (sender: ScreenshotWebContents) => ScreenshotLaunchState;
-  pinImage: (sender: ScreenshotWebContents, request: unknown) => Promise<unknown>;
+  getPinnedImageState: (token: unknown) => ScreenshotPinnedImageState;
+  pinImage: (sender: ScreenshotWebContents, request: unknown) => Promise<ScreenshotPinImageResult>;
   runOcr: (sender: ScreenshotWebContents, request: unknown) => Promise<ScreenshotOcrResult>;
   saveImage: (
     sender: ScreenshotWebContents,
@@ -118,6 +123,7 @@ function deriveSaveFormatFromPath(
 export function createScreenshotController({
   captureDisplays,
   createOverlayWindow,
+  createPinnedImageToken,
   hideLauncher,
   pinImage,
   runOcr,
@@ -126,6 +132,7 @@ export function createScreenshotController({
   writeImageFile,
 }: CreateScreenshotControllerOptions): ScreenshotController {
   const states = new Map<number, ScreenshotOverlayState>();
+  const pinnedImages = new Map<string, ScreenshotPinnedImageState>();
 
   const rememberState = (window: ScreenshotOverlayWindow, launchState: ScreenshotLaunchState) => {
     const handleClosed = () => {
@@ -160,9 +167,29 @@ export function createScreenshotController({
       return { ok: true };
     },
     getLaunchState: (sender) => assertLiveState(states, sender).launchState,
+    getPinnedImageState: (token) => {
+      const parsedToken = parseScreenshotPinnedImageToken(token);
+      const state = pinnedImages.get(parsedToken);
+
+      if (!state) {
+        throw new Error('Unknown pinned image token.');
+      }
+
+      return state;
+    },
     pinImage: async (sender, request) => {
       assertLiveState(states, sender);
-      return pinImage(parseScreenshotPinImageRequest(request));
+      const parsedRequest = parseScreenshotPinImageRequest(request);
+      const token = createPinnedImageToken();
+      const pinnedState = {
+        ...parsedRequest,
+        token,
+      };
+
+      pinnedImages.set(token, pinnedState);
+      await pinImage(pinnedState);
+
+      return { id: token };
     },
     runOcr: async (sender, request) => {
       assertLiveState(states, sender);

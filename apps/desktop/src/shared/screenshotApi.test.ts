@@ -5,6 +5,9 @@ import {
   parseScreenshotLaunchMode,
   parseScreenshotLaunchState,
   parseScreenshotOcrRequest,
+  parseScreenshotOcrResult,
+  parseScreenshotPinnedImageState,
+  parseScreenshotPinnedImageToken,
   parseScreenshotPinImageRequest,
   parseScreenshotSaveImageRequest,
   parseScreenshotSaveImageResult,
@@ -101,6 +104,39 @@ describe('screenshotApi parsers', () => {
       canceled: false,
       filePath: 'C:\\capture.png',
     });
+    expect(parseScreenshotPinnedImageToken(' pin-1 ')).toBe('pin-1');
+    expect(
+      parseScreenshotPinnedImageState({
+        imageDataUrl: pngDataUrl,
+        token: 'pin-1',
+      }),
+    ).toEqual({
+      imageDataUrl: pngDataUrl,
+      token: 'pin-1',
+    });
+    expect(
+      parseScreenshotOcrResult({
+        language: 'en-US',
+        lines: ['first', 'second'],
+        status: 'success',
+      }),
+    ).toEqual({
+      language: 'en-US',
+      lines: ['first', 'second'],
+      status: 'success',
+      text: 'first\nsecond',
+    });
+    expect(
+      parseScreenshotOcrResult({
+        language: 'zh-CN',
+        message: 'Windows OCR is unavailable.',
+        status: 'unavailable',
+      }),
+    ).toEqual({
+      language: 'zh-CN',
+      message: 'Windows OCR is unavailable.',
+      status: 'unavailable',
+    });
   });
 
   it('rejects unknown image request keys and unsupported formats or OCR languages', () => {
@@ -113,5 +149,15 @@ describe('screenshotApi parsers', () => {
     expect(() =>
       parseScreenshotOcrRequest({ imageDataUrl: pngDataUrl, language: 'ja-JP' }),
     ).toThrow(/ocr language/i);
+    expect(() => parseScreenshotPinnedImageToken('')).toThrow(/pinned image token/i);
+    expect(() =>
+      parseScreenshotPinnedImageState({ imageDataUrl: pngDataUrl, token: 'pin-1', extra: true }),
+    ).toThrow(/unknown/i);
+    expect(() =>
+      parseScreenshotOcrResult({
+        language: 'en-US',
+        status: 'pending',
+      }),
+    ).toThrow(/ocr response status/i);
   });
 });

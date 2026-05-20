@@ -28,6 +28,7 @@ import {
   SCREENSHOT_CANCEL_CHANNEL,
   SCREENSHOT_COPY_IMAGE_CHANNEL,
   SCREENSHOT_GET_LAUNCH_STATE_CHANNEL,
+  SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL,
   SCREENSHOT_PIN_IMAGE_CHANNEL,
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
@@ -73,6 +74,8 @@ import {
   parseScreenshotLaunchState,
   parseScreenshotOcrRequest,
   parseScreenshotOcrResult,
+  parseScreenshotPinnedImageState,
+  parseScreenshotPinnedImageToken,
   parseScreenshotOperationResult,
   parseScreenshotPinImageRequest,
   parseScreenshotPinImageResult,
@@ -82,6 +85,7 @@ import {
   type ScreenshotLaunchState,
   type ScreenshotOcrRequest,
   type ScreenshotOcrResult,
+  type ScreenshotPinnedImageState,
   type ScreenshotOperationResult,
   type ScreenshotPinImageResult,
   type ScreenshotSaveImageRequest,
@@ -163,6 +167,7 @@ export interface ScreenshotPreloadApi {
   cancel: () => Promise<boolean>;
   copyImage: (request: ScreenshotImageRequest) => Promise<ScreenshotOperationResult>;
   getLaunchState: () => Promise<ScreenshotLaunchState>;
+  getPinnedImageState: (token: string) => Promise<ScreenshotPinnedImageState>;
   pinImage: (request: ScreenshotImageRequest) => Promise<ScreenshotPinImageResult>;
   runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult>;
   saveImage: (request: ScreenshotSaveImageRequest) => Promise<ScreenshotSaveImageResult>;
@@ -437,6 +442,13 @@ const desktopApi = {
       ),
     getLaunchState: async () =>
       parseScreenshotLaunchState(await ipcRenderer.invoke(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL)),
+    getPinnedImageState: async (token) =>
+      parseScreenshotPinnedImageState(
+        await ipcRenderer.invoke(
+          SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL,
+          parseScreenshotPinnedImageToken(token),
+        ),
+      ),
     pinImage: async (request) =>
       parseScreenshotPinImageResult(
         await ipcRenderer.invoke(

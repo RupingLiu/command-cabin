@@ -31,6 +31,8 @@ export const CHECK_FOR_UPDATES_CHANNEL = 'command-cabin:check-for-updates';
 export const INSTALL_UPDATE_CHANNEL = 'command-cabin:install-update';
 export const UPDATE_STATUS_CHANGED_CHANNEL = 'command-cabin:update-status-changed';
 export const SCREENSHOT_GET_LAUNCH_STATE_CHANNEL = 'command-cabin:screenshot-get-launch-state';
+export const SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL =
+  'command-cabin:screenshot-get-pinned-image-state';
 export const SCREENSHOT_CANCEL_CHANNEL = 'command-cabin:screenshot-cancel';
 export const SCREENSHOT_COPY_IMAGE_CHANNEL = 'command-cabin:screenshot-copy-image';
 export const SCREENSHOT_SAVE_IMAGE_CHANNEL = 'command-cabin:screenshot-save-image';

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   AppView,
   appReducer,
+  getRendererMode,
   initialAppState,
   isScreenshotRendererMode,
   subscribeToOpenSettings,
@@ -173,5 +174,6 @@ describe('App plugin host routing', () => {
     expect(isScreenshotRendererMode('https://command-cabin.local/?mode=screenshot')).toBe(true);
     expect(isScreenshotRendererMode('https://command-cabin.local/?mode=launcher')).toBe(false);
     expect(isScreenshotRendererMode('not a url')).toBe(false);
+    expect(getRendererMode('https://command-cabin.local/?mode=pinned-image')).toBe('pinned-image');
   });
 });

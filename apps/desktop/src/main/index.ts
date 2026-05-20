@@ -38,6 +38,7 @@ import {
   type OpenDialogOptions,
 } from 'electron';
 import { access, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -69,6 +70,7 @@ import {
   type DesktopPluginService,
 } from './plugins/desktopPluginService.js';
 import { captureDisplays } from './screenshot/screenshotCapture.js';
+import { runLocalOcr } from './screenshot/localOcr.js';
 import { createScreenshotController } from './screenshot/screenshotController.js';
 import { createScreenshotShortcutController } from './screenshot/screenshotShortcutController.js';
 import {
@@ -77,6 +79,7 @@ import {
   type CommandCabinTrayController,
 } from './tray/trayController.js';
 import { createScreenshotOverlayWindow } from './window/createScreenshotOverlayWindow.js';
+import { createPinnedImageWindow } from './window/createPinnedImageWindow.js';
 import { createMainWindow } from './window/createMainWindow.js';
 import { resolveWindowEntryPaths } from './window/entryPaths.js';
 import {
@@ -113,6 +116,7 @@ import {
   SCREENSHOT_CANCEL_CHANNEL,
   SCREENSHOT_COPY_IMAGE_CHANNEL,
   SCREENSHOT_GET_LAUNCH_STATE_CHANNEL,
+  SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL,
   SCREENSHOT_PIN_IMAGE_CHANNEL,
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
@@ -222,6 +226,15 @@ function getScreenshotOverlayWindowOptions(virtualBounds: {
     rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
     rendererIndexPath: windowEntryPaths.rendererIndexPath,
     virtualBounds,
+  };
+}
+
+function getPinnedImageWindowOptions() {
+  return {
+    isPackaged: app.isPackaged,
+    preloadPath: windowEntryPaths.preloadPath,
+    rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
+    rendererIndexPath: windowEntryPaths.rendererIndexPath,
   };
 }
 
@@ -474,16 +487,12 @@ const screenshotController = createScreenshotController({
     }),
   createOverlayWindow: (capture) =>
     createScreenshotOverlayWindow(getScreenshotOverlayWindowOptions(capture.virtualBounds)),
+  createPinnedImageToken: () => randomUUID(),
   hideLauncher: () => {
     BrowserWindow.getFocusedWindow()?.hide();
   },
-  pinImage: () => ({
-    id: 'pending',
-  }),
-  runOcr: (request: ScreenshotOcrRequest) => ({
-    language: request.language,
-    text: '',
-  }),
+  pinImage: (request) => createPinnedImageWindow({ ...getPinnedImageWindowOptions(), ...request }),
+  runOcr: (request: ScreenshotOcrRequest) => runLocalOcr(request),
   showSaveDialog: async (request) => {
     const saveDialogOptions = {
       filters: [
@@ -735,6 +744,10 @@ ipcMain.handle(INSTALL_UPDATE_CHANNEL, () => getUpdateController().installUpdate
 
 ipcMain.handle(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL, (event) =>
   screenshotController.getLaunchState(event.sender),
+);
+
+ipcMain.handle(SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL, (_event, token: unknown) =>
+  screenshotController.getPinnedImageState(token),
 );
 
 ipcMain.handle(SCREENSHOT_CANCEL_CHANNEL, (event) => screenshotController.cancel(event.sender));

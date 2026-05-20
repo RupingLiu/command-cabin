@@ -45,6 +45,10 @@ export interface ScreenshotOcrRequest extends ScreenshotImageRequest {
   language: ScreenshotOcrLanguage;
 }
 
+export interface ScreenshotPinnedImageState extends ScreenshotImageRequest {
+  token: string;
+}
+
 export interface ScreenshotOperationResult {
   ok: boolean;
 }
@@ -54,10 +58,29 @@ export interface ScreenshotSaveImageResult {
   filePath?: string;
 }
 
-export interface ScreenshotOcrResult {
+export interface ScreenshotOcrSuccessResult {
   language: ScreenshotOcrLanguage;
+  lines: string[];
+  status: 'success';
   text: string;
 }
+
+export interface ScreenshotOcrUnavailableResult {
+  language: ScreenshotOcrLanguage;
+  message: string;
+  status: 'unavailable';
+}
+
+export interface ScreenshotOcrErrorResult {
+  language: ScreenshotOcrLanguage;
+  message: string;
+  status: 'error';
+}
+
+export type ScreenshotOcrResult =
+  | ScreenshotOcrSuccessResult
+  | ScreenshotOcrUnavailableResult
+  | ScreenshotOcrErrorResult;
 
 export interface ScreenshotPinImageResult {
   id: string;
@@ -91,6 +114,14 @@ function parseString(value: unknown, context: string): string {
   }
 
   return value;
+}
+
+function parseStringArray(value: unknown, context: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${context} must be an array.`);
+  }
+
+  return value.map((entry, index) => parseString(entry, `${context}[${index}]`));
 }
 
 function parseNonEmptyString(value: unknown, context: string): string {
@@ -278,6 +309,25 @@ export function parseScreenshotOcrRequest(value: unknown): ScreenshotOcrRequest 
   };
 }
 
+export function parseScreenshotPinnedImageToken(value: unknown): string {
+  return parseNonEmptyString(value, 'Screenshot pinned image token');
+}
+
+export function parseScreenshotPinnedImageState(value: unknown): ScreenshotPinnedImageState {
+  const context = 'Invalid screenshot pinned image state';
+
+  if (!isRecord(value)) {
+    throw new Error(`${context} must be an object.`);
+  }
+
+  assertKnownKeys(value, new Set(['imageDataUrl', 'token']), context);
+
+  return {
+    imageDataUrl: parseImageDataUrl(value.imageDataUrl, `${context}.imageDataUrl`),
+    token: parseScreenshotPinnedImageToken(value.token),
+  };
+}
+
 export function parseScreenshotOperationResult(value: unknown): ScreenshotOperationResult {
   const context = 'Invalid screenshot operation response';
 
@@ -319,12 +369,45 @@ export function parseScreenshotOcrResult(value: unknown): ScreenshotOcrResult {
     throw new Error(`${context} must be an object.`);
   }
 
-  assertKnownKeys(value, new Set(['language', 'text']), context);
+  if (value.status === undefined) {
+    assertKnownKeys(value, new Set(['language', 'text']), context);
+    const text = parseString(value.text, `${context}.text`);
 
-  return {
-    language: parseScreenshotOcrLanguage(value.language),
-    text: parseString(value.text, `${context}.text`),
-  };
+    return {
+      language: parseScreenshotOcrLanguage(value.language),
+      lines: text.length > 0 ? text.split(/\r?\n/) : [],
+      status: 'success',
+      text,
+    };
+  }
+
+  const status = parseString(value.status, `${context}.status`);
+
+  if (status === 'success') {
+    assertKnownKeys(value, new Set(['language', 'lines', 'status', 'text']), context);
+    const lines = parseStringArray(value.lines, `${context}.lines`);
+    const text =
+      value.text === undefined ? lines.join('\n') : parseString(value.text, `${context}.text`);
+
+    return {
+      language: parseScreenshotOcrLanguage(value.language),
+      lines,
+      status,
+      text,
+    };
+  }
+
+  if (status === 'unavailable' || status === 'error') {
+    assertKnownKeys(value, new Set(['language', 'message', 'status']), context);
+
+    return {
+      language: parseScreenshotOcrLanguage(value.language),
+      message: parseNonEmptyString(value.message, `${context}.message`),
+      status,
+    };
+  }
+
+  throw new Error('Screenshot OCR response status must be supported.');
 }
 
 export function parseScreenshotPinImageResult(value: unknown): ScreenshotPinImageResult {

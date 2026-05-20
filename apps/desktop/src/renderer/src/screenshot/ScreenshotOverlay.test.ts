@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  OcrPanel,
   ScreenshotOverlayView,
   createPendingTextAnnotationController,
   requireScreenshotApi,
@@ -47,6 +48,53 @@ describe('ScreenshotOverlayView', () => {
     expect(markup).toContain('PNG');
     expect(markup).toContain('JPG');
     expect(markup).toContain('screenshot-magnifier');
+  });
+
+  it('renders OCR progress, recognized text, unavailable, and error panel states', () => {
+    const running = renderToStaticMarkup(
+      createElement(OcrPanel, {
+        onCopyAll: vi.fn(),
+        state: { status: 'running' },
+      }),
+    );
+    const success = renderToStaticMarkup(
+      createElement(OcrPanel, {
+        onCopyAll: vi.fn(),
+        state: {
+          language: 'en-US',
+          lines: ['first line', 'second line'],
+          status: 'success',
+          text: 'first line\nsecond line',
+        },
+      }),
+    );
+    const unavailable = renderToStaticMarkup(
+      createElement(OcrPanel, {
+        onCopyAll: vi.fn(),
+        state: {
+          language: 'zh-CN',
+          message: 'Windows OCR is unavailable.',
+          status: 'unavailable',
+        },
+      }),
+    );
+    const error = renderToStaticMarkup(
+      createElement(OcrPanel, {
+        onCopyAll: vi.fn(),
+        state: {
+          language: 'en-US',
+          message: 'OCR failed.',
+          status: 'error',
+        },
+      }),
+    );
+
+    expect(running).toContain('Recognizing text...');
+    expect(success).toContain('first line');
+    expect(success).toContain('second line');
+    expect(success).toContain('Copy All');
+    expect(unavailable).toContain('Windows OCR is unavailable.');
+    expect(error).toContain('OCR failed.');
   });
 
   it('renders committed annotations and the current draft in a selection SVG overlay', () => {

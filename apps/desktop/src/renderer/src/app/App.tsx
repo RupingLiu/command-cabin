@@ -11,6 +11,7 @@ import {
   type PluginHostEntry,
   type PluginHostFailure,
 } from '../plugin-host/PluginHost.js';
+import { PinnedImageView } from '../screenshot/PinnedImageView.js';
 import { ScreenshotOverlay } from '../screenshot/ScreenshotOverlay.js';
 import { SettingsPage } from '../settings/SettingsPage.js';
 import { applyThemePreferenceToRoot } from '../settings/ThemeSettings.js';
@@ -137,10 +138,16 @@ export function subscribeToOpenSettings(
 }
 
 export function isScreenshotRendererMode(href: string): boolean {
+  return getRendererMode(href) === 'screenshot';
+}
+
+export function getRendererMode(href: string): 'pinned-image' | 'screenshot' | undefined {
   try {
-    return new URL(href).searchParams.get('mode') === 'screenshot';
+    const mode = new URL(href).searchParams.get('mode');
+
+    return mode === 'screenshot' || mode === 'pinned-image' ? mode : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -148,11 +155,12 @@ export function App() {
   const [state, dispatch] = useReducer(appReducer, initialAppState);
   const [language, setLanguage] = useState<CommandCabinLanguage>(DEFAULT_UI_LANGUAGE);
   const [theme, setTheme] = useState<CommandCabinTheme | undefined>();
-  const isScreenshotMode =
-    typeof window !== 'undefined' && isScreenshotRendererMode(window.location.href);
+  const rendererMode =
+    typeof window !== 'undefined' ? getRendererMode(window.location.href) : undefined;
+  const isUtilityRendererMode = rendererMode === 'screenshot' || rendererMode === 'pinned-image';
 
   useEffect(() => {
-    if (isScreenshotMode) {
+    if (isUtilityRendererMode) {
       return undefined;
     }
 
@@ -172,16 +180,20 @@ export function App() {
         type: 'open-settings',
       });
     });
-  }, [isScreenshotMode]);
+  }, [isUtilityRendererMode]);
 
   useEffect(() => {
-    if (!isScreenshotMode && theme && typeof document !== 'undefined') {
+    if (!isUtilityRendererMode && theme && typeof document !== 'undefined') {
       applyThemePreferenceToRoot(theme, document.documentElement);
     }
-  }, [isScreenshotMode, theme]);
+  }, [isUtilityRendererMode, theme]);
 
-  if (isScreenshotMode) {
+  if (rendererMode === 'screenshot') {
     return <ScreenshotOverlay />;
+  }
+
+  if (rendererMode === 'pinned-image') {
+    return <PinnedImageView />;
   }
 
   return (

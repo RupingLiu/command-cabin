@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 
-import type { ScreenshotLaunchState, ScreenshotSaveFormat } from '../../../shared/screenshotApi.js';
+import type {
+  ScreenshotLaunchState,
+  ScreenshotOcrResult,
+  ScreenshotSaveFormat,
+} from '../../../shared/screenshotApi.js';
 import { composeScreenshotSelection } from './screenshotCanvas.js';
 import {
   createInitialScreenshotState,
@@ -31,6 +35,8 @@ interface ScreenshotOverlayStatus {
   tone: 'info' | 'error';
   value: string;
 }
+
+export type OcrPanelState = { status: 'running' } | ScreenshotOcrResult;
 
 type ScreenshotApi = NonNullable<Window['desktopApi']['screenshot']>;
 type PendingTextTimer = ReturnType<typeof setTimeout>;
@@ -149,6 +155,7 @@ export function ScreenshotOverlayView({
   const textPromptControllerRef = useRef<PendingTextAnnotationController | undefined>(undefined);
   const [saveFormat, setSaveFormat] = useState<ScreenshotSaveFormat>('png');
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
+  const [ocrPanel, setOcrPanel] = useState<OcrPanelState | undefined>();
   const [pointer, setPointer] = useState<ScreenshotPoint>({
     x: launchState.virtualBounds.x,
     y: launchState.virtualBounds.y,
@@ -335,13 +342,32 @@ export function ScreenshotOverlayView({
         await screenshotApi.pinImage({ imageDataUrl });
         setStatus({ tone: 'info', value: 'Pinned selection.' });
       } else {
+        setOcrPanel({ status: 'running' });
         const result = await screenshotApi.runOcr({ imageDataUrl, language: 'en-US' });
-        setStatus({ tone: 'info', value: result?.text || 'No OCR text found.' });
+        setOcrPanel(result);
       }
     } catch (reason) {
-      setStatus(toStatus(reason));
+      if (action === 'ocr') {
+        setOcrPanel({
+          language: 'en-US',
+          message: reason instanceof Error ? reason.message : 'OCR failed.',
+          status: 'error',
+        });
+      } else {
+        setStatus(toStatus(reason));
+      }
     }
   };
+
+  const copyOcrText = useCallback(() => {
+    if (!ocrPanel || ocrPanel.status !== 'success' || ocrPanel.text.length === 0) {
+      return;
+    }
+
+    void navigator.clipboard?.writeText(ocrPanel.text).catch((reason: unknown) => {
+      setStatus(toStatus(reason));
+    });
+  }, [ocrPanel]);
 
   return (
     <div
@@ -422,6 +448,7 @@ export function ScreenshotOverlayView({
       </div>
 
       <div className="screenshot-controls">
+        {ocrPanel ? <OcrPanel state={ocrPanel} onCopyAll={copyOcrText} /> : undefined}
         {status ? (
           <div className="screenshot-status" data-tone={status.tone}>
             {status.value}
@@ -531,6 +558,40 @@ export function ScreenshotOverlayView({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+export interface OcrPanelProps {
+  onCopyAll: () => void;
+  state: OcrPanelState;
+}
+
+export function OcrPanel({ onCopyAll, state }: OcrPanelProps) {
+  if (state.status === 'running') {
+    return (
+      <div className="screenshot-ocr-panel" role="status">
+        Recognizing text...
+      </div>
+    );
+  }
+
+  if (state.status === 'success') {
+    const hasText = state.text.trim().length > 0;
+
+    return (
+      <div className="screenshot-ocr-panel">
+        <pre>{hasText ? state.text : 'No OCR text found.'}</pre>
+        <button disabled={!hasText} onClick={onCopyAll} type="button">
+          Copy All
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="screenshot-ocr-panel" data-tone={state.status}>
+      {state.message}
     </div>
   );
 }

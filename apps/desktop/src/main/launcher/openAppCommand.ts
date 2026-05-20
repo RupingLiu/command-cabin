@@ -1,6 +1,7 @@
 import type { CommandPayload } from '@command-cabin/core';
 
 export interface OpenAppCommandShell {
+  openAppsFolderApp?: ((url: string) => Promise<void> | void) | undefined;
   openExternal: (url: string) => Promise<void> | void;
   openPath: (path: string) => Promise<string> | string;
 }
@@ -26,12 +27,16 @@ function createAppsFolderUri(appUserModelId: string): string {
   return `shell:AppsFolder\\${appUserModelId}`;
 }
 
-export function createOpenAppCommand({ openExternal, openPath }: OpenAppCommandShell) {
+export function createOpenAppCommand({
+  openExternal,
+  openAppsFolderApp = openExternal,
+  openPath,
+}: OpenAppCommandShell) {
   return async (payload: CommandPayload): Promise<void> => {
     const appUserModelId = getOptionalStringPayloadValue(payload, 'appUserModelId');
 
     if (appUserModelId !== undefined) {
-      await openExternal(createAppsFolderUri(appUserModelId));
+      await openAppsFolderApp(createAppsFolderUri(appUserModelId));
       return;
     }
 

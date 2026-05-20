@@ -47,6 +47,7 @@ import { createIconDataUrlCache, type IconDataUrlCache } from './icons/iconDataU
 import { hydrateSearchResultsWithCachedIcons } from './icons/searchResultIconHydration.js';
 import { createWindowsAppUserModelIconResolver } from './icons/windowsAppUserModelIconResolver.js';
 import { startAppIndexing } from './launcher/appIndexStartup.js';
+import { createExplorerAppsFolderAppLauncher } from './launcher/appsFolderAppLauncher.js';
 import { listDesktopShortcutCommands } from './launcher/desktopShortcutCommands.js';
 import { createExchangeRateCache } from './launcher/exchangeRateCache.js';
 import { createOpenAppCommand } from './launcher/openAppCommand.js';
@@ -154,6 +155,7 @@ const appIconResolver = createAppIconResolver({
   resolveShortcut: (path) => shortcutResolver.resolve(path),
 });
 const openAppCommand = createOpenAppCommand({
+  openAppsFolderApp: createExplorerAppsFolderAppLauncher(),
   openExternal: (url) => shell.openExternal(url),
   openPath: (path) => shell.openPath(path),
 });

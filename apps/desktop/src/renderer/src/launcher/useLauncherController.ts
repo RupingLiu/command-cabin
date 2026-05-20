@@ -175,6 +175,7 @@ const fallbackDesktopApi: DesktopApi = {
   getSettings: async () => ({
     hideOnBlur: true,
     hotkey: 'Alt+Space',
+    screenshotHotkey: 'Ctrl+Alt+A',
     language: 'zh-CN',
     launchAtLogin: false,
     preserveSearchQuery: false,
@@ -272,6 +273,7 @@ const fallbackDesktopApi: DesktopApi = {
   updateSettings: async (patch) => ({
     hideOnBlur: patch.hideOnBlur ?? true,
     hotkey: patch.hotkey ?? 'Alt+Space',
+    screenshotHotkey: patch.screenshotHotkey ?? 'Ctrl+Alt+A',
     language: patch.language ?? 'zh-CN',
     launchAtLogin: patch.launchAtLogin ?? false,
     preserveSearchQuery: patch.preserveSearchQuery ?? false,

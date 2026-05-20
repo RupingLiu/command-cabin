@@ -622,13 +622,18 @@ ipcMain.handle(CHECK_FOR_UPDATES_CHANNEL, () => getUpdateController().checkForUp
 
 ipcMain.handle(INSTALL_UPDATE_CHANNEL, () => getUpdateController().installUpdate());
 
+function tryRegisterPendingScreenshotHotkey(): boolean {
+  return false;
+}
+
 ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
   altSpaceHotkeyCapture.stop();
   const settingsPatch = parseSettingsPatch(input);
   const updatedSettings = updateSettingsWithHotkeyRegistration({
     settingsPatch,
     settingsStore,
-    tryRegisterHotkey: desktopApplication.tryRegisterGlobalHotkey,
+    tryRegisterLauncherHotkey: desktopApplication.tryRegisterGlobalHotkey,
+    tryRegisterScreenshotHotkey: tryRegisterPendingScreenshotHotkey,
   });
 
   if (settingsPatch.launchAtLogin !== undefined) {

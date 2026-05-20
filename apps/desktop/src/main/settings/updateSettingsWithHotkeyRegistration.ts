@@ -8,12 +8,16 @@ export interface UpdateSettingsWithHotkeyRegistrationOptions {
   settingsPatch: CommandCabinSettingsPatch;
   settingsStore: CommandCabinSettingsStore;
   tryRegisterLauncherHotkey: (hotkey: string) => boolean;
-  tryRegisterScreenshotHotkey: (hotkey: string) => boolean;
+  tryRegisterScreenshotHotkey: (
+    field: ScreenshotHotkeyRegistrationField,
+    hotkey: string,
+  ) => boolean;
 }
 
 type HotkeyRegistrar = (hotkey: string) => boolean;
 type RollbackAction = () => void;
-type HotkeyRegistrationField = 'hotkey' | 'screenshotHotkey';
+type ScreenshotHotkeyRegistrationField = 'screenshotHotkey' | 'delayedScreenshotHotkey';
+type HotkeyRegistrationField = 'hotkey' | ScreenshotHotkeyRegistrationField;
 
 function rollbackRegistrations(rollbackActions: RollbackAction[]): void {
   for (const rollbackAction of rollbackActions.slice().reverse()) {
@@ -53,7 +57,10 @@ export function updateSettingsWithHotkeyRegistration({
   const currentSettings = settingsStore.getSettings();
   const rollbackActions: RollbackAction[] = [];
   const registrationFields = Object.keys(settingsPatch).filter(
-    (field): field is HotkeyRegistrationField => field === 'hotkey' || field === 'screenshotHotkey',
+    (field): field is HotkeyRegistrationField =>
+      field === 'hotkey' ||
+      field === 'screenshotHotkey' ||
+      field === 'delayedScreenshotHotkey',
   );
 
   try {
@@ -67,9 +74,9 @@ export function updateSettingsWithHotkeyRegistration({
         );
       } else {
         registerChangedHotkey(
-          settingsPatch.screenshotHotkey,
-          currentSettings.screenshotHotkey,
-          tryRegisterScreenshotHotkey,
+          settingsPatch[field],
+          currentSettings[field],
+          (hotkey) => tryRegisterScreenshotHotkey(field, hotkey),
           rollbackActions,
         );
       }

@@ -11,6 +11,7 @@ describe('CommandCabin settings', () => {
     expect(createDefaultCommandCabinSettings()).toEqual({
       hotkey: 'Alt+Space',
       screenshotHotkey: 'Ctrl+Alt+A',
+      delayedScreenshotHotkey: 'Ctrl+Alt+D',
       hideOnBlur: true,
       theme: 'system',
       language: 'zh-CN',
@@ -59,6 +60,7 @@ describe('CommandCabin settings', () => {
     expect(updatedSettings).toMatchObject({
       hotkey: 'Alt+Space',
       screenshotHotkey: 'Ctrl+Alt+A',
+      delayedScreenshotHotkey: 'Ctrl+Alt+D',
       hideOnBlur: false,
       search: {
         maxResults: 20,
@@ -84,6 +86,7 @@ describe('CommandCabin settings', () => {
     expect(createDefaultCommandCabinSettings()).toMatchObject({
       hotkey: 'Alt+Space',
       screenshotHotkey: 'Ctrl+Alt+A',
+      delayedScreenshotHotkey: 'Ctrl+Alt+D',
       search: {
         maxResults: 20,
       },

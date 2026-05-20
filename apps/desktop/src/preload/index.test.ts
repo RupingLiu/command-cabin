@@ -69,6 +69,7 @@ describe('preload desktopApi settings bridge', () => {
       hideOnBlur: true,
       hotkey: 'Alt+Space',
       screenshotHotkey: 'Ctrl+Alt+A',
+      delayedScreenshotHotkey: 'Ctrl+Alt+D',
       language: 'zh-CN',
       launchAtLogin: false,
       preserveSearchQuery: false,

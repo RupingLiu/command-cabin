@@ -53,6 +53,15 @@ export interface PendingTextAnnotationControllerOptions {
   setTimer: (callback: () => void, delayMs: number) => PendingTextTimer;
 }
 
+export interface TextAnnotationKeyInput {
+  ctrlKey?: boolean | undefined;
+  key: string;
+  metaKey?: boolean | undefined;
+}
+
+export type TextAnnotationKeyAction = 'cancel' | 'commit' | 'edit';
+export type PendingTextPointerAction = 'commit' | 'none';
+
 export interface ScreenshotOverlayViewProps {
   desktopApi?: Window['desktopApi']['screenshot'] | undefined;
   initialState?: ScreenshotState | undefined;
@@ -101,6 +110,28 @@ export function createPendingTextAnnotationController({
       }, delayMs);
     },
   };
+}
+
+export function getTextAnnotationKeyAction({
+  ctrlKey = false,
+  key,
+  metaKey = false,
+}: TextAnnotationKeyInput): TextAnnotationKeyAction {
+  if (key === 'Escape') {
+    return 'cancel';
+  }
+
+  if (key === 'Enter' && (ctrlKey || metaKey)) {
+    return 'commit';
+  }
+
+  return 'edit';
+}
+
+export function getPendingTextPointerAction(
+  hasPendingTextAnnotation: boolean,
+): PendingTextPointerAction {
+  return hasPendingTextAnnotation ? 'commit' : 'none';
 }
 
 export function ScreenshotOverlay() {
@@ -173,7 +204,7 @@ export function ScreenshotOverlayView({
     | undefined
   >(undefined);
   const textPromptControllerRef = useRef<PendingTextAnnotationController | undefined>(undefined);
-  const textInputRef = useRef<HTMLInputElement | null>(null);
+  const textInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [saveFormat, setSaveFormat] = useState<ScreenshotSaveFormat>('png');
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [ocrPanel, setOcrPanel] = useState<OcrPanelState | undefined>();
@@ -229,6 +260,7 @@ export function ScreenshotOverlayView({
   }, [clearTextPromptTimer]);
 
   const commitPendingTextAnnotation = useCallback(() => {
+    clearTextPromptTimer();
     setPendingTextAnnotation((pending) => {
       const text = pending?.value.trim();
 
@@ -245,7 +277,7 @@ export function ScreenshotOverlayView({
 
       return undefined;
     });
-  }, []);
+  }, [clearTextPromptTimer]);
 
   const cancel = useCallback(() => {
     cancelPendingTextAnnotation();
@@ -335,7 +367,12 @@ export function ScreenshotOverlayView({
 
   const beginPointer = (point: ScreenshotPoint, detail: number) => {
     setPointer(point);
-    cancelPendingTextAnnotation();
+
+    if (getPendingTextPointerAction(Boolean(pendingTextAnnotation)) === 'commit') {
+      commitPendingTextAnnotation();
+    } else {
+      clearTextPromptTimer();
+    }
 
     if (detail > 1) {
       return;
@@ -518,6 +555,8 @@ export function ScreenshotOverlayView({
             />
             {pendingTextAnnotation ? (
               <TextAnnotationInput
+                cancelLabel={strings.toolbar.cancel}
+                commitLabel={strings.toolbar.done}
                 fontSize={state.style.fontSize}
                 inputRef={textInputRef}
                 point={pendingTextAnnotation.point}
@@ -704,8 +743,10 @@ export function OcrPanel({ onCopyAll, state, strings = defaultScreenshotStrings 
 }
 
 interface TextAnnotationInputProps {
+  cancelLabel: string;
+  commitLabel: string;
   fontSize: number;
-  inputRef?: Ref<HTMLInputElement> | undefined;
+  inputRef?: Ref<HTMLTextAreaElement> | undefined;
   placeholder: string;
   point: ScreenshotPoint;
   value: string;
@@ -715,6 +756,8 @@ interface TextAnnotationInputProps {
 }
 
 export function TextAnnotationInput({
+  cancelLabel,
+  commitLabel,
   fontSize,
   inputRef,
   placeholder,
@@ -725,39 +768,77 @@ export function TextAnnotationInput({
   onCommit,
 }: TextAnnotationInputProps) {
   return (
-    <input
-      aria-label={placeholder}
-      className="screenshot-text-input"
-      ref={inputRef}
+    <div
+      className="screenshot-text-editor"
       style={{
-        fontSize,
         left: point.x,
         top: point.y,
       }}
-      value={value}
-      onBlur={onCommit}
       onDoubleClick={(event) => {
         event.stopPropagation();
-      }}
-      onChange={(event) => onChange(event.currentTarget.value)}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        event.nativeEvent.stopImmediatePropagation?.();
-
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          onCommit();
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          onCancel();
-        }
       }}
       onMouseDown={(event) => {
         event.stopPropagation();
       }}
-      placeholder={placeholder}
-      type="text"
-    />
+    >
+      <textarea
+        aria-label={placeholder}
+        className="screenshot-text-input"
+        ref={inputRef}
+        rows={2}
+        style={{ fontSize }}
+        value={value}
+        onBlur={(event) => {
+          const nextTarget = event.relatedTarget;
+
+          if (nextTarget instanceof Node && event.currentTarget.parentElement?.contains(nextTarget)) {
+            return;
+          }
+
+          onCommit();
+        }}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          event.nativeEvent.stopImmediatePropagation?.();
+
+          const action = getTextAnnotationKeyAction({
+            ctrlKey: event.ctrlKey,
+            key: event.key,
+            metaKey: event.metaKey,
+          });
+
+          if (action === 'commit') {
+            event.preventDefault();
+            onCommit();
+          } else if (action === 'cancel') {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        placeholder={placeholder}
+      />
+      <span className="screenshot-text-actions">
+        <button
+          aria-label={commitLabel}
+          onClick={onCommit}
+          onMouseDown={(event) => event.preventDefault()}
+          title={commitLabel}
+          type="button"
+        >
+          OK
+        </button>
+        <button
+          aria-label={cancelLabel}
+          onClick={onCancel}
+          onMouseDown={(event) => event.preventDefault()}
+          title={cancelLabel}
+          type="button"
+        >
+          X
+        </button>
+      </span>
+    </div>
   );
 }
 
@@ -935,7 +1016,15 @@ function AnnotationShape({ annotation, isDraft }: AnnotationShapeProps) {
           x={annotation.point.x}
           y={annotation.point.y}
         >
-          {annotation.text}
+          {annotation.text.split('\n').map((line, index) => (
+            <tspan
+              dy={index === 0 ? 0 : annotation.style.fontSize * 1.2}
+              key={`${index}-${line}`}
+              x={annotation.point.x}
+            >
+              {line}
+            </tspan>
+          ))}
         </text>
       );
   }

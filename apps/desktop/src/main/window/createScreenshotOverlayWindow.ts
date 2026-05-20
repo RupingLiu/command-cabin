@@ -5,6 +5,7 @@ import { resolveSafeRendererDevServerUrl } from './devServerUrl.js';
 
 export interface CreateScreenshotOverlayWindowOptions {
   isPackaged: boolean;
+  onWindowCreated?: ((window: BrowserWindow) => void) | undefined;
   preloadPath: string;
   rendererDevServerUrl?: string | undefined;
   rendererIndexPath: string;
@@ -20,6 +21,7 @@ function appendScreenshotMode(rendererDevServerUrl: string): string {
 
 export async function createScreenshotOverlayWindow({
   isPackaged,
+  onWindowCreated,
   preloadPath,
   rendererDevServerUrl,
   rendererIndexPath,
@@ -49,6 +51,7 @@ export async function createScreenshotOverlayWindow({
   overlayWindow.once('ready-to-show', () => {
     overlayWindow.show();
   });
+  onWindowCreated?.(overlayWindow);
 
   const safeRendererDevServerUrl = resolveSafeRendererDevServerUrl({
     isPackaged,

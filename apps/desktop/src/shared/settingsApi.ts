@@ -23,6 +23,7 @@ export interface PluginInstallRequest {
 const settingsKeys = new Set([
   'hotkey',
   'screenshotHotkey',
+  'delayedScreenshotHotkey',
   'hideOnBlur',
   'theme',
   'language',
@@ -263,6 +264,10 @@ export function parseSettings(value: unknown): CommandCabinSettings {
     hideOnBlur: parseBoolean(value.hideOnBlur, `${context}.hideOnBlur`),
     hotkey: parseHotkeyAccelerator(value.hotkey, `${context}.hotkey`),
     screenshotHotkey: parseHotkeyAccelerator(value.screenshotHotkey, `${context}.screenshotHotkey`),
+    delayedScreenshotHotkey: parseHotkeyAccelerator(
+      value.delayedScreenshotHotkey,
+      `${context}.delayedScreenshotHotkey`,
+    ),
     language: parseLanguage(value.language, `${context}.language`),
     launchAtLogin: parseBoolean(value.launchAtLogin, `${context}.launchAtLogin`),
     preserveSearchQuery: parseBoolean(value.preserveSearchQuery, `${context}.preserveSearchQuery`),
@@ -296,6 +301,12 @@ export function parseSettingsPatch(value: unknown): CommandCabinSettingsPatch {
     patch.screenshotHotkey = parseHotkeyAccelerator(
       value.screenshotHotkey,
       `${context}.screenshotHotkey`,
+    );
+  }
+  if ('delayedScreenshotHotkey' in value) {
+    patch.delayedScreenshotHotkey = parseHotkeyAccelerator(
+      value.delayedScreenshotHotkey,
+      `${context}.delayedScreenshotHotkey`,
     );
   }
   if ('language' in value) {

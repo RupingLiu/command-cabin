@@ -222,7 +222,11 @@ function drawText(
   style: ScreenshotAnnotationStyle,
 ): void {
   context.font = `${style.fontSize}px sans-serif`;
-  context.fillText?.(text, point.x, point.y);
+  const lineHeight = style.fontSize * 1.2;
+
+  for (const [index, line] of text.split('\n').entries()) {
+    context.fillText?.(line, point.x, point.y + index * lineHeight);
+  }
 }
 
 function drawMosaic(context: ScreenshotCanvasContextLike, rect: ScreenshotRect): void {

@@ -27,6 +27,7 @@ describe('SQLite settings repository', () => {
       expect(repository.getSettings()).toEqual({
         hotkey: 'Alt+Space',
         screenshotHotkey: 'Ctrl+Alt+A',
+        delayedScreenshotHotkey: 'Ctrl+Alt+D',
         hideOnBlur: true,
         theme: 'system',
         language: 'zh-CN',
@@ -97,6 +98,7 @@ describe('SQLite settings repository', () => {
       expect(createSettingsRepository(secondDatabase).getSettings()).toMatchObject({
         hotkey: 'Alt+Space',
         screenshotHotkey: 'Ctrl+Alt+A',
+        delayedScreenshotHotkey: 'Ctrl+Alt+D',
         hideOnBlur: false,
         preserveSearchQuery: true,
         theme: 'dark',
@@ -124,7 +126,7 @@ describe('SQLite settings repository', () => {
     }
   });
 
-  it('merges the default screenshot hotkey into older persisted settings rows', () => {
+  it('merges default screenshot hotkeys into older persisted settings rows', () => {
     const database = openInMemoryCommandCabinDatabase();
 
     try {
@@ -145,6 +147,7 @@ describe('SQLite settings repository', () => {
       expect(createSettingsRepository(database).getSettings()).toMatchObject({
         hotkey: 'Ctrl+Space',
         screenshotHotkey: 'Ctrl+Alt+A',
+        delayedScreenshotHotkey: 'Ctrl+Alt+D',
         theme: 'dark',
         search: {
           maxResults: 12,
@@ -172,6 +175,24 @@ describe('SQLite settings repository', () => {
     }
   });
 
+  it('persists delayed screenshot hotkey updates', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createSettingsRepository(database);
+
+      expect(repository.updateSettings({ delayedScreenshotHotkey: 'Ctrl+Shift+D' })).toMatchObject(
+        {
+          delayedScreenshotHotkey: 'Ctrl+Shift+D',
+        },
+      );
+      expect(repository.getSettings().delayedScreenshotHotkey).toBe('Ctrl+Shift+D');
+    } finally {
+      database.close();
+    }
+  });
+
   it('rejects non-string screenshot hotkey values before persistence', () => {
     const database = openInMemoryCommandCabinDatabase();
 
@@ -181,6 +202,21 @@ describe('SQLite settings repository', () => {
 
       expect(() => repository.updateSettings({ screenshotHotkey: 42 as never })).toThrow(
         /Invalid settings in settings key "command-cabin": screenshotHotkey must be a string/,
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  it('rejects non-string delayed screenshot hotkey values before persistence', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createSettingsRepository(database);
+
+      expect(() => repository.updateSettings({ delayedScreenshotHotkey: 42 as never })).toThrow(
+        /Invalid settings in settings key "command-cabin": delayedScreenshotHotkey must be a string/,
       );
     } finally {
       database.close();

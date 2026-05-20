@@ -204,6 +204,14 @@ const zhCnStrings = {
       title: '截图快捷键',
       waiting: '按下快捷键',
     },
+    delayedScreenshotHotkey: {
+      ariaLabel: '延时截图快捷键设置',
+      conflictHint: '请按至少一个修饰键和一个非修饰键。',
+      record: '录制快捷键',
+      saveError: '无法保存延时截图快捷键。',
+      title: '延时截图快捷键',
+      waiting: '按下快捷键',
+    },
     language: {
       ariaLabel: '语言设置',
       displayLanguage: '显示语言',
@@ -466,6 +474,14 @@ const zhTwStrings: UiStrings = {
       title: '截圖快捷鍵',
       waiting: '按下快捷鍵',
     },
+    delayedScreenshotHotkey: {
+      ariaLabel: '延遲截圖快捷鍵設定',
+      conflictHint: '請按至少一個修飾鍵和一個非修飾鍵。',
+      record: '錄製快捷鍵',
+      saveError: '無法儲存延遲截圖快捷鍵。',
+      title: '延遲截圖快捷鍵',
+      waiting: '按下快捷鍵',
+    },
     language: {
       ariaLabel: '語言設定',
       displayLanguage: '顯示語言',
@@ -718,6 +734,14 @@ const enUsStrings: UiStrings = {
       record: 'Record shortcut',
       saveError: 'Screenshot shortcut could not be saved.',
       title: 'Screenshot shortcut',
+      waiting: 'Press shortcut',
+    },
+    delayedScreenshotHotkey: {
+      ariaLabel: 'Delayed screenshot shortcut settings',
+      conflictHint: 'Press at least one modifier with a non-modifier key.',
+      record: 'Record shortcut',
+      saveError: 'Delayed screenshot shortcut could not be saved.',
+      title: 'Delayed screenshot shortcut',
       waiting: 'Press shortcut',
     },
     language: {

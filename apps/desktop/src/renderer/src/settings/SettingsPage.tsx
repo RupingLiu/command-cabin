@@ -34,16 +34,25 @@ export interface SettingsPageProps {
   theme?: CommandCabinTheme | undefined;
 }
 
-export type SettingsHotkeyRecorderId = 'launcher' | 'screenshot';
+export type SettingsHotkeyRecorderId = 'launcher' | 'screenshot' | 'delayedScreenshot';
 
 const DEFAULT_LAUNCHER_HOTKEY = 'Alt+Space';
 const DEFAULT_SCREENSHOT_HOTKEY = 'Ctrl+Alt+A';
+const DEFAULT_DELAYED_SCREENSHOT_HOTKEY = 'Ctrl+Alt+D';
 
 export function createSettingsHotkeyPatch(
   recorderId: SettingsHotkeyRecorderId,
   hotkey: string,
 ): CommandCabinSettingsPatch {
-  return recorderId === 'launcher' ? { hotkey } : { screenshotHotkey: hotkey };
+  if (recorderId === 'launcher') {
+    return { hotkey };
+  }
+
+  if (recorderId === 'screenshot') {
+    return { screenshotHotkey: hotkey };
+  }
+
+  return { delayedScreenshotHotkey: hotkey };
 }
 
 export function startSettingsHotkeyRecorder(
@@ -204,6 +213,21 @@ export function SettingsPage({
               setActiveHotkeyRecorder(startSettingsHotkeyRecorder('screenshot'))
             }
             onRecordingStop={() => stopHotkeyRecording('screenshot')}
+          />
+          <HotkeySettings
+            activeRecorderId={activeHotkeyRecorder ?? null}
+            errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
+            isSaving={isSaving}
+            recorderId="delayedScreenshot"
+            strings={strings.settings.delayedScreenshotHotkey}
+            value={settings?.delayedScreenshotHotkey ?? DEFAULT_DELAYED_SCREENSHOT_HOTKEY}
+            onHotkeyChange={(hotkey) =>
+              updateSettings(createSettingsHotkeyPatch('delayedScreenshot', hotkey))
+            }
+            onRecordingStart={() =>
+              setActiveHotkeyRecorder(startSettingsHotkeyRecorder('delayedScreenshot'))
+            }
+            onRecordingStop={() => stopHotkeyRecording('delayedScreenshot')}
           />
           <ThemeSettings
             isSaving={isSaving}

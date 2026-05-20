@@ -39,9 +39,14 @@ export interface ScreenshotPinnedImageWindow {
   webContents: ScreenshotWebContents;
 }
 
+export type RegisterScreenshotOverlayWindow = (window: ScreenshotOverlayWindow) => void;
+
 export interface CreateScreenshotControllerOptions {
   captureDisplays: () => Promise<ScreenshotDisplayCapture>;
-  createOverlayWindow: (capture: ScreenshotDisplayCapture) => Promise<ScreenshotOverlayWindow>;
+  createOverlayWindow: (
+    capture: ScreenshotDisplayCapture,
+    registerWindow: RegisterScreenshotOverlayWindow,
+  ) => Promise<ScreenshotOverlayWindow>;
   createPinnedImageToken: () => string;
   hideLauncher: () => Promise<void> | void;
   pinImage: (
@@ -174,6 +179,21 @@ export function createScreenshotController({
     states.set(window.webContents.id, state);
   };
 
+  const forgetState = (window: ScreenshotOverlayWindow) => {
+    const state = states.get(window.webContents.id);
+
+    if (!state) {
+      return;
+    }
+
+    states.delete(window.webContents.id);
+    removeClosedListener(state);
+
+    if (!state.window.isDestroyed?.()) {
+      state.window.close();
+    }
+  };
+
   const rememberPinnedImage = (
     token: string,
     state: ScreenshotPinnedImageState,
@@ -285,8 +305,29 @@ export function createScreenshotController({
         ...capture,
         mode: launchMode,
       };
-      const overlayWindow = await createOverlayWindow(capture);
-      rememberState(overlayWindow, launchState);
+      let registeredWindow: ScreenshotOverlayWindow | undefined;
+      const registerWindow = (window: ScreenshotOverlayWindow) => {
+        if (registeredWindow) {
+          return;
+        }
+
+        registeredWindow = window;
+        rememberState(window, launchState);
+      };
+
+      try {
+        const overlayWindow = await createOverlayWindow(capture, registerWindow);
+
+        if (!registeredWindow) {
+          rememberState(overlayWindow, launchState);
+        }
+      } catch (error) {
+        if (registeredWindow) {
+          forgetState(registeredWindow);
+        }
+
+        throw error;
+      }
 
       return launchState;
     },

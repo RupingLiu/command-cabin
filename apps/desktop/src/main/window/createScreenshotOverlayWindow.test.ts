@@ -91,4 +91,21 @@ describe('createScreenshotOverlayWindow', () => {
     );
     expect(MockBrowserWindow.instances[0]?.loadURL).not.toHaveBeenCalled();
   });
+
+  it('reports the overlay window before renderer loading completes', async () => {
+    const { createScreenshotOverlayWindow } = await import('./createScreenshotOverlayWindow.js');
+    const onWindowCreated = vi.fn();
+
+    await createScreenshotOverlayWindow({
+      isPackaged: true,
+      onWindowCreated,
+      preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
+      rendererDevServerUrl: 'http://localhost:5173',
+      rendererIndexPath: 'C:\\CommandCabin\\dist\\renderer\\index.html',
+      virtualBounds: { height: 600, width: 800, x: 0, y: 0 },
+    });
+
+    expect(onWindowCreated).toHaveBeenCalledWith(MockBrowserWindow.instances[0]);
+    expect(onWindowCreated).toHaveBeenCalledBefore(MockBrowserWindow.instances[0]!.loadFile);
+  });
 });

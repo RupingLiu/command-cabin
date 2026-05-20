@@ -12,7 +12,9 @@ function createMockCanvas() {
     closePath: vi.fn(() => operations.push('closePath')),
     drawImage: vi.fn((...args: unknown[]) => drawImageCalls.push({ args })),
     ellipse: vi.fn(() => operations.push('ellipse')),
-    fillText: vi.fn((text: string) => operations.push(`fillText:${text}`)),
+    fillText: vi.fn((text: string, x: number, y: number) =>
+      operations.push(`fillText:${text}:${x}:${Number(y.toFixed(1))}`),
+    ),
     getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(16), height: 2, width: 2 })),
     lineTo: vi.fn(() => operations.push('lineTo')),
     moveTo: vi.fn(() => operations.push('moveTo')),
@@ -109,8 +111,31 @@ describe('composeScreenshotSelection', () => {
     expect(mock.operations).toContain('rect');
     expect(mock.operations).toContain('ellipse');
     expect(mock.operations).toContain('lineTo');
-    expect(mock.operations).toContain('fillText:OCR');
+    expect(mock.operations).toContain('fillText:OCR:4:48');
     expect(mock.operations).toContain('putImageData');
+  });
+
+  it('draws multiline text annotations one canvas line at a time', async () => {
+    const mock = createMockCanvas();
+
+    await composeScreenshotSelection({
+      annotations: [
+        {
+          point: { x: 4, y: 8 },
+          style: baseStyle(),
+          text: 'first\nsecond',
+          type: 'text',
+        },
+      ],
+      createCanvas: () => mock.canvas,
+      format: 'png',
+      launchState,
+      loadImage: async (source) => ({ source }),
+      selection: { height: 70, width: 90, x: -20, y: 30 },
+    });
+
+    expect(mock.operations).toContain('fillText:first:4:8');
+    expect(mock.operations).toContain('fillText:second:4:29.6');
   });
 });
 

@@ -25,7 +25,9 @@ describe('SettingsPage', () => {
     expect(markup).toContain('CommandCabin v0.0.0');
     expect(markup).toContain('启动器快捷键');
     expect(markup).toContain('截图快捷键');
+    expect(markup).toContain('延时截图快捷键');
     expect(markup).toContain('Ctrl+Alt+A');
+    expect(markup).toContain('Ctrl+Alt+D');
     expect(markup).toContain('主题');
     expect(markup).toContain('语言');
     expect(markup).toContain('启动');
@@ -55,6 +57,7 @@ describe('SettingsPage', () => {
     expect(markup).toContain('關於與更新');
     expect(markup).toContain('啟動器快捷鍵');
     expect(markup).toContain('截圖快捷鍵');
+    expect(markup).toContain('延遲截圖快捷鍵');
     expect(markup).toContain('主題');
     expect(markup).toContain('語言');
     expect(markup).toContain('啟動');
@@ -78,8 +81,10 @@ describe('SettingsPage', () => {
     expect(markup).toContain('About and Updates');
     expect(markup).toContain('Launcher shortcut');
     expect(markup).toContain('Screenshot shortcut');
+    expect(markup).toContain('Delayed screenshot shortcut');
     expect(markup).toContain('Alt+Space');
     expect(markup).toContain('Ctrl+Alt+A');
+    expect(markup).toContain('Ctrl+Alt+D');
     expect(markup).toContain('Theme');
     expect(markup).toContain('Language');
     expect(markup).toContain('Startup');
@@ -116,12 +121,23 @@ describe('SettingsPage', () => {
     });
   });
 
+  it('creates only a delayed screenshot hotkey patch for delayed screenshot recording', () => {
+    expect(createSettingsHotkeyPatch('delayedScreenshot', 'Ctrl+Shift+D')).toEqual({
+      delayedScreenshotHotkey: 'Ctrl+Shift+D',
+    });
+  });
+
   it('keeps only one active hotkey recorder when another starts', () => {
     const launcherActive = startSettingsHotkeyRecorder('launcher');
     const screenshotActive = startSettingsHotkeyRecorder('screenshot');
+    const delayedScreenshotActive = startSettingsHotkeyRecorder('delayedScreenshot');
 
     expect(isSettingsHotkeyRecorderActive(launcherActive, 'launcher')).toBe(true);
     expect(isSettingsHotkeyRecorderActive(screenshotActive, 'launcher')).toBe(false);
     expect(isSettingsHotkeyRecorderActive(screenshotActive, 'screenshot')).toBe(true);
+    expect(isSettingsHotkeyRecorderActive(delayedScreenshotActive, 'screenshot')).toBe(false);
+    expect(isSettingsHotkeyRecorderActive(delayedScreenshotActive, 'delayedScreenshot')).toBe(
+      true,
+    );
   });
 });

@@ -485,8 +485,11 @@ const screenshotController = createScreenshotController({
       getAllDisplays: () => screen.getAllDisplays(),
       getSources: (request) => desktopCapturer.getSources(request),
     }),
-  createOverlayWindow: (capture) =>
-    createScreenshotOverlayWindow(getScreenshotOverlayWindowOptions(capture.virtualBounds)),
+  createOverlayWindow: (capture, registerWindow) =>
+    createScreenshotOverlayWindow({
+      ...getScreenshotOverlayWindowOptions(capture.virtualBounds),
+      onWindowCreated: registerWindow,
+    }),
   createPinnedImageToken: () => randomUUID(),
   hideLauncher: () => {
     BrowserWindow.getFocusedWindow()?.hide();
@@ -530,7 +533,14 @@ const screenshotController = createScreenshotController({
   },
 });
 const screenshotShortcutController = createScreenshotShortcutController({
-  getAccelerator: () => settingsStore.getSettings().screenshotHotkey,
+  getAccelerators: () => {
+    const settings = settingsStore.getSettings();
+
+    return {
+      screenshotHotkey: settings.screenshotHotkey,
+      delayedScreenshotHotkey: settings.delayedScreenshotHotkey,
+    };
+  },
   registry: globalShortcut,
   startScreenshotCapture: async (mode) => {
     await screenshotController.start(mode);

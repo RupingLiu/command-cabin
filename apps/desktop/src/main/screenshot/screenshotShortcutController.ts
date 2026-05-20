@@ -8,14 +8,22 @@ import {
 } from '../hotkey/registerGlobalHotkey.js';
 import type { ScreenshotLaunchMode } from '../../shared/screenshotApi.js';
 
+export type ScreenshotHotkeyRegistrationField = 'screenshotHotkey' | 'delayedScreenshotHotkey';
+
 export interface ScreenshotShortcutController {
   dispose: () => void;
   start: () => Promise<void>;
-  tryRegisterGlobalHotkey: (accelerator: string) => boolean;
+  tryRegisterGlobalHotkey: (
+    field: ScreenshotHotkeyRegistrationField,
+    accelerator: string,
+  ) => boolean;
 }
 
 export interface CreateScreenshotShortcutControllerOptions {
-  getAccelerator: () => Pick<CommandCabinSettings, 'screenshotHotkey'>['screenshotHotkey'];
+  getAccelerators: () => Pick<
+    CommandCabinSettings,
+    'screenshotHotkey' | 'delayedScreenshotHotkey'
+  >;
   logger?: HotkeyConflictLogger;
   notifyHotkeyConflict?: (message: string) => void;
   registry: GlobalShortcutRegistry;
@@ -23,47 +31,93 @@ export interface CreateScreenshotShortcutControllerOptions {
 }
 
 export function createScreenshotShortcutController({
-  getAccelerator,
+  getAccelerators,
   logger = console,
   notifyHotkeyConflict,
   registry,
   startScreenshotCapture,
 }: CreateScreenshotShortcutControllerOptions): ScreenshotShortcutController {
-  let hotkeyRegistration: GlobalHotkeyRegistration | undefined;
+  const hotkeyRegistrations = new Map<ScreenshotHotkeyRegistrationField, GlobalHotkeyRegistration>();
+  const modeByField = new Map<ScreenshotHotkeyRegistrationField, ScreenshotLaunchMode>([
+    ['screenshotHotkey', 'capture'],
+    ['delayedScreenshotHotkey', 'capture-delay-3'],
+  ]);
 
-  const register = (accelerator: string): GlobalHotkeyRegistration =>
+  const register = (
+    field: ScreenshotHotkeyRegistrationField,
+    accelerator: string,
+  ): GlobalHotkeyRegistration =>
     registerGlobalHotkey({
       accelerator,
       logger,
       notifyConflict: notifyHotkeyConflict,
-      onTriggered: () => startScreenshotCapture('capture'),
+      onTriggered: () => startScreenshotCapture(modeByField.get(field)!),
       registry,
     });
 
-  const tryRegisterGlobalHotkey = (accelerator: string): boolean => {
+  const findRegisteredField = (
+    accelerator: string,
+  ): ScreenshotHotkeyRegistrationField | undefined => {
+    for (const [registeredField, hotkeyRegistration] of hotkeyRegistrations) {
+      if (hotkeyRegistration.registered && hotkeyRegistration.accelerator === accelerator) {
+        return registeredField;
+      }
+    }
+
+    return undefined;
+  };
+
+  const tryRegisterGlobalHotkey = (
+    field: ScreenshotHotkeyRegistrationField,
+    accelerator: string,
+  ): boolean => {
+    const hotkeyRegistration = hotkeyRegistrations.get(field);
+
     if (hotkeyRegistration?.accelerator === accelerator && hotkeyRegistration.registered) {
       return true;
     }
 
-    const nextRegistration = register(accelerator);
+    const displacedField = findRegisteredField(accelerator);
+    const displacedRegistration =
+      displacedField === undefined ? undefined : hotkeyRegistrations.get(displacedField);
+
+    if (displacedField !== undefined) {
+      displacedRegistration?.dispose();
+      hotkeyRegistrations.delete(displacedField);
+    }
+
+    const nextRegistration = register(field, accelerator);
 
     if (!nextRegistration.registered) {
+      if (displacedField !== undefined && displacedRegistration !== undefined) {
+        hotkeyRegistrations.set(
+          displacedField,
+          register(displacedField, displacedRegistration.accelerator),
+        );
+      }
+
       return false;
     }
 
     hotkeyRegistration?.dispose();
-    hotkeyRegistration = nextRegistration;
+    hotkeyRegistrations.set(field, nextRegistration);
     return true;
   };
 
   return {
     dispose: () => {
-      hotkeyRegistration?.dispose();
-      hotkeyRegistration = undefined;
+      for (const hotkeyRegistration of hotkeyRegistrations.values()) {
+        hotkeyRegistration.dispose();
+      }
+      hotkeyRegistrations.clear();
     },
     start: async () => {
-      if (!hotkeyRegistration) {
-        hotkeyRegistration = register(getAccelerator());
+      const accelerators = getAccelerators();
+
+      for (const field of modeByField.keys()) {
+        if (!hotkeyRegistrations.has(field)) {
+          hotkeyRegistrations.set(field, register(field, accelerators[field]));
+        }
       }
     },
     tryRegisterGlobalHotkey,

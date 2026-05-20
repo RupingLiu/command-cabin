@@ -7,7 +7,9 @@ import {
   ScreenshotOverlayView,
   TextAnnotationInput,
   createPendingTextAnnotationController,
+  getPendingTextPointerAction,
   getScreenshotCompletionAction,
+  getTextAnnotationKeyAction,
   requireScreenshotApi,
 } from './ScreenshotOverlay.js';
 import {
@@ -151,22 +153,40 @@ describe('ScreenshotOverlayView', () => {
     expect(markup).not.toContain('y="110"');
   });
 
-  it('renders an inline text input for text annotations instead of relying on prompts', () => {
+  it('renders an inline multiline text editor with commit and cancel controls', () => {
     const markup = renderToStaticMarkup(
       createElement(TextAnnotationInput, {
+        cancelLabel: 'Cancel',
+        commitLabel: 'Done',
         fontSize: 18,
         placeholder: '文字',
         point: { x: 12, y: 24 },
-        value: 'Hello',
+        value: 'Hello\nworld',
         onCancel: vi.fn(),
         onChange: vi.fn(),
         onCommit: vi.fn(),
       }),
     );
 
+    expect(markup).toContain('<textarea');
     expect(markup).toContain('screenshot-text-input');
     expect(markup).toContain('aria-label="文字"');
-    expect(markup).toContain('value="Hello"');
+    expect(markup).toContain('Hello\nworld');
+    expect(markup).toContain('screenshot-text-actions');
+    expect(markup).toContain('aria-label="Done"');
+    expect(markup).toContain('aria-label="Cancel"');
+  });
+
+  it('keeps Enter for editing but commits or cancels explicit text editor shortcuts', () => {
+    expect(getTextAnnotationKeyAction({ key: 'Enter' })).toBe('edit');
+    expect(getTextAnnotationKeyAction({ ctrlKey: true, key: 'Enter' })).toBe('commit');
+    expect(getTextAnnotationKeyAction({ key: 'Enter', metaKey: true })).toBe('commit');
+    expect(getTextAnnotationKeyAction({ key: 'Escape' })).toBe('cancel');
+  });
+
+  it('commits pending text before handling an outside pointer interaction', () => {
+    expect(getPendingTextPointerAction(true)).toBe('commit');
+    expect(getPendingTextPointerAction(false)).toBe('none');
   });
 
   it('throws a readable error when screenshot preload APIs are unavailable', () => {

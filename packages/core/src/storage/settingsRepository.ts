@@ -19,6 +19,7 @@ const SETTINGS_CONTEXT = { table: 'settings', key: SETTINGS_KEY };
 const SETTINGS_KEYS = new Set([
   'hotkey',
   'screenshotHotkey',
+  'delayedScreenshotHotkey',
   'hideOnBlur',
   'theme',
   'language',
@@ -97,6 +98,7 @@ function validateSettingsPatch(value: unknown): CommandCabinSettingsPatch {
 
   validateOptionalString(value, 'hotkey');
   validateOptionalString(value, 'screenshotHotkey');
+  validateOptionalString(value, 'delayedScreenshotHotkey');
   validateOptionalBoolean(value, 'hideOnBlur');
   validateOptionalBoolean(value, 'launchAtLogin');
   validateOptionalBoolean(value, 'preserveSearchQuery');

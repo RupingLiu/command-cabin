@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import {
-  DEFAULT_COMMAND_CABIN_SETTINGS,
-  type CommandCabinLanguage,
-  type CommandCabinSettings,
-  type CommandCabinSettingsPatch,
-  type CommandCabinTheme,
+import type {
+  CommandCabinLanguage,
+  CommandCabinSettings,
+  CommandCabinSettingsPatch,
+  CommandCabinTheme,
 } from '@command-cabin/core';
 
 import { getUiStrings } from '../i18n.js';
@@ -36,6 +35,9 @@ export interface SettingsPageProps {
 }
 
 export type SettingsHotkeyRecorderId = 'launcher' | 'screenshot';
+
+const DEFAULT_LAUNCHER_HOTKEY = 'Alt+Space';
+const DEFAULT_SCREENSHOT_HOTKEY = 'Ctrl+Alt+A';
 
 export function createSettingsHotkeyPatch(
   recorderId: SettingsHotkeyRecorderId,
@@ -179,7 +181,7 @@ export function SettingsPage({
             isSaving={isSaving}
             recorderId="launcher"
             strings={strings.settings.hotkey}
-            value={settings?.hotkey ?? DEFAULT_COMMAND_CABIN_SETTINGS.hotkey}
+            value={settings?.hotkey ?? DEFAULT_LAUNCHER_HOTKEY}
             onHotkeyChange={(hotkey) =>
               updateSettings(createSettingsHotkeyPatch('launcher', hotkey))
             }
@@ -194,7 +196,7 @@ export function SettingsPage({
             isSaving={isSaving}
             recorderId="screenshot"
             strings={strings.settings.screenshotHotkey}
-            value={settings?.screenshotHotkey ?? DEFAULT_COMMAND_CABIN_SETTINGS.screenshotHotkey}
+            value={settings?.screenshotHotkey ?? DEFAULT_SCREENSHOT_HOTKEY}
             onHotkeyChange={(hotkey) =>
               updateSettings(createSettingsHotkeyPatch('screenshot', hotkey))
             }

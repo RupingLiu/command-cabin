@@ -1,5 +1,4 @@
 import type {
-  ScreenshotImageRequest,
   ScreenshotLaunchMode,
   ScreenshotLaunchState,
   ScreenshotOcrRequest,

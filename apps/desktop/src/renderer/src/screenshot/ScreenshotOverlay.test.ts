@@ -14,6 +14,7 @@ import {
   screenshotReducer,
   type ScreenshotState,
 } from './screenshotState.js';
+import { getUiStrings } from '../i18n.js';
 import type { ScreenshotLaunchState } from '../../../shared/screenshotApi.js';
 
 const launchState: ScreenshotLaunchState = {
@@ -32,7 +33,12 @@ const launchState: ScreenshotLaunchState = {
 
 describe('ScreenshotOverlayView', () => {
   it('renders display backgrounds, tools, output actions, and style controls', () => {
-    const markup = renderToStaticMarkup(createElement(ScreenshotOverlayView, { launchState }));
+    const markup = renderToStaticMarkup(
+      createElement(ScreenshotOverlayView, {
+        launchState,
+        strings: getUiStrings('en-US').screenshot,
+      }),
+    );
 
     expect(markup).toContain('screenshot-overlay');
     expect(markup).toContain('data-source-id="screen:1"');
@@ -51,16 +57,42 @@ describe('ScreenshotOverlayView', () => {
     expect(markup).toContain('screenshot-magnifier');
   });
 
+  it('renders screenshot toolbar strings in Simplified and Traditional Chinese', () => {
+    const simplified = renderToStaticMarkup(
+      createElement(ScreenshotOverlayView, {
+        launchState,
+        strings: getUiStrings('zh-CN').screenshot,
+      }),
+    );
+    const traditional = renderToStaticMarkup(
+      createElement(ScreenshotOverlayView, {
+        launchState,
+        strings: getUiStrings('zh-TW').screenshot,
+      }),
+    );
+
+    expect(simplified).toContain('矩形');
+    expect(simplified).toContain('颜色');
+    expect(simplified).toContain('置顶');
+    expect(simplified).toContain('完成');
+    expect(traditional).toContain('橢圓');
+    expect(traditional).toContain('顏色');
+    expect(traditional).toContain('置頂');
+    expect(traditional).toContain('儲存');
+  });
+
   it('renders OCR progress, recognized text, unavailable, and error panel states', () => {
     const running = renderToStaticMarkup(
       createElement(OcrPanel, {
         onCopyAll: vi.fn(),
+        strings: getUiStrings('en-US').screenshot,
         state: { status: 'running' },
       }),
     );
     const success = renderToStaticMarkup(
       createElement(OcrPanel, {
         onCopyAll: vi.fn(),
+        strings: getUiStrings('en-US').screenshot,
         state: {
           language: 'en-US',
           lines: ['first line', 'second line'],
@@ -72,6 +104,7 @@ describe('ScreenshotOverlayView', () => {
     const unavailable = renderToStaticMarkup(
       createElement(OcrPanel, {
         onCopyAll: vi.fn(),
+        strings: getUiStrings('en-US').screenshot,
         state: {
           language: 'zh-CN',
           message: 'Windows OCR is unavailable.',
@@ -82,6 +115,7 @@ describe('ScreenshotOverlayView', () => {
     const error = renderToStaticMarkup(
       createElement(OcrPanel, {
         onCopyAll: vi.fn(),
+        strings: getUiStrings('en-US').screenshot,
         state: {
           language: 'en-US',
           message: 'OCR failed.',
@@ -116,9 +150,10 @@ describe('ScreenshotOverlayView', () => {
   });
 
   it('throws a readable error when screenshot preload APIs are unavailable', () => {
-    expect(() => requireScreenshotApi(undefined)).toThrow(
-      'Screenshot controls are unavailable in this window.',
-    );
+    expect(() => requireScreenshotApi(undefined)).toThrow('截图控制不可用。');
+    expect(() =>
+      requireScreenshotApi(undefined, getUiStrings('en-US').screenshot.controlsUnavailable),
+    ).toThrow('Screenshot controls are unavailable in this window.');
   });
 
   it('uses OCR as the default completion action only for OCR launch mode', () => {

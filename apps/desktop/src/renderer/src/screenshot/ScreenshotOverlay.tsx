@@ -6,6 +6,7 @@ import type {
   ScreenshotOcrResult,
   ScreenshotSaveFormat,
 } from '../../../shared/screenshotApi.js';
+import { DEFAULT_UI_LANGUAGE, getUiStrings, type UiStrings } from '../i18n.js';
 import { composeScreenshotSelection } from './screenshotCanvas.js';
 import {
   createInitialScreenshotState,
@@ -18,18 +19,11 @@ import {
   type ScreenshotTool,
 } from './screenshotState.js';
 
-const toolLabels: Record<ScreenshotTool, string> = {
-  arrow: 'Arrow',
-  ellipse: 'Ellipse',
-  mosaic: 'Mosaic',
-  pen: 'Pen',
-  rectangle: 'Rectangle',
-  text: 'Text',
-};
-
 const colors = ['#ff3355', '#f5c542', '#60d394', '#4aa3ff', '#ffffff'];
 const lineWidths = [2, 4, 6];
 const fontSizes = [16, 22, 30];
+const toolOrder: ScreenshotTool[] = ['rectangle', 'ellipse', 'arrow', 'pen', 'text', 'mosaic'];
+const defaultScreenshotStrings = getUiStrings(DEFAULT_UI_LANGUAGE).screenshot;
 
 interface ScreenshotOverlayStatus {
   tone: 'info' | 'error';
@@ -40,6 +34,7 @@ export type OcrPanelState = { status: 'running' } | ScreenshotOcrResult;
 
 type ScreenshotApi = NonNullable<Window['desktopApi']['screenshot']>;
 type PendingTextTimer = ReturnType<typeof setTimeout>;
+type ScreenshotStrings = UiStrings['screenshot'];
 
 export interface PendingTextAnnotationController {
   cancel: () => void;
@@ -56,6 +51,7 @@ export interface ScreenshotOverlayViewProps {
   desktopApi?: Window['desktopApi']['screenshot'] | undefined;
   initialState?: ScreenshotState | undefined;
   launchState: ScreenshotLaunchState;
+  strings?: ScreenshotStrings | undefined;
 }
 
 export function getScreenshotCompletionAction(
@@ -66,9 +62,10 @@ export function getScreenshotCompletionAction(
 
 export function requireScreenshotApi(
   screenshotApi: Window['desktopApi']['screenshot'] | undefined,
+  unavailableMessage = defaultScreenshotStrings.controlsUnavailable,
 ): ScreenshotApi {
   if (!screenshotApi) {
-    throw new Error('Screenshot controls are unavailable in this window.');
+    throw new Error(unavailableMessage);
   }
 
   return screenshotApi;
@@ -103,26 +100,32 @@ export function createPendingTextAnnotationController({
 export function ScreenshotOverlay() {
   const [launchState, setLaunchState] = useState<ScreenshotLaunchState | undefined>();
   const [error, setError] = useState<string | undefined>();
+  const [strings, setStrings] = useState<ScreenshotStrings>(defaultScreenshotStrings);
 
   useEffect(() => {
+    const desktopApi =
+      typeof window !== 'undefined' && 'desktopApi' in window ? window.desktopApi : undefined;
     let screenshotApi: ScreenshotApi;
 
     try {
-      screenshotApi = requireScreenshotApi(
-        typeof window !== 'undefined' && 'desktopApi' in window
-          ? window.desktopApi.screenshot
-          : undefined,
-      );
+      screenshotApi = requireScreenshotApi(desktopApi?.screenshot);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Unable to load screenshot capture.');
+      setError(reason instanceof Error ? reason.message : defaultScreenshotStrings.loadError);
       return;
     }
+
+    void desktopApi
+      ?.getSettings()
+      .then((settings) => {
+        setStrings(getUiStrings(settings.language).screenshot);
+      })
+      .catch(() => undefined);
 
     void screenshotApi
       .getLaunchState()
       .then(setLaunchState)
       .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : 'Unable to load screenshot capture.');
+        setError(reason instanceof Error ? reason.message : defaultScreenshotStrings.loadError);
       });
   }, []);
 
@@ -132,12 +135,16 @@ export function ScreenshotOverlay() {
 
   if (!launchState) {
     return (
-      <div className="screenshot-overlay screenshot-overlay--empty">Loading screenshot...</div>
+      <div className="screenshot-overlay screenshot-overlay--empty">{strings.loading}</div>
     );
   }
 
   return (
-    <ScreenshotOverlayView desktopApi={window.desktopApi.screenshot} launchState={launchState} />
+    <ScreenshotOverlayView
+      desktopApi={window.desktopApi.screenshot}
+      launchState={launchState}
+      strings={strings}
+    />
   );
 }
 
@@ -145,6 +152,7 @@ export function ScreenshotOverlayView({
   desktopApi,
   initialState,
   launchState,
+  strings = defaultScreenshotStrings,
 }: ScreenshotOverlayViewProps) {
   const [state, dispatch] = useReducer(
     screenshotReducer,
@@ -191,11 +199,11 @@ export function ScreenshotOverlayView({
   const cancel = useCallback(() => {
     clearTextPromptTimer();
     try {
-      void requireScreenshotApi(desktopApi).cancel();
+      void requireScreenshotApi(desktopApi, strings.controlsUnavailable).cancel();
     } catch (reason) {
-      setStatus(toStatus(reason));
+      setStatus(toStatus(reason, strings));
     }
-  }, [clearTextPromptTimer, desktopApi]);
+  }, [clearTextPromptTimer, desktopApi, strings]);
 
   const exportImage = useCallback(
     async (format: ScreenshotSaveFormat = 'png') => {
@@ -217,20 +225,20 @@ export function ScreenshotOverlayView({
 
   const runOcr = useCallback(
     async (imageDataUrl: string) => {
-      const screenshotApi = requireScreenshotApi(desktopApi);
+      const screenshotApi = requireScreenshotApi(desktopApi, strings.controlsUnavailable);
 
       setOcrPanel({ status: 'running' });
       const result = await screenshotApi.runOcr({ imageDataUrl, language: 'en-US' });
       setOcrPanel(result);
     },
-    [desktopApi],
+    [desktopApi, strings.controlsUnavailable],
   );
 
   const finish = useCallback(async () => {
     clearTextPromptTimer();
     try {
       const imageDataUrl = await exportImage('png');
-      const screenshotApi = requireScreenshotApi(desktopApi);
+      const screenshotApi = requireScreenshotApi(desktopApi, strings.controlsUnavailable);
 
       if (getScreenshotCompletionAction(launchState) === 'ocr') {
         await runOcr(imageDataUrl);
@@ -242,14 +250,14 @@ export function ScreenshotOverlayView({
       if (getScreenshotCompletionAction(launchState) === 'ocr') {
         setOcrPanel({
           language: 'en-US',
-          message: reason instanceof Error ? reason.message : 'OCR failed.',
+          message: reason instanceof Error ? reason.message : strings.ocr.failed,
           status: 'error',
         });
       } else {
-        setStatus(toStatus(reason));
+        setStatus(toStatus(reason, strings));
       }
     }
-  }, [clearTextPromptTimer, desktopApi, exportImage, launchState, runOcr]);
+  }, [clearTextPromptTimer, desktopApi, exportImage, launchState, runOcr, strings]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -341,8 +349,8 @@ export function ScreenshotOverlayView({
     getTextPromptController().schedule(() => {
       const text =
         typeof window !== 'undefined'
-          ? window.prompt('Text annotation', 'Text')?.trim() || ''
-          : 'Text';
+          ? window.prompt(strings.textPrompt.title, strings.textPrompt.defaultText)?.trim() || ''
+          : strings.textPrompt.defaultText;
 
       if (!text) {
         return;
@@ -362,14 +370,17 @@ export function ScreenshotOverlayView({
   const runOutputAction = async (action: 'ocr' | 'pin' | 'save') => {
     try {
       const imageDataUrl = await exportImage(action === 'save' ? saveFormat : 'png');
-      const screenshotApi = requireScreenshotApi(desktopApi);
+      const screenshotApi = requireScreenshotApi(desktopApi, strings.controlsUnavailable);
 
       if (action === 'save') {
         const result = await screenshotApi.saveImage({ format: saveFormat, imageDataUrl });
-        setStatus({ tone: 'info', value: result?.canceled ? 'Save canceled.' : 'Image saved.' });
+        setStatus({
+          tone: 'info',
+          value: result?.canceled ? strings.status.saveCanceled : strings.status.imageSaved,
+        });
       } else if (action === 'pin') {
         await screenshotApi.pinImage({ imageDataUrl });
-        setStatus({ tone: 'info', value: 'Pinned selection.' });
+        setStatus({ tone: 'info', value: strings.status.pinned });
       } else {
         await runOcr(imageDataUrl);
       }
@@ -377,11 +388,11 @@ export function ScreenshotOverlayView({
       if (action === 'ocr') {
         setOcrPanel({
           language: 'en-US',
-          message: reason instanceof Error ? reason.message : 'OCR failed.',
+          message: reason instanceof Error ? reason.message : strings.ocr.failed,
           status: 'error',
         });
       } else {
-        setStatus(toStatus(reason));
+        setStatus(toStatus(reason, strings));
       }
     }
   };
@@ -392,9 +403,9 @@ export function ScreenshotOverlayView({
     }
 
     void navigator.clipboard?.writeText(ocrPanel.text).catch((reason: unknown) => {
-      setStatus(toStatus(reason));
+      setStatus(toStatus(reason, strings));
     });
-  }, [ocrPanel]);
+  }, [ocrPanel, strings]);
 
   return (
     <div
@@ -475,7 +486,9 @@ export function ScreenshotOverlayView({
       </div>
 
       <div className="screenshot-controls">
-        {ocrPanel ? <OcrPanel state={ocrPanel} onCopyAll={copyOcrText} /> : undefined}
+        {ocrPanel ? (
+          <OcrPanel state={ocrPanel} strings={strings} onCopyAll={copyOcrText} />
+        ) : undefined}
         {status ? (
           <div className="screenshot-status" data-tone={status.tone}>
             {status.value}
@@ -483,7 +496,7 @@ export function ScreenshotOverlayView({
         ) : undefined}
         <div className="screenshot-toolbar" role="toolbar">
           <div className="screenshot-tool-group">
-            {(Object.keys(toolLabels) as ScreenshotTool[]).map((tool) => (
+            {toolOrder.map((tool) => (
               <button
                 data-active={state.tool === tool}
                 key={tool}
@@ -491,29 +504,29 @@ export function ScreenshotOverlayView({
                   clearTextPromptTimer();
                   dispatch({ tool, type: 'tool-selected' });
                 }}
-                title={toolLabels[tool]}
+                title={strings.tools[tool]}
                 type="button"
               >
                 <span>{toolIcon(tool)}</span>
-                {toolLabels[tool]}
+                {strings.tools[tool]}
               </button>
             ))}
           </div>
           <div className="screenshot-tool-group">
             <button onClick={() => dispatch({ type: 'undo' })} type="button">
               <span>&lt;</span>
-              Undo
+              {strings.toolbar.undo}
             </button>
             <button onClick={() => dispatch({ type: 'redo' })} type="button">
               <span>&gt;</span>
-              Redo
+              {strings.toolbar.redo}
             </button>
           </div>
           <fieldset className="screenshot-tool-group">
-            <legend>Color</legend>
+            <legend>{strings.groups.color}</legend>
             {colors.map((color) => (
               <button
-                aria-label={`Color ${color}`}
+                aria-label={`${strings.groups.color} ${color}`}
                 data-active={state.style.color === color}
                 key={color}
                 onClick={() => dispatch({ color, type: 'color-selected' })}
@@ -523,7 +536,7 @@ export function ScreenshotOverlayView({
             ))}
           </fieldset>
           <fieldset className="screenshot-tool-group">
-            <legend>Line</legend>
+            <legend>{strings.groups.line}</legend>
             {lineWidths.map((lineWidth) => (
               <button
                 data-active={state.style.lineWidth === lineWidth}
@@ -536,7 +549,7 @@ export function ScreenshotOverlayView({
             ))}
           </fieldset>
           <fieldset className="screenshot-tool-group">
-            <legend>Font</legend>
+            <legend>{strings.groups.font}</legend>
             {fontSizes.map((fontSize) => (
               <button
                 data-active={state.style.fontSize === fontSize}
@@ -549,7 +562,7 @@ export function ScreenshotOverlayView({
             ))}
           </fieldset>
           <fieldset className="screenshot-tool-group">
-            <legend>Format</legend>
+            <legend>{strings.groups.format}</legend>
             {(['png', 'jpg'] as ScreenshotSaveFormat[]).map((format) => (
               <button
                 data-active={saveFormat === format}
@@ -564,23 +577,23 @@ export function ScreenshotOverlayView({
           <div className="screenshot-tool-group screenshot-tool-group--actions">
             <button disabled={!ready} onClick={() => void runOutputAction('ocr')} type="button">
               <span>Tx</span>
-              OCR
+              {strings.toolbar.ocr}
             </button>
             <button disabled={!ready} onClick={() => void runOutputAction('pin')} type="button">
               <span>^</span>
-              Pin
+              {strings.toolbar.pin}
             </button>
             <button disabled={!ready} onClick={() => void runOutputAction('save')} type="button">
               <span>v</span>
-              Save
+              {strings.toolbar.save}
             </button>
             <button disabled={!ready} onClick={() => void finish()} type="button">
               <span>OK</span>
-              Done
+              {strings.toolbar.done}
             </button>
             <button onClick={cancel} type="button">
               <span>X</span>
-              Cancel
+              {strings.toolbar.cancel}
             </button>
           </div>
         </div>
@@ -592,13 +605,14 @@ export function ScreenshotOverlayView({
 export interface OcrPanelProps {
   onCopyAll: () => void;
   state: OcrPanelState;
+  strings?: ScreenshotStrings | undefined;
 }
 
-export function OcrPanel({ onCopyAll, state }: OcrPanelProps) {
+export function OcrPanel({ onCopyAll, state, strings = defaultScreenshotStrings }: OcrPanelProps) {
   if (state.status === 'running') {
     return (
       <div className="screenshot-ocr-panel" role="status">
-        Recognizing text...
+        {strings.ocr.recognizing}
       </div>
     );
   }
@@ -608,9 +622,9 @@ export function OcrPanel({ onCopyAll, state }: OcrPanelProps) {
 
     return (
       <div className="screenshot-ocr-panel">
-        <pre>{hasText ? state.text : 'No OCR text found.'}</pre>
+        <pre>{hasText ? state.text : strings.ocr.noText}</pre>
         <button disabled={!hasText} onClick={onCopyAll} type="button">
-          Copy All
+          {strings.ocr.copyAll}
         </button>
       </div>
     );
@@ -809,9 +823,9 @@ function ArrowShape({
   );
 }
 
-function toStatus(reason: unknown): ScreenshotOverlayStatus {
+function toStatus(reason: unknown, strings: ScreenshotStrings): ScreenshotOverlayStatus {
   return {
     tone: 'error',
-    value: reason instanceof Error ? reason.message : 'Screenshot action failed.',
+    value: reason instanceof Error ? reason.message : strings.actionFailed,
   };
 }

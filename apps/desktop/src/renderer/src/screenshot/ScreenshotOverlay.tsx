@@ -33,6 +33,18 @@ interface ScreenshotOverlayStatus {
 }
 
 type ScreenshotApi = NonNullable<Window['desktopApi']['screenshot']>;
+type PendingTextTimer = ReturnType<typeof setTimeout>;
+
+export interface PendingTextAnnotationController {
+  cancel: () => void;
+  schedule: (callback: () => void) => void;
+}
+
+export interface PendingTextAnnotationControllerOptions {
+  clearTimer: (timer: PendingTextTimer) => void;
+  delayMs: number;
+  setTimer: (callback: () => void, delayMs: number) => PendingTextTimer;
+}
 
 export interface ScreenshotOverlayViewProps {
   desktopApi?: Window['desktopApi']['screenshot'] | undefined;
@@ -48,6 +60,32 @@ export function requireScreenshotApi(
   }
 
   return screenshotApi;
+}
+
+export function createPendingTextAnnotationController({
+  clearTimer,
+  delayMs,
+  setTimer,
+}: PendingTextAnnotationControllerOptions): PendingTextAnnotationController {
+  let pendingTimer: PendingTextTimer | undefined;
+
+  const cancel = () => {
+    if (pendingTimer !== undefined) {
+      clearTimer(pendingTimer);
+      pendingTimer = undefined;
+    }
+  };
+
+  return {
+    cancel,
+    schedule: (callback) => {
+      cancel();
+      pendingTimer = setTimer(() => {
+        pendingTimer = undefined;
+        callback();
+      }, delayMs);
+    },
+  };
 }
 
 export function ScreenshotOverlay() {
@@ -108,7 +146,7 @@ export function ScreenshotOverlayView({
       }
     | undefined
   >(undefined);
-  const textPromptTimerRef = useRef<number | undefined>(undefined);
+  const textPromptControllerRef = useRef<PendingTextAnnotationController | undefined>(undefined);
   const [saveFormat, setSaveFormat] = useState<ScreenshotSaveFormat>('png');
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [pointer, setPointer] = useState<ScreenshotPoint>({
@@ -121,13 +159,30 @@ export function ScreenshotOverlayView({
     [launchState.virtualBounds, state.selection],
   );
 
+  const getTextPromptController = useCallback(() => {
+    if (!textPromptControllerRef.current) {
+      textPromptControllerRef.current = createPendingTextAnnotationController({
+        clearTimer: globalThis.clearTimeout,
+        delayMs: 220,
+        setTimer: globalThis.setTimeout,
+      });
+    }
+
+    return textPromptControllerRef.current;
+  }, []);
+
+  const clearTextPromptTimer = useCallback(() => {
+    textPromptControllerRef.current?.cancel();
+  }, []);
+
   const cancel = useCallback(() => {
+    clearTextPromptTimer();
     try {
       void requireScreenshotApi(desktopApi).cancel();
     } catch (reason) {
       setStatus(toStatus(reason));
     }
-  }, [desktopApi]);
+  }, [clearTextPromptTimer, desktopApi]);
 
   const exportImage = useCallback(
     async (format: ScreenshotSaveFormat = 'png') => {
@@ -148,6 +203,7 @@ export function ScreenshotOverlayView({
   );
 
   const finish = useCallback(async () => {
+    clearTextPromptTimer();
     try {
       const imageDataUrl = await exportImage('png');
       const screenshotApi = requireScreenshotApi(desktopApi);
@@ -157,14 +213,7 @@ export function ScreenshotOverlayView({
     } catch (reason) {
       setStatus(toStatus(reason));
     }
-  }, [desktopApi, exportImage]);
-
-  const clearTextPromptTimer = useCallback(() => {
-    if (textPromptTimerRef.current !== undefined) {
-      window.clearTimeout(textPromptTimerRef.current);
-      textPromptTimerRef.current = undefined;
-    }
-  }, []);
+  }, [clearTextPromptTimer, desktopApi, exportImage]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -185,9 +234,9 @@ export function ScreenshotOverlayView({
 
   const beginPointer = (point: ScreenshotPoint, detail: number) => {
     setPointer(point);
+    clearTextPromptTimer();
 
     if (detail > 1) {
-      clearTextPromptTimer();
       return;
     }
 
@@ -253,9 +302,7 @@ export function ScreenshotOverlayView({
   };
 
   const scheduleTextAnnotation = (point: ScreenshotPoint) => {
-    clearTextPromptTimer();
-    textPromptTimerRef.current = window.setTimeout(() => {
-      textPromptTimerRef.current = undefined;
+    getTextPromptController().schedule(() => {
       const text =
         typeof window !== 'undefined'
           ? window.prompt('Text annotation', 'Text')?.trim() || ''
@@ -273,7 +320,7 @@ export function ScreenshotOverlayView({
         },
         type: 'annotation-committed',
       });
-    }, 220);
+    });
   };
 
   const runOutputAction = async (action: 'ocr' | 'pin' | 'save') => {
@@ -386,7 +433,10 @@ export function ScreenshotOverlayView({
               <button
                 data-active={state.tool === tool}
                 key={tool}
-                onClick={() => dispatch({ tool, type: 'tool-selected' })}
+                onClick={() => {
+                  clearTextPromptTimer();
+                  dispatch({ tool, type: 'tool-selected' });
+                }}
                 title={toolLabels[tool]}
                 type="button"
               >

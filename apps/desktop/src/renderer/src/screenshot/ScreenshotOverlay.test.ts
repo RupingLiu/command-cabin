@@ -1,8 +1,12 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { ScreenshotOverlayView, requireScreenshotApi } from './ScreenshotOverlay.js';
+import {
+  ScreenshotOverlayView,
+  createPendingTextAnnotationController,
+  requireScreenshotApi,
+} from './ScreenshotOverlay.js';
 import {
   createInitialScreenshotState,
   screenshotReducer,
@@ -66,6 +70,28 @@ describe('ScreenshotOverlayView', () => {
     expect(() => requireScreenshotApi(undefined)).toThrow(
       'Screenshot controls are unavailable in this window.',
     );
+  });
+
+  it('cancels stale delayed text annotation commits', () => {
+    vi.useFakeTimers();
+    const commit = vi.fn();
+    const controller = createPendingTextAnnotationController({
+      clearTimer: clearTimeout,
+      delayMs: 220,
+      setTimer: setTimeout,
+    });
+
+    controller.schedule(() => commit('old selection'));
+    controller.cancel();
+    vi.advanceTimersByTime(220);
+
+    controller.schedule(() => commit('old text click'));
+    controller.schedule(() => commit('new text click'));
+    vi.advanceTimersByTime(220);
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith('new text click');
+    vi.useRealTimers();
   });
 });
 

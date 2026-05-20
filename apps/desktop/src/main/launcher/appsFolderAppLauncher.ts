@@ -1,28 +1,41 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 
-const execFileAsync = promisify(execFile);
-
-export interface AppsFolderAppLauncherExecFileOptions {
+export interface AppsFolderAppLauncherSpawnOptions {
+  detached: boolean;
+  stdio: 'ignore';
   windowsHide: boolean;
 }
 
-export type AppsFolderAppLauncherExecFile = (
+export interface AppsFolderAppLauncherChildProcess {
+  on: (event: 'error', listener: (error: Error) => void) => AppsFolderAppLauncherChildProcess;
+  unref: () => void;
+}
+
+export type AppsFolderAppLauncherSpawn = (
   file: string,
   args: string[],
-  options: AppsFolderAppLauncherExecFileOptions,
-) => Promise<unknown>;
+  options: AppsFolderAppLauncherSpawnOptions,
+) => AppsFolderAppLauncherChildProcess;
 
 export interface ExplorerAppsFolderAppLauncherOptions {
-  execFile?: AppsFolderAppLauncherExecFile | undefined;
+  logger?: Pick<Console, 'warn'> | undefined;
+  spawn?: AppsFolderAppLauncherSpawn | undefined;
 }
 
 export function createExplorerAppsFolderAppLauncher({
-  execFile = execFileAsync,
+  logger = console,
+  spawn: spawnProcess = spawn,
 }: ExplorerAppsFolderAppLauncherOptions = {}) {
   return async (appsFolderUri: string): Promise<void> => {
-    await execFile('explorer.exe', [appsFolderUri], {
+    const childProcess = spawnProcess('explorer.exe', [appsFolderUri], {
+      detached: true,
+      stdio: 'ignore',
       windowsHide: true,
     });
+
+    childProcess.on('error', (error) => {
+      logger.warn('Failed to launch AppsFolder app through explorer.exe.', error);
+    });
+    childProcess.unref();
   };
 }

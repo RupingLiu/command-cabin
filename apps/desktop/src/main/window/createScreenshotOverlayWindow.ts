@@ -46,6 +46,9 @@ export async function createScreenshotOverlayWindow({
       sandbox: false,
     },
   });
+  overlayWindow.once('ready-to-show', () => {
+    overlayWindow.show();
+  });
 
   const safeRendererDevServerUrl = resolveSafeRendererDevServerUrl({
     isPackaged,

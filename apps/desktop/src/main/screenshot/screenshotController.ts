@@ -24,6 +24,9 @@ export interface ScreenshotWebContents {
 export interface ScreenshotOverlayWindow {
   close: () => void;
   isDestroyed?: () => boolean;
+  off?: (eventName: 'closed', listener: () => void) => unknown;
+  on: (eventName: 'closed', listener: () => void) => unknown;
+  removeListener?: (eventName: 'closed', listener: () => void) => unknown;
   webContents: ScreenshotWebContents;
 }
 
@@ -57,6 +60,7 @@ export interface ScreenshotController {
 }
 
 interface ScreenshotOverlayState {
+  handleClosed: () => void;
   launchState: ScreenshotLaunchState;
   window: ScreenshotOverlayWindow;
 }
@@ -85,6 +89,32 @@ function assertLiveState(
   return state;
 }
 
+function removeClosedListener(state: ScreenshotOverlayState): void {
+  if (state.window.off) {
+    state.window.off('closed', state.handleClosed);
+    return;
+  }
+
+  state.window.removeListener?.('closed', state.handleClosed);
+}
+
+function deriveSaveFormatFromPath(
+  filePath: string,
+  fallbackFormat: ScreenshotSaveImageRequest['format'],
+): ScreenshotSaveImageRequest['format'] {
+  const extension = filePath.split('.').at(-1)?.toLowerCase();
+
+  if (extension === 'png') {
+    return 'png';
+  }
+
+  if (extension === 'jpg' || extension === 'jpeg') {
+    return 'jpg';
+  }
+
+  return fallbackFormat;
+}
+
 export function createScreenshotController({
   captureDisplays,
   createOverlayWindow,
@@ -98,16 +128,23 @@ export function createScreenshotController({
   const states = new Map<number, ScreenshotOverlayState>();
 
   const rememberState = (window: ScreenshotOverlayWindow, launchState: ScreenshotLaunchState) => {
-    states.set(window.webContents.id, {
+    const handleClosed = () => {
+      states.delete(window.webContents.id);
+    };
+    const state: ScreenshotOverlayState = {
+      handleClosed,
       launchState,
       window,
-    });
+    };
+    window.on('closed', handleClosed);
+    states.set(window.webContents.id, state);
   };
 
   return {
     cancel: (sender) => {
       const state = assertLiveState(states, sender);
       states.delete(sender.id);
+      removeClosedListener(state);
 
       if (!state.window.isDestroyed?.()) {
         state.window.close();
@@ -137,7 +174,10 @@ export function createScreenshotController({
       const saveResult = await showSaveDialog(parsedRequest);
 
       if (!saveResult.canceled && saveResult.filePath) {
-        await writeImageFile(saveResult.filePath, parsedRequest);
+        await writeImageFile(saveResult.filePath, {
+          ...parsedRequest,
+          format: deriveSaveFormatFromPath(saveResult.filePath, parsedRequest.format),
+        });
       }
 
       return saveResult;

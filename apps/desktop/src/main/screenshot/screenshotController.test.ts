@@ -15,6 +15,27 @@ const launchState = {
   virtualBounds: { height: 1080, width: 1920, x: 0, y: 0 },
 };
 
+function createOverlayWindow(webContents: { id: number }) {
+  let closedListener: (() => void) | undefined;
+
+  return {
+    close: vi.fn(),
+    isDestroyed: () => false,
+    off: vi.fn((_eventName: 'closed', listener: () => void) => {
+      if (closedListener === listener) {
+        closedListener = undefined;
+      }
+    }),
+    on: vi.fn((_eventName: 'closed', listener: () => void) => {
+      closedListener = listener;
+    }),
+    webContents,
+    emitClosed: () => {
+      closedListener?.();
+    },
+  };
+}
+
 describe('createScreenshotController', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -27,6 +48,7 @@ describe('createScreenshotController', () => {
       createOverlayWindow: vi.fn(async () => ({
         close: vi.fn(),
         isDestroyed: () => false,
+        on: vi.fn(),
         webContents: overlayWebContents,
       })),
       hideLauncher: vi.fn(),
@@ -52,6 +74,7 @@ describe('createScreenshotController', () => {
       createOverlayWindow: vi.fn(async () => ({
         close: vi.fn(),
         isDestroyed: () => false,
+        on: vi.fn(),
         webContents: { id: 43 },
       })),
       hideLauncher: vi.fn(),
@@ -77,6 +100,7 @@ describe('createScreenshotController', () => {
       createOverlayWindow: vi.fn(async () => ({
         close: vi.fn(),
         isDestroyed: () => false,
+        on: vi.fn(),
         webContents: { id: 44 },
       })),
       hideLauncher: vi.fn(),
@@ -97,6 +121,7 @@ describe('createScreenshotController', () => {
     const overlayWindow = {
       close: vi.fn(),
       isDestroyed: () => false,
+      on: vi.fn(),
       webContents: { id: 45 },
     };
     const writeClipboardImage = vi.fn();
@@ -146,5 +171,57 @@ describe('createScreenshotController', () => {
       imageDataUrl: 'data:image/jpeg;base64,BBBB',
     });
     expect(overlayWindow.close).toHaveBeenCalledOnce();
+  });
+
+  it('cleans launch state when the overlay closes without cancel', async () => {
+    const overlayWindow = createOverlayWindow({ id: 46 });
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      hideLauncher: vi.fn(),
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    await controller.start('capture');
+    overlayWindow.emitClosed();
+
+    expect(() => controller.getLaunchState(overlayWindow.webContents)).toThrow(
+      /unknown screenshot sender/i,
+    );
+  });
+
+  it('uses the selected file extension to choose the save encoding format', async () => {
+    const overlayWindow = {
+      close: vi.fn(),
+      isDestroyed: () => false,
+      on: vi.fn(),
+      webContents: { id: 47 },
+    };
+    const writeImageFile = vi.fn();
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      hideLauncher: vi.fn(),
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(async () => ({ canceled: false, filePath: 'C:\\capture.png' })),
+      writeImageFile,
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    await controller.start('capture');
+    await controller.saveImage(overlayWindow.webContents, {
+      format: 'jpg',
+      imageDataUrl: 'data:image/jpeg;base64,BBBB',
+    });
+
+    expect(writeImageFile).toHaveBeenCalledWith('C:\\capture.png', {
+      format: 'png',
+      imageDataUrl: 'data:image/jpeg;base64,BBBB',
+    });
   });
 });

@@ -6,10 +6,24 @@ class MockBrowserWindow {
 
   readonly loadFile = vi.fn();
   readonly loadURL = vi.fn();
+  readonly show = vi.fn();
   readonly webContents = { id: 7 };
+  private readyToShowListener?: () => void;
 
   constructor(readonly options: BrowserWindowConstructorOptions) {
     MockBrowserWindow.instances.push(this);
+  }
+
+  once(eventName: string, listener: () => void): this {
+    if (eventName === 'ready-to-show') {
+      this.readyToShowListener = listener;
+    }
+
+    return this;
+  }
+
+  emitReadyToShow(): void {
+    this.readyToShowListener?.();
   }
 }
 
@@ -54,6 +68,10 @@ describe('createScreenshotOverlayWindow', () => {
     expect(MockBrowserWindow.instances[0]?.loadURL).toHaveBeenCalledWith(
       'http://localhost:5173/?mode=screenshot',
     );
+
+    MockBrowserWindow.instances[0]?.emitReadyToShow();
+
+    expect(MockBrowserWindow.instances[0]?.show).toHaveBeenCalledOnce();
   });
 
   it('loads file renderer with a screenshot query when no safe dev server is available', async () => {

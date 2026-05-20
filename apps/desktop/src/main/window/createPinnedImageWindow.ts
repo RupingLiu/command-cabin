@@ -24,21 +24,34 @@ function appendPinnedImageMode(rendererDevServerUrl: string, token: string): str
   return url.toString();
 }
 
-function resolvePinnedImageWindowSize(imageDataUrl: string): { height: number; width: number } {
+function resolvePinnedImageWindowSize(imageDataUrl: string): {
+  height: number;
+  minHeight: number;
+  minWidth: number;
+  width: number;
+} {
   const { height, width } = nativeImage.createFromDataURL(imageDataUrl).getSize();
 
   if (height <= 0 || width <= 0) {
     return {
       height: MIN_PINNED_IMAGE_HEIGHT,
+      minHeight: MIN_PINNED_IMAGE_HEIGHT,
+      minWidth: MIN_PINNED_IMAGE_WIDTH,
       width: MIN_PINNED_IMAGE_WIDTH,
     };
   }
 
-  const scale = Math.min(1, MAX_PINNED_IMAGE_WIDTH / width, MAX_PINNED_IMAGE_HEIGHT / height);
+  const maxScale = Math.min(MAX_PINNED_IMAGE_WIDTH / width, MAX_PINNED_IMAGE_HEIGHT / height);
+  const minScale = Math.max(MIN_PINNED_IMAGE_WIDTH / width, MIN_PINNED_IMAGE_HEIGHT / height, 1);
+  const scale = Math.min(minScale, maxScale);
+  const scaledHeight = Math.max(1, Math.round(height * scale));
+  const scaledWidth = Math.max(1, Math.round(width * scale));
 
   return {
-    height: Math.max(MIN_PINNED_IMAGE_HEIGHT, Math.round(height * scale)),
-    width: Math.max(MIN_PINNED_IMAGE_WIDTH, Math.round(width * scale)),
+    height: scaledHeight,
+    minHeight: Math.min(MIN_PINNED_IMAGE_HEIGHT, scaledHeight),
+    minWidth: Math.min(MIN_PINNED_IMAGE_WIDTH, scaledWidth),
+    width: scaledWidth,
   };
 }
 
@@ -50,12 +63,12 @@ export async function createPinnedImageWindow({
   rendererIndexPath,
   token,
 }: CreatePinnedImageWindowOptions): Promise<BrowserWindow> {
-  const { height, width } = resolvePinnedImageWindowSize(imageDataUrl);
+  const { height, minHeight, minWidth, width } = resolvePinnedImageWindowSize(imageDataUrl);
   const pinnedWindow = new BrowserWindow({
     width,
     height,
-    minWidth: MIN_PINNED_IMAGE_WIDTH,
-    minHeight: MIN_PINNED_IMAGE_HEIGHT,
+    minWidth,
+    minHeight,
     show: false,
     frame: false,
     transparent: false,

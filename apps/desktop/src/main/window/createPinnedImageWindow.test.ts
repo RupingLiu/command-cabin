@@ -124,4 +124,50 @@ describe('createPinnedImageWindow', () => {
       width: 320,
     });
   });
+
+  it('preserves aspect ratio for very wide pinned images without independently clamping height', async () => {
+    electronMock.createFromDataURL.mockReturnValue({
+      getSize: () => ({ height: 100, width: 2000 }),
+    });
+    const { createPinnedImageWindow } = await import('./createPinnedImageWindow.js');
+
+    await createPinnedImageWindow({
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      isPackaged: false,
+      preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
+      rendererDevServerUrl: 'http://localhost:5173',
+      rendererIndexPath: 'C:\\CommandCabin\\dist\\renderer\\index.html',
+      token: 'pin-token-wide',
+    });
+
+    expect(MockBrowserWindow.instances[0]?.options).toMatchObject({
+      height: 48,
+      minHeight: 48,
+      minWidth: 320,
+      width: 960,
+    });
+  });
+
+  it('preserves aspect ratio for very tall pinned images without independently clamping width', async () => {
+    electronMock.createFromDataURL.mockReturnValue({
+      getSize: () => ({ height: 2000, width: 100 }),
+    });
+    const { createPinnedImageWindow } = await import('./createPinnedImageWindow.js');
+
+    await createPinnedImageWindow({
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      isPackaged: false,
+      preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
+      rendererDevServerUrl: 'http://localhost:5173',
+      rendererIndexPath: 'C:\\CommandCabin\\dist\\renderer\\index.html',
+      token: 'pin-token-tall',
+    });
+
+    expect(MockBrowserWindow.instances[0]?.options).toMatchObject({
+      height: 720,
+      minHeight: 240,
+      minWidth: 36,
+      width: 36,
+    });
+  });
 });

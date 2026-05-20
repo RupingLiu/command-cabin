@@ -11,6 +11,39 @@ export interface UpdateSettingsWithHotkeyRegistrationOptions {
   tryRegisterScreenshotHotkey: (hotkey: string) => boolean;
 }
 
+type HotkeyRegistrar = (hotkey: string) => boolean;
+type RollbackAction = () => void;
+type HotkeyRegistrationField = 'hotkey' | 'screenshotHotkey';
+
+function rollbackRegistrations(rollbackActions: RollbackAction[]): void {
+  for (const rollbackAction of rollbackActions.slice().reverse()) {
+    rollbackAction();
+  }
+}
+
+function registerChangedHotkey(
+  nextHotkey: string | undefined,
+  currentHotkey: string,
+  registerHotkey: HotkeyRegistrar,
+  rollbackActions: RollbackAction[],
+): void {
+  if (nextHotkey === undefined || nextHotkey === currentHotkey) {
+    return;
+  }
+
+  const registered = registerHotkey(nextHotkey);
+
+  if (!registered) {
+    throw new Error(
+      `CommandCabin could not register ${nextHotkey}. Another application or the operating system may already be using this shortcut.`,
+    );
+  }
+
+  rollbackActions.push(() => {
+    registerHotkey(currentHotkey);
+  });
+}
+
 export function updateSettingsWithHotkeyRegistration({
   settingsPatch,
   settingsStore,
@@ -18,29 +51,33 @@ export function updateSettingsWithHotkeyRegistration({
   tryRegisterScreenshotHotkey,
 }: UpdateSettingsWithHotkeyRegistrationOptions): CommandCabinSettings {
   const currentSettings = settingsStore.getSettings();
+  const rollbackActions: RollbackAction[] = [];
+  const registrationFields = Object.keys(settingsPatch).filter(
+    (field): field is HotkeyRegistrationField => field === 'hotkey' || field === 'screenshotHotkey',
+  );
 
-  if (settingsPatch.hotkey !== undefined && settingsPatch.hotkey !== currentSettings.hotkey) {
-    const registered = tryRegisterLauncherHotkey(settingsPatch.hotkey);
-
-    if (!registered) {
-      throw new Error(
-        `CommandCabin could not register ${settingsPatch.hotkey}. Another application or the operating system may already be using this shortcut.`,
-      );
+  try {
+    for (const field of registrationFields) {
+      if (field === 'hotkey') {
+        registerChangedHotkey(
+          settingsPatch.hotkey,
+          currentSettings.hotkey,
+          tryRegisterLauncherHotkey,
+          rollbackActions,
+        );
+      } else {
+        registerChangedHotkey(
+          settingsPatch.screenshotHotkey,
+          currentSettings.screenshotHotkey,
+          tryRegisterScreenshotHotkey,
+          rollbackActions,
+        );
+      }
     }
+
+    return settingsStore.updateSettings(settingsPatch);
+  } catch (error) {
+    rollbackRegistrations(rollbackActions);
+    throw error;
   }
-
-  if (
-    settingsPatch.screenshotHotkey !== undefined &&
-    settingsPatch.screenshotHotkey !== currentSettings.screenshotHotkey
-  ) {
-    const registered = tryRegisterScreenshotHotkey(settingsPatch.screenshotHotkey);
-
-    if (!registered) {
-      throw new Error(
-        `CommandCabin could not register ${settingsPatch.screenshotHotkey}. Another application or the operating system may already be using this shortcut.`,
-      );
-    }
-  }
-
-  return settingsStore.updateSettings(settingsPatch);
 }

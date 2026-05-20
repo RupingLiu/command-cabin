@@ -622,7 +622,7 @@ ipcMain.handle(CHECK_FOR_UPDATES_CHANNEL, () => getUpdateController().checkForUp
 
 ipcMain.handle(INSTALL_UPDATE_CHANNEL, () => getUpdateController().installUpdate());
 
-function tryRegisterPendingScreenshotHotkey(): boolean {
+function rejectUnavailableScreenshotHotkeyRegistration(): boolean {
   return false;
 }
 
@@ -633,7 +633,7 @@ ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
     settingsPatch,
     settingsStore,
     tryRegisterLauncherHotkey: desktopApplication.tryRegisterGlobalHotkey,
-    tryRegisterScreenshotHotkey: tryRegisterPendingScreenshotHotkey,
+    tryRegisterScreenshotHotkey: rejectUnavailableScreenshotHotkeyRegistration,
   });
 
   if (settingsPatch.launchAtLogin !== undefined) {

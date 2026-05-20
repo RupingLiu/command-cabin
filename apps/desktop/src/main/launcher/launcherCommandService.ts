@@ -482,7 +482,11 @@ export function createLauncherCommandService(
         const systemCommand = String(command.action.payload.command ?? command.id);
 
         if (isScreenshotSystemCommand(systemCommand)) {
-          const handlerMetadata = await options.runSystemCommand?.(systemCommand);
+          if (!options.runSystemCommand) {
+            throw new Error('No screenshot command handler configured.');
+          }
+
+          const handlerMetadata = await options.runSystemCommand(systemCommand);
 
           return {
             metadata: {

@@ -84,6 +84,20 @@ describe('launcher command service', () => {
     expect(handledCommands).toEqual(['screenshot.capture']);
   });
 
+  it('fails screenshot system commands clearly when no handler is configured', async () => {
+    const service = createLauncherCommandService();
+
+    await expect(service.executeCommand('system.screenshot.capture')).resolves.toMatchObject({
+      actionType: 'run-system',
+      commandId: 'system.screenshot.capture',
+      error: {
+        code: 'handler-error',
+        message: 'No screenshot command handler configured.',
+      },
+      status: 'failure',
+    });
+  });
+
   it('copies the injected app version for diagnostics', async () => {
     const copiedText: string[] = [];
     const service = createLauncherCommandService({

@@ -89,4 +89,93 @@ describe('updateSettingsWithHotkeyRegistration', () => {
     expect(tryRegisterLauncherHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
     expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith('Ctrl+Shift+S');
   });
+
+  it('rolls back launcher registration when screenshot registration fails', () => {
+    const settingsStore = createInMemorySettingsStore({
+      hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
+    });
+    const tryRegisterLauncherHotkey = vi.fn(() => true);
+    const tryRegisterScreenshotHotkey = vi.fn(() => false);
+
+    expect(() =>
+      updateSettingsWithHotkeyRegistration({
+        settingsPatch: {
+          hotkey: 'Ctrl+Alt+K',
+          screenshotHotkey: 'Ctrl+Shift+S',
+        },
+        settingsStore,
+        tryRegisterLauncherHotkey,
+        tryRegisterScreenshotHotkey,
+      }),
+    ).toThrow(/could not register/i);
+
+    expect(tryRegisterLauncherHotkey).toHaveBeenNthCalledWith(1, 'Ctrl+Alt+K');
+    expect(tryRegisterLauncherHotkey).toHaveBeenNthCalledWith(2, 'Alt+Space');
+    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith('Ctrl+Shift+S');
+    expect(settingsStore.getSettings()).toMatchObject({
+      hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
+    });
+  });
+
+  it('rolls back screenshot registration when persistence fails after registration', () => {
+    const settingsStore = {
+      getSettings: () => ({
+        ...createInMemorySettingsStore().getSettings(),
+        hotkey: 'Alt+Space',
+        screenshotHotkey: 'Ctrl+Alt+A',
+      }),
+      resetSettings: () => createInMemorySettingsStore().getSettings(),
+      updateSettings: () => {
+        throw new Error('write failed');
+      },
+    };
+    const tryRegisterLauncherHotkey = vi.fn(() => false);
+    const tryRegisterScreenshotHotkey = vi.fn(() => true);
+
+    expect(() =>
+      updateSettingsWithHotkeyRegistration({
+        settingsPatch: {
+          screenshotHotkey: 'Ctrl+Shift+S',
+        },
+        settingsStore,
+        tryRegisterLauncherHotkey,
+        tryRegisterScreenshotHotkey,
+      }),
+    ).toThrow(/write failed/);
+
+    expect(tryRegisterLauncherHotkey).not.toHaveBeenCalled();
+    expect(tryRegisterScreenshotHotkey).toHaveBeenNthCalledWith(1, 'Ctrl+Shift+S');
+    expect(tryRegisterScreenshotHotkey).toHaveBeenNthCalledWith(2, 'Ctrl+Alt+A');
+  });
+
+  it('rolls back screenshot registration when launcher registration fails after it', () => {
+    const settingsStore = createInMemorySettingsStore({
+      hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
+    });
+    const tryRegisterLauncherHotkey = vi.fn(() => false);
+    const tryRegisterScreenshotHotkey = vi.fn(() => true);
+
+    expect(() =>
+      updateSettingsWithHotkeyRegistration({
+        settingsPatch: {
+          screenshotHotkey: 'Ctrl+Shift+S',
+          hotkey: 'Ctrl+Alt+K',
+        },
+        settingsStore,
+        tryRegisterLauncherHotkey,
+        tryRegisterScreenshotHotkey,
+      }),
+    ).toThrow(/could not register/i);
+
+    expect(tryRegisterScreenshotHotkey).toHaveBeenNthCalledWith(1, 'Ctrl+Shift+S');
+    expect(tryRegisterScreenshotHotkey).toHaveBeenNthCalledWith(2, 'Ctrl+Alt+A');
+    expect(tryRegisterLauncherHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
+    expect(settingsStore.getSettings()).toMatchObject({
+      hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
+    });
+  });
 });

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   OcrPanel,
   ScreenshotOverlayView,
+  TextAnnotationInput,
   createPendingTextAnnotationController,
   getScreenshotCompletionAction,
   requireScreenshotApi,
@@ -144,9 +145,28 @@ describe('ScreenshotOverlayView', () => {
     expect(markup).toContain('data-annotation-type="pen"');
     expect(markup).toContain('data-annotation-type="text"');
     expect(markup).toContain('data-annotation-type="mosaic"');
+    expect(markup).toContain('screenshot-mosaic-preview');
     expect(markup).toContain('data-draft="true"');
     expect(markup).toContain('y="92"');
     expect(markup).not.toContain('y="110"');
+  });
+
+  it('renders an inline text input for text annotations instead of relying on prompts', () => {
+    const markup = renderToStaticMarkup(
+      createElement(TextAnnotationInput, {
+        fontSize: 18,
+        placeholder: '文字',
+        point: { x: 12, y: 24 },
+        value: 'Hello',
+        onCancel: vi.fn(),
+        onChange: vi.fn(),
+        onCommit: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('screenshot-text-input');
+    expect(markup).toContain('aria-label="文字"');
+    expect(markup).toContain('value="Hello"');
   });
 
   it('throws a readable error when screenshot preload APIs are unavailable', () => {

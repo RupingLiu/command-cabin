@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { MouseEvent } from 'react';
+import type { MouseEvent, Ref } from 'react';
 
 import type {
   ScreenshotLaunchState,
@@ -30,11 +30,17 @@ interface ScreenshotOverlayStatus {
   value: string;
 }
 
+interface PendingTextAnnotation {
+  point: ScreenshotPoint;
+  value: string;
+}
+
 export type OcrPanelState = { status: 'running' } | ScreenshotOcrResult;
 
 type ScreenshotApi = NonNullable<Window['desktopApi']['screenshot']>;
 type PendingTextTimer = ReturnType<typeof setTimeout>;
 type ScreenshotStrings = UiStrings['screenshot'];
+type MosaicAnnotation = ScreenshotAnnotation & { rect: ScreenshotRect; type: 'mosaic' };
 
 export interface PendingTextAnnotationController {
   cancel: () => void;
@@ -167,9 +173,13 @@ export function ScreenshotOverlayView({
     | undefined
   >(undefined);
   const textPromptControllerRef = useRef<PendingTextAnnotationController | undefined>(undefined);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
   const [saveFormat, setSaveFormat] = useState<ScreenshotSaveFormat>('png');
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [ocrPanel, setOcrPanel] = useState<OcrPanelState | undefined>();
+  const [pendingTextAnnotation, setPendingTextAnnotation] = useState<
+    PendingTextAnnotation | undefined
+  >();
   const [pointer, setPointer] = useState<ScreenshotPoint>({
     x: launchState.virtualBounds.x,
     y: launchState.virtualBounds.y,
@@ -179,6 +189,23 @@ export function ScreenshotOverlayView({
     () => (state.selection ? offsetRect(state.selection, launchState.virtualBounds) : undefined),
     [launchState.virtualBounds, state.selection],
   );
+  const visibleAnnotations = useMemo(() => {
+    const annotations = state.draftAnnotation
+      ? [...state.annotations, state.draftAnnotation]
+      : [...state.annotations];
+    const text = pendingTextAnnotation?.value.trim();
+
+    if (pendingTextAnnotation && text) {
+      annotations.push({
+        point: pendingTextAnnotation.point,
+        style: { ...state.style },
+        text,
+        type: 'text',
+      });
+    }
+
+    return annotations;
+  }, [pendingTextAnnotation, state.annotations, state.draftAnnotation, state.style]);
 
   const getTextPromptController = useCallback(() => {
     if (!textPromptControllerRef.current) {
@@ -196,14 +223,38 @@ export function ScreenshotOverlayView({
     textPromptControllerRef.current?.cancel();
   }, []);
 
-  const cancel = useCallback(() => {
+  const cancelPendingTextAnnotation = useCallback(() => {
     clearTextPromptTimer();
+    setPendingTextAnnotation(undefined);
+  }, [clearTextPromptTimer]);
+
+  const commitPendingTextAnnotation = useCallback(() => {
+    setPendingTextAnnotation((pending) => {
+      const text = pending?.value.trim();
+
+      if (pending && text) {
+        dispatch({
+          annotation: {
+            point: pending.point,
+            text,
+            type: 'text',
+          },
+          type: 'annotation-committed',
+        });
+      }
+
+      return undefined;
+    });
+  }, []);
+
+  const cancel = useCallback(() => {
+    cancelPendingTextAnnotation();
     try {
       void requireScreenshotApi(desktopApi, strings.controlsUnavailable).cancel();
     } catch (reason) {
       setStatus(toStatus(reason, strings));
     }
-  }, [clearTextPromptTimer, desktopApi, strings]);
+  }, [cancelPendingTextAnnotation, desktopApi, strings]);
 
   const exportImage = useCallback(
     async (format: ScreenshotSaveFormat = 'png') => {
@@ -212,15 +263,13 @@ export function ScreenshotOverlayView({
       }
 
       return composeScreenshotSelection({
-        annotations: state.draftAnnotation
-          ? [...state.annotations, state.draftAnnotation]
-          : state.annotations,
+        annotations: visibleAnnotations,
         format,
         launchState,
         selection: state.selection,
       });
     },
-    [launchState, state.annotations, state.draftAnnotation, state.selection],
+    [launchState, state.selection, visibleAnnotations],
   );
 
   const runOcr = useCallback(
@@ -261,6 +310,10 @@ export function ScreenshotOverlayView({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableEventTarget(event.target)) {
+        return;
+      }
+
       if (event.key === 'Escape') {
         cancel();
       }
@@ -274,11 +327,15 @@ export function ScreenshotOverlayView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [cancel, finish, ready]);
 
-  useEffect(() => clearTextPromptTimer, [clearTextPromptTimer]);
+  useEffect(() => {
+    textInputRef.current?.focus();
+  }, [pendingTextAnnotation]);
+
+  useEffect(() => cancelPendingTextAnnotation, [cancelPendingTextAnnotation]);
 
   const beginPointer = (point: ScreenshotPoint, detail: number) => {
     setPointer(point);
-    clearTextPromptTimer();
+    cancelPendingTextAnnotation();
 
     if (detail > 1) {
       return;
@@ -347,22 +404,9 @@ export function ScreenshotOverlayView({
 
   const scheduleTextAnnotation = (point: ScreenshotPoint) => {
     getTextPromptController().schedule(() => {
-      const text =
-        typeof window !== 'undefined'
-          ? window.prompt(strings.textPrompt.title, strings.textPrompt.defaultText)?.trim() || ''
-          : strings.textPrompt.defaultText;
-
-      if (!text) {
-        return;
-      }
-
-      dispatch({
-        annotation: {
-          point,
-          text,
-          type: 'text',
-        },
-        type: 'annotation-committed',
+      setPendingTextAnnotation({
+        point,
+        value: '',
       });
     });
   };
@@ -418,7 +462,7 @@ export function ScreenshotOverlayView({
       <div
         className="screenshot-stage"
         onDoubleClick={() => {
-          clearTextPromptTimer();
+          cancelPendingTextAnnotation();
           if (ready) {
             void finish();
           }
@@ -463,15 +507,36 @@ export function ScreenshotOverlayView({
             <span className="screenshot-size-badge">
               {Math.round(offsetSelection.width)} x {Math.round(offsetSelection.height)}
             </span>
+            <MosaicOverlay
+              annotations={visibleAnnotations}
+              draftAnnotation={state.draftAnnotation}
+            />
             <AnnotationLayer
-              annotations={
-                state.draftAnnotation
-                  ? [...state.annotations, state.draftAnnotation]
-                  : state.annotations
-              }
+              annotations={visibleAnnotations}
               draftAnnotation={state.draftAnnotation}
               selection={state.selection}
             />
+            {pendingTextAnnotation ? (
+              <TextAnnotationInput
+                fontSize={state.style.fontSize}
+                inputRef={textInputRef}
+                point={pendingTextAnnotation.point}
+                placeholder={strings.textPrompt.defaultText}
+                value={pendingTextAnnotation.value}
+                onCancel={cancelPendingTextAnnotation}
+                onChange={(value) =>
+                  setPendingTextAnnotation((pending) =>
+                    pending
+                      ? {
+                          ...pending,
+                          value,
+                        }
+                      : pending,
+                  )
+                }
+                onCommit={commitPendingTextAnnotation}
+              />
+            ) : undefined}
           </div>
         ) : undefined}
         <div
@@ -501,7 +566,7 @@ export function ScreenshotOverlayView({
                 data-active={state.tool === tool}
                 key={tool}
                 onClick={() => {
-                  clearTextPromptTimer();
+                  cancelPendingTextAnnotation();
                   dispatch({ tool, type: 'tool-selected' });
                 }}
                 title={strings.tools[tool]}
@@ -527,6 +592,7 @@ export function ScreenshotOverlayView({
             {colors.map((color) => (
               <button
                 aria-label={`${strings.groups.color} ${color}`}
+                className="screenshot-color-swatch"
                 data-active={state.style.color === color}
                 key={color}
                 onClick={() => dispatch({ color, type: 'color-selected' })}
@@ -637,6 +703,64 @@ export function OcrPanel({ onCopyAll, state, strings = defaultScreenshotStrings 
   );
 }
 
+interface TextAnnotationInputProps {
+  fontSize: number;
+  inputRef?: Ref<HTMLInputElement> | undefined;
+  placeholder: string;
+  point: ScreenshotPoint;
+  value: string;
+  onCancel: () => void;
+  onChange: (value: string) => void;
+  onCommit: () => void;
+}
+
+export function TextAnnotationInput({
+  fontSize,
+  inputRef,
+  placeholder,
+  point,
+  value,
+  onCancel,
+  onChange,
+  onCommit,
+}: TextAnnotationInputProps) {
+  return (
+    <input
+      aria-label={placeholder}
+      className="screenshot-text-input"
+      ref={inputRef}
+      style={{
+        fontSize,
+        left: point.x,
+        top: point.y,
+      }}
+      value={value}
+      onBlur={onCommit}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+      }}
+      onChange={(event) => onChange(event.currentTarget.value)}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        event.nativeEvent.stopImmediatePropagation?.();
+
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          onCommit();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          onCancel();
+        }
+      }}
+      onMouseDown={(event) => {
+        event.stopPropagation();
+      }}
+      placeholder={placeholder}
+      type="text"
+    />
+  );
+}
+
 function toVirtualPoint(event: MouseEvent, virtualBounds: ScreenshotRect): ScreenshotPoint {
   return {
     x: event.clientX + virtualBounds.x,
@@ -657,6 +781,10 @@ function toSelectionPoint(point: ScreenshotPoint, selection: ScreenshotRect): Sc
     x: Math.max(0, Math.min(point.x - selection.x, selection.width)),
     y: Math.max(0, Math.min(point.y - selection.y, selection.height)),
   };
+}
+
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 }
 
 function pointInRect(point: ScreenshotPoint, rect: ScreenshotRect): boolean {
@@ -700,6 +828,8 @@ function AnnotationLayer({ annotations, draftAnnotation, selection }: Annotation
     return undefined;
   }
 
+  const visibleAnnotations = annotations.filter((annotation) => annotation.type !== 'mosaic');
+
   return (
     <svg
       className="screenshot-annotation-layer"
@@ -707,7 +837,7 @@ function AnnotationLayer({ annotations, draftAnnotation, selection }: Annotation
       viewBox={`0 0 ${selection.width} ${selection.height}`}
       width={selection.width}
     >
-      {annotations.map((annotation, index) => (
+      {visibleAnnotations.map((annotation, index) => (
         <AnnotationShape
           annotation={annotation}
           isDraft={annotation === draftAnnotation}
@@ -716,6 +846,43 @@ function AnnotationLayer({ annotations, draftAnnotation, selection }: Annotation
       ))}
     </svg>
   );
+}
+
+interface MosaicOverlayProps {
+  annotations: ScreenshotAnnotation[];
+  draftAnnotation: ScreenshotAnnotation | undefined;
+}
+
+function MosaicOverlay({ annotations, draftAnnotation }: MosaicOverlayProps) {
+  const mosaics = annotations.filter(isMosaicAnnotation);
+
+  if (mosaics.length === 0) {
+    return undefined;
+  }
+
+  return (
+    <div className="screenshot-mosaic-layer">
+      {mosaics.map((annotation, index) => (
+        <div
+          className="screenshot-mosaic-preview"
+          data-annotation-type="mosaic"
+          data-draft={annotation === draftAnnotation ? 'true' : undefined}
+          key={`mosaic-${index}`}
+          style={{
+            borderColor: annotation.style.color,
+            height: annotation.rect.height,
+            left: annotation.rect.x,
+            top: annotation.rect.y,
+            width: annotation.rect.width,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function isMosaicAnnotation(annotation: ScreenshotAnnotation): annotation is MosaicAnnotation {
+  return annotation.type === 'mosaic';
 }
 
 interface AnnotationShapeProps {
@@ -748,14 +915,7 @@ function AnnotationShape({ annotation, isDraft }: AnnotationShapeProps) {
         />
       );
     case 'mosaic':
-      return (
-        <rect
-          {...commonProps}
-          {...annotation.rect}
-          className="screenshot-annotation-mosaic"
-          fill={annotation.style.color}
-        />
-      );
+      return undefined;
     case 'arrow':
       return <ArrowShape annotation={annotation} isDraft={isDraft} />;
     case 'pen':

@@ -27,15 +27,17 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  desktopCapturer,
   dialog,
   globalShortcut,
   ipcMain,
   nativeImage,
+  screen,
   shell,
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
 } from 'electron';
-import { access } from 'node:fs/promises';
+import { access, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -66,11 +68,15 @@ import {
   createDesktopPluginService,
   type DesktopPluginService,
 } from './plugins/desktopPluginService.js';
+import { captureDisplays } from './screenshot/screenshotCapture.js';
+import { createScreenshotController } from './screenshot/screenshotController.js';
+import { createScreenshotShortcutController } from './screenshot/screenshotShortcutController.js';
 import {
   createCommandCabinTrayController,
   resolveTrayIconPath,
   type CommandCabinTrayController,
 } from './tray/trayController.js';
+import { createScreenshotOverlayWindow } from './window/createScreenshotOverlayWindow.js';
 import { createMainWindow } from './window/createMainWindow.js';
 import { resolveWindowEntryPaths } from './window/entryPaths.js';
 import {
@@ -104,6 +110,12 @@ import {
   REMOVE_PLUGIN_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
+  SCREENSHOT_CANCEL_CHANNEL,
+  SCREENSHOT_COPY_IMAGE_CHANNEL,
+  SCREENSHOT_GET_LAUNCH_STATE_CHANNEL,
+  SCREENSHOT_PIN_IMAGE_CHANNEL,
+  SCREENSHOT_RUN_OCR_CHANNEL,
+  SCREENSHOT_SAVE_IMAGE_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
@@ -114,6 +126,11 @@ import {
 } from '../shared/ipcChannels.js';
 import { parseAppCandidateAddRequest, type AppCandidate } from '../shared/appCandidatesApi.js';
 import { parsePluginInstallRequest, parseSettingsPatch } from '../shared/settingsApi.js';
+import type {
+  ScreenshotLaunchMode,
+  ScreenshotOcrRequest,
+  ScreenshotSaveImageRequest,
+} from '../shared/screenshotApi.js';
 import { updateSettingsWithHotkeyRegistration } from './settings/updateSettingsWithHotkeyRegistration.js';
 import { configureSingleInstance } from './singleInstance.js';
 import { createLaunchAtLoginController, isLaunchAtLoginStartup } from './startup/launchAtLogin.js';
@@ -193,11 +210,27 @@ function getWindowOptions() {
   };
 }
 
+function getScreenshotOverlayWindowOptions(virtualBounds: {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}) {
+  return {
+    isPackaged: app.isPackaged,
+    preloadPath: windowEntryPaths.preloadPath,
+    rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
+    rendererIndexPath: windowEntryPaths.rendererIndexPath,
+    virtualBounds,
+  };
+}
+
 async function createApplicationWindow({ showWindow }: { showWindow: boolean }): Promise<void> {
   nextWindowShowOnReady = showWindow;
   try {
     launcherCommandService = await createPersistentLauncherCommandService();
     launchAtLoginController.sync(settingsStore.getSettings().launchAtLogin);
+    await screenshotShortcutController.start();
     await desktopApplication.start({ showWindow });
   } finally {
     nextWindowShowOnReady = true;
@@ -256,6 +289,27 @@ function getLauncherAppCommands() {
       directories: getDesktopShortcutDirectories(),
     }),
   ];
+}
+
+async function runScreenshotSystemCommand(command: string) {
+  const modeByCommand = new Map<string, ScreenshotLaunchMode>([
+    ['screenshot.capture', 'capture'],
+    ['screenshot.capture-delay-3', 'capture-delay-3'],
+    ['screenshot.capture-delay-5', 'capture-delay-5'],
+    ['screenshot.ocr', 'ocr'],
+  ]);
+  const mode = modeByCommand.get(command);
+
+  if (mode === undefined) {
+    throw new Error(`Unsupported screenshot command: ${command}`);
+  }
+
+  await screenshotController.start(mode);
+
+  return {
+    mode,
+    started: true,
+  };
 }
 
 async function createPersistentLauncherCommandService(): Promise<LauncherCommandService> {
@@ -353,6 +407,7 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
     },
     openUrl: (url) => shell.openExternal(url),
     readClipboardText: () => clipboard.readText(),
+    runSystemCommand: runScreenshotSystemCommand,
     writeClipboardText: (text) => {
       clipboard.writeText(text);
     },
@@ -410,6 +465,62 @@ const desktopApplication = createDesktopApplicationController({
 });
 const altSpaceHotkeyCapture = createAltSpaceHotkeyCaptureController({
   registry: globalShortcut,
+});
+const screenshotController = createScreenshotController({
+  captureDisplays: () =>
+    captureDisplays({
+      getAllDisplays: () => screen.getAllDisplays(),
+      getSources: (request) => desktopCapturer.getSources(request),
+    }),
+  createOverlayWindow: (capture) =>
+    createScreenshotOverlayWindow(getScreenshotOverlayWindowOptions(capture.virtualBounds)),
+  hideLauncher: () => {
+    BrowserWindow.getFocusedWindow()?.hide();
+  },
+  pinImage: () => ({
+    id: 'pending',
+  }),
+  runOcr: (request: ScreenshotOcrRequest) => ({
+    language: request.language,
+    text: '',
+  }),
+  showSaveDialog: async (request) => {
+    const saveDialogOptions = {
+      filters: [
+        {
+          extensions: ['png'],
+          name: 'PNG Image',
+        },
+        {
+          extensions: ['jpg', 'jpeg'],
+          name: 'JPEG Image',
+        },
+      ],
+      title: 'Save screenshot',
+      ...(request.defaultPath === undefined ? {} : { defaultPath: request.defaultPath }),
+    };
+    const result = await dialog.showSaveDialog(saveDialogOptions);
+
+    return result.canceled || result.filePath === undefined
+      ? { canceled: true }
+      : { canceled: false, filePath: result.filePath };
+  },
+  writeClipboardImage: (imageDataUrl) => {
+    clipboard.writeImage(nativeImage.createFromDataURL(imageDataUrl));
+  },
+  writeImageFile: async (filePath, request: ScreenshotSaveImageRequest) => {
+    const image = nativeImage.createFromDataURL(request.imageDataUrl);
+    const contents = request.format === 'png' ? image.toPNG() : image.toJPEG(92);
+
+    await writeFile(filePath, contents);
+  },
+});
+const screenshotShortcutController = createScreenshotShortcutController({
+  getAccelerator: () => settingsStore.getSettings().screenshotHotkey,
+  registry: globalShortcut,
+  startScreenshotCapture: async (mode) => {
+    await screenshotController.start(mode);
+  },
 });
 const launchAtLoginController = createLaunchAtLoginController({
   app,
@@ -622,9 +733,27 @@ ipcMain.handle(CHECK_FOR_UPDATES_CHANNEL, () => getUpdateController().checkForUp
 
 ipcMain.handle(INSTALL_UPDATE_CHANNEL, () => getUpdateController().installUpdate());
 
-function rejectUnavailableScreenshotHotkeyRegistration(): boolean {
-  return false;
-}
+ipcMain.handle(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL, (event) =>
+  screenshotController.getLaunchState(event.sender),
+);
+
+ipcMain.handle(SCREENSHOT_CANCEL_CHANNEL, (event) => screenshotController.cancel(event.sender));
+
+ipcMain.handle(SCREENSHOT_COPY_IMAGE_CHANNEL, (event, request: unknown) =>
+  screenshotController.copyImage(event.sender, request),
+);
+
+ipcMain.handle(SCREENSHOT_SAVE_IMAGE_CHANNEL, (event, request: unknown) =>
+  screenshotController.saveImage(event.sender, request),
+);
+
+ipcMain.handle(SCREENSHOT_PIN_IMAGE_CHANNEL, (event, request: unknown) =>
+  screenshotController.pinImage(event.sender, request),
+);
+
+ipcMain.handle(SCREENSHOT_RUN_OCR_CHANNEL, (event, request: unknown) =>
+  screenshotController.runOcr(event.sender, request),
+);
 
 ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
   altSpaceHotkeyCapture.stop();
@@ -633,7 +762,7 @@ ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
     settingsPatch,
     settingsStore,
     tryRegisterLauncherHotkey: desktopApplication.tryRegisterGlobalHotkey,
-    tryRegisterScreenshotHotkey: rejectUnavailableScreenshotHotkeyRegistration,
+    tryRegisterScreenshotHotkey: screenshotShortcutController.tryRegisterGlobalHotkey,
   });
 
   if (settingsPatch.launchAtLogin !== undefined) {
@@ -764,6 +893,7 @@ app.on('will-quit', () => {
   trayController?.dispose();
   trayController = undefined;
   desktopApplication.dispose();
+  screenshotShortcutController.dispose();
   globalShortcut.unregisterAll();
   if (clipboardHistoryRuntime || commandCabinDatabase) {
     void stopClipboardHistoryAndCloseDatabase();

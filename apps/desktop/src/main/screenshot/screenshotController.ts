@@ -32,7 +32,7 @@ export interface CreateScreenshotControllerOptions {
   createOverlayWindow: (capture: ScreenshotDisplayCapture) => Promise<ScreenshotOverlayWindow>;
   hideLauncher: () => Promise<void> | void;
   pinImage: (request: ScreenshotImageRequest) => Promise<unknown> | unknown;
-  runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult>;
+  runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult> | ScreenshotOcrResult;
   showSaveDialog: (
     request: ScreenshotSaveImageRequest,
   ) => Promise<ScreenshotSaveImageResult> | ScreenshotSaveImageResult;
@@ -44,17 +44,14 @@ export interface ScreenshotController {
   cancel: (sender: ScreenshotWebContents) => boolean;
   copyImage: (
     sender: ScreenshotWebContents,
-    request: ScreenshotImageRequest,
+    request: unknown,
   ) => Promise<ScreenshotOperationResult>;
   getLaunchState: (sender: ScreenshotWebContents) => ScreenshotLaunchState;
-  pinImage: (sender: ScreenshotWebContents, request: ScreenshotImageRequest) => Promise<unknown>;
-  runOcr: (
-    sender: ScreenshotWebContents,
-    request: ScreenshotOcrRequest,
-  ) => Promise<ScreenshotOcrResult>;
+  pinImage: (sender: ScreenshotWebContents, request: unknown) => Promise<unknown>;
+  runOcr: (sender: ScreenshotWebContents, request: unknown) => Promise<ScreenshotOcrResult>;
   saveImage: (
     sender: ScreenshotWebContents,
-    request: ScreenshotSaveImageRequest,
+    request: unknown,
   ) => Promise<ScreenshotSaveImageResult>;
   start: (mode: ScreenshotLaunchMode) => Promise<ScreenshotLaunchState>;
 }

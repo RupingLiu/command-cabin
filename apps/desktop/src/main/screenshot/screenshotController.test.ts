@@ -30,25 +30,34 @@ function createDeferred<T>() {
 }
 
 function createOverlayWindow(webContents: { id: number }) {
-  let closedListener: (() => void) | undefined;
+  let destroyed = false;
+  const closedListeners = new Set<() => void>();
 
   return {
     close: vi.fn(),
     hide: vi.fn(),
-    isDestroyed: () => false,
+    isDestroyed: () => destroyed,
     off: vi.fn((_eventName: 'closed', listener: () => void) => {
-      if (closedListener === listener) {
-        closedListener = undefined;
-      }
+      closedListeners.delete(listener);
     }),
     on: vi.fn((_eventName: 'closed', listener: () => void) => {
-      closedListener = listener;
+      closedListeners.add(listener);
     }),
     setBounds: vi.fn(),
     show: vi.fn(),
-    webContents,
+    get webContents() {
+      if (destroyed) {
+        throw new TypeError('Object has been destroyed');
+      }
+
+      return webContents;
+    },
     emitClosed: () => {
-      closedListener?.();
+      destroyed = true;
+
+      for (const listener of closedListeners) {
+        listener();
+      }
     },
   };
 }
@@ -803,9 +812,10 @@ describe('createScreenshotController', () => {
     });
 
     await controller.start('capture');
+    const overlaySender = overlayWindow.webContents;
     overlayWindow.emitClosed();
 
-    await expect(controller.getLaunchState(overlayWindow.webContents)).rejects.toThrow(
+    await expect(controller.getLaunchState(overlaySender)).rejects.toThrow(
       /unknown screenshot sender/i,
     );
   });

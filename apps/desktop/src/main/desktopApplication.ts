@@ -68,7 +68,11 @@ interface LauncherState {
 }
 
 function isLiveWindow(window: DesktopApplicationWindow): boolean {
-  return !window.isDestroyed?.();
+  try {
+    return window.isDestroyed?.() !== true;
+  } catch {
+    return false;
+  }
 }
 
 function removeWindowListener(
@@ -108,14 +112,20 @@ export function createDesktopApplicationController({
   let pendingWindowCreation: Promise<LauncherState> | undefined;
   let quitRequested = false;
 
-  const clearLauncherState = (state: LauncherState) => {
+  const clearLauncherState = (
+    state: LauncherState,
+    options: { removeWindowListeners: boolean } = { removeWindowListeners: true },
+  ) => {
     if (launcherState !== state) {
       return;
     }
 
-    state.visibilityController.dispose();
-    removeWindowListener(state.window, 'close', state.handleClose);
-    removeWindowListener(state.window, 'closed', state.handleClosed);
+    if (options.removeWindowListeners && isLiveWindow(state.window)) {
+      state.visibilityController.dispose();
+      removeWindowListener(state.window, 'close', state.handleClose);
+      removeWindowListener(state.window, 'closed', state.handleClosed);
+    }
+
     launcherState = undefined;
   };
 
@@ -129,7 +139,7 @@ export function createDesktopApplicationController({
         handleWindowClose(event);
       },
       handleClosed: () => {
-        clearLauncherState(nextState);
+        clearLauncherState(nextState, { removeWindowListeners: false });
       },
       visibilityController: createWindowVisibilityController({
         getSettings,

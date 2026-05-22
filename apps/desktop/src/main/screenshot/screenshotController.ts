@@ -226,14 +226,15 @@ export function createScreenshotController({
     window: ScreenshotOverlayWindow,
     launchState: Promise<ScreenshotLaunchState>,
   ) => {
-    const previousState = states.get(window.webContents.id);
+    const webContentsId = window.webContents.id;
+    const previousState = states.get(webContentsId);
 
     if (previousState) {
       removeClosedListener(previousState);
     }
 
     const handleClosed = () => {
-      states.delete(window.webContents.id);
+      states.delete(webContentsId);
     };
     const state: ScreenshotOverlayState = {
       handleClosed,
@@ -241,7 +242,7 @@ export function createScreenshotController({
       window,
     };
     window.on('closed', handleClosed);
-    states.set(window.webContents.id, state);
+    states.set(webContentsId, state);
   };
 
   const forgetState = (window: ScreenshotOverlayWindow) => {
@@ -268,11 +269,11 @@ export function createScreenshotController({
   };
 
   const rememberOverlayWindow = (window: ScreenshotOverlayWindow) => {
-    if (overlayWindow?.webContents.id === window.webContents.id && isOverlayWindowLive(window)) {
+    if (overlayWindow === window && isOverlayWindowLive(window)) {
       return;
     }
 
-    if (overlayWindow && overlayWindowClosedListener) {
+    if (overlayWindow && overlayWindowClosedListener && isOverlayWindowLive(overlayWindow)) {
       if (overlayWindow.off) {
         overlayWindow.off('closed', overlayWindowClosedListener);
       } else {
@@ -280,16 +281,17 @@ export function createScreenshotController({
       }
     }
 
+    const webContentsId = window.webContents.id;
     const handleClosed = () => {
-      if (overlayWindow?.webContents.id === window.webContents.id) {
+      if (overlayWindow === window) {
         overlayWindow = undefined;
       }
 
       overlayWindowPromise = undefined;
       overlayWindowClosedListener = undefined;
-      states.delete(window.webContents.id);
+      states.delete(webContentsId);
       clearRendererReadyWaiter(
-        window.webContents.id,
+        webContentsId,
         new Error('Screenshot overlay window closed before it was ready.'),
       );
     };

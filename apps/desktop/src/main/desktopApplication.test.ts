@@ -41,6 +41,10 @@ class MockLauncherWindow {
   }
 
   off(eventName: WindowEvent, listener: WindowListener): this {
+    if (this.destroyed) {
+      throw new TypeError('Object has been destroyed');
+    }
+
     this.listeners.get(eventName)?.delete(listener);
     return this;
   }

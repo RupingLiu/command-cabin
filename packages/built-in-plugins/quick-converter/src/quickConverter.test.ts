@@ -8,11 +8,13 @@ import {
 
 describe('quick converter built-in plugin', () => {
   it.each([
-    ['1厘米', '1 厘米 = 10 毫米 = 0.01 米'],
-    ['1 cm', '1 厘米 = 10 毫米 = 0.01 米'],
-    ['1公分', '1 厘米 = 10 毫米 = 0.01 米'],
-    ['25毫米', '25 毫米 = 2.5 厘米 = 0.025 米'],
-    ['2.5 m', '2.5 米 = 250 厘米 = 2500 毫米'],
+    ['1厘米', '1 厘米 = 10 毫米 = 0.01 米 = 0.393701 英寸'],
+    ['1 cm', '1 厘米 = 10 毫米 = 0.01 米 = 0.393701 英寸'],
+    ['1公分', '1 厘米 = 10 毫米 = 0.01 米 = 0.393701 英寸'],
+    ['25毫米', '25 毫米 = 2.5 厘米 = 0.025 米 = 0.984252 英寸'],
+    ['2.5 m', '2.5 米 = 250 厘米 = 2500 毫米 = 98.4252 英寸'],
+    ['1 inch', '1 英寸 = 2.54 厘米 = 25.4 毫米 = 0.0254 米'],
+    ['2英寸', '2 英寸 = 5.08 厘米 = 50.8 毫米 = 0.0508 米'],
   ])('converts length query %s', (query, expected) => {
     expect(createStaticConversionCommand(query)).toMatchObject({
       id: 'quick-converter.result',
@@ -33,12 +35,57 @@ describe('quick converter built-in plugin', () => {
   });
 
   it.each([
+    ['1升', '1 升 = 1000 毫升 = 0.001 立方米 = 1000 立方厘米'],
+    ['1 L', '1 升 = 1000 毫升 = 0.001 立方米 = 1000 立方厘米'],
+    ['500毫升', '500 毫升 = 0.5 升 = 500 立方厘米 = 0.0005 立方米'],
+    ['2 m3', '2 立方米 = 2000 升 = 2000000 毫升 = 2000000 立方厘米'],
+    ['2m³', '2 立方米 = 2000 升 = 2000000 毫升 = 2000000 立方厘米'],
+    ['250cm3', '250 立方厘米 = 250 毫升 = 0.25 升 = 0.00025 立方米'],
+    ['250cc', '250 立方厘米 = 250 毫升 = 0.25 升 = 0.00025 立方米'],
+  ])('converts volume query %s', (query, expected) => {
+    expect(createStaticConversionCommand(query)).toMatchObject({ title: expected });
+  });
+
+  it.each([
+    [
+      '1cm * 1cm *1 cm',
+      '1 厘米 × 1 厘米 × 1 厘米 = 1 立方厘米 = 1 毫升 = 0.001 升 = 0.000001 立方米',
+    ],
+    [
+      '10 cm x 20 cm x 3 cm',
+      '10 厘米 × 20 厘米 × 3 厘米 = 600 立方厘米 = 600 毫升 = 0.6 升 = 0.0006 立方米',
+    ],
+    [
+      '1m × 20cm × 30mm',
+      '1 米 × 20 厘米 × 30 毫米 = 6000 立方厘米 = 6000 毫升 = 6 升 = 0.006 立方米',
+    ],
+    [
+      '1in * 2in * 3in',
+      '1 英寸 × 2 英寸 × 3 英寸 = 98.3224 立方厘米 = 98.3224 毫升 = 0.0983224 升 = 0.0000983224 立方米',
+    ],
+  ])('calculates volume expression %s', (query, expected) => {
+    expect(createStaticConversionCommand(query)).toMatchObject({ title: expected });
+  });
+
+  it.each([
     ['1厘米', 'length', 'centimeter'],
     ['1 mm', 'length', 'millimeter'],
     ['1米', 'length', 'meter'],
+    ['1 in', 'length', 'inch'],
+    ['1 inch', 'length', 'inch'],
+    ['1英寸', 'length', 'inch'],
     ['2.5kg', 'weight', 'kilogram'],
     ['100 克', 'weight', 'gram'],
     ['1 lbs', 'weight', 'pound'],
+    ['1升', 'volume', 'liter'],
+    ['1 ml', 'volume', 'milliliter'],
+    ['1立方米', 'volume', 'cubicMeter'],
+    ['1 m3', 'volume', 'cubicMeter'],
+    ['1 m³', 'volume', 'cubicMeter'],
+    ['1立方厘米', 'volume', 'cubicCentimeter'],
+    ['1 cm3', 'volume', 'cubicCentimeter'],
+    ['1 cm³', 'volume', 'cubicCentimeter'],
+    ['1 cc', 'volume', 'cubicCentimeter'],
     ['1 USD', 'currency', 'usd'],
     ['1美元', 'currency', 'usd'],
     ['1美金', 'currency', 'usd'],

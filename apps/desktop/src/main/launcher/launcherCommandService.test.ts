@@ -176,7 +176,7 @@ describe('launcher command service', () => {
       {
         id: 'quick-converter.result',
         source: 'plugin',
-        title: '1 厘米 = 10 毫米 = 0.01 米',
+        title: '1 厘米 = 10 毫米 = 0.01 米 = 0.393701 英寸',
       },
     ]);
   });
@@ -214,6 +214,31 @@ describe('launcher command service', () => {
     ]);
   });
 
+  it('returns quick converter results for volume queries', async () => {
+    const service = createLauncherCommandService({ commands: [] });
+
+    await expect(service.searchCommands('1升')).resolves.toMatchObject([
+      {
+        id: 'quick-converter.result',
+        source: 'plugin',
+        title: '1 升 = 1000 毫升 = 0.001 立方米 = 1000 立方厘米',
+      },
+    ]);
+  });
+
+  it('returns quick converter results for volume expressions', async () => {
+    const service = createLauncherCommandService({ commands: [] });
+
+    await expect(service.searchCommands('1cm * 1cm *1 cm')).resolves.toMatchObject([
+      {
+        id: 'quick-converter.result',
+        source: 'plugin',
+        title:
+          '1 厘米 × 1 厘米 × 1 厘米 = 1 立方厘米 = 1 毫升 = 0.001 升 = 0.000001 立方米',
+      },
+    ]);
+  });
+
   it('removes stale quick converter result commands after unsupported queries', async () => {
     const service = createLauncherCommandService({
       commands: [],
@@ -223,7 +248,7 @@ describe('launcher command service', () => {
     await expect(service.searchCommands('1厘米')).resolves.toMatchObject([
       {
         id: 'quick-converter.result',
-        title: '1 厘米 = 10 毫米 = 0.01 米',
+        title: '1 厘米 = 10 毫米 = 0.01 米 = 0.393701 英寸',
       },
     ]);
 

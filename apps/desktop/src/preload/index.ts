@@ -21,6 +21,7 @@ import {
   LIST_FAVORITES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
+  OPEN_REPOSITORY_CHANNEL,
   OPEN_SETTINGS_CHANNEL,
   REMOVE_FAVORITE_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
@@ -199,6 +200,7 @@ export interface DesktopApi {
   onOpenSettings: (listener: () => void) => () => void;
   onUpdateStatusChanged: (listener: (status: UpdateStatus) => void) => () => void;
   openDataDirectory: () => Promise<DataDirectoryResponse>;
+  openRepository: () => Promise<boolean>;
   pluginHost: PluginHostPreloadApi;
   removeFavorite: (id: string) => Promise<boolean>;
   removePlugin: (id: string) => Promise<boolean>;
@@ -383,6 +385,8 @@ const desktopApi = {
   },
   openDataDirectory: async () =>
     parseDataDirectoryResponse(await ipcRenderer.invoke(OPEN_DATA_DIRECTORY_CHANNEL)),
+  openRepository: async () =>
+    parseBoolean(await ipcRenderer.invoke(OPEN_REPOSITORY_CHANNEL), 'Open repository response'),
   pluginHost: {
     createEntry: async (input) =>
       parsePluginHostEntry(

@@ -22,6 +22,7 @@ describe('SettingsPage', () => {
     expect(markup).toContain('设置');
     expect(markup).toContain('返回');
     expect(markup).toContain('关于与更新');
+    expect(markup).toContain('GitHub 仓库');
     expect(markup).toContain('CommandCabin v0.0.0');
     expect(markup).toContain('启动器快捷键');
     expect(markup).toContain('截图快捷键');
@@ -55,6 +56,7 @@ describe('SettingsPage', () => {
 
     expect(markup).toContain('設定');
     expect(markup).toContain('關於與更新');
+    expect(markup).toContain('GitHub 倉庫');
     expect(markup).toContain('啟動器快捷鍵');
     expect(markup).toContain('截圖快捷鍵');
     expect(markup).toContain('延遲截圖快捷鍵');
@@ -79,6 +81,7 @@ describe('SettingsPage', () => {
 
     expect(markup).toContain('Settings');
     expect(markup).toContain('About and Updates');
+    expect(markup).toContain('GitHub Repository');
     expect(markup).toContain('Launcher shortcut');
     expect(markup).toContain('Screenshot shortcut');
     expect(markup).toContain('Delayed screenshot shortcut');

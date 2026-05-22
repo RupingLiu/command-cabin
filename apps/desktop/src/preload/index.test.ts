@@ -13,6 +13,7 @@ import {
   LIST_APP_CANDIDATES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
+  OPEN_REPOSITORY_CHANNEL,
   OPEN_SETTINGS_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
   REMOVE_RECENT_APP_CHANNEL,
@@ -208,6 +209,10 @@ describe('preload desktopApi settings bridge', () => {
     electronMock.invoke.mockResolvedValueOnce({ path: 'C:\\CommandCabin' });
     await expect(api.openDataDirectory()).resolves.toEqual({ path: 'C:\\CommandCabin' });
     expect(electronMock.invoke).toHaveBeenLastCalledWith(OPEN_DATA_DIRECTORY_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce(true);
+    await expect(api.openRepository()).resolves.toBe(true);
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(OPEN_REPOSITORY_CHANNEL);
   });
 
   it('exposes a removable open-settings listener', async () => {

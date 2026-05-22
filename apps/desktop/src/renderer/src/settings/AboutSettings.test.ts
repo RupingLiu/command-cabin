@@ -1,8 +1,8 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { AboutSettings } from './AboutSettings.js';
+import { AboutSettings, openRepositoryFromSettings } from './AboutSettings.js';
 
 const appInfo = {
   name: 'CommandCabin',
@@ -36,6 +36,7 @@ describe('AboutSettings', () => {
     expect(markup).toContain('CommandCabin v0.2.0');
     expect(markup).toContain('已是最新版本');
     expect(markup).toContain('检查更新');
+    expect(markup).toContain('GitHub 仓库');
     expect(markup).not.toContain('重启安装');
   });
 
@@ -78,5 +79,13 @@ describe('AboutSettings', () => {
     );
 
     expect(downloadedMarkup).toContain('重启安装');
+  });
+
+  it('opens the repository through the settings API', async () => {
+    const openRepository = vi.fn(async () => true);
+
+    await expect(openRepositoryFromSettings({ openRepository })).resolves.toBe(true);
+
+    expect(openRepository).toHaveBeenCalledOnce();
   });
 });

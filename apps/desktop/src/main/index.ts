@@ -70,6 +70,7 @@ import {
   createDesktopPluginService,
   type DesktopPluginService,
 } from './plugins/desktopPluginService.js';
+import { openRepository } from './repository/openRepository.js';
 import {
   calculateVirtualBounds,
   captureDisplays,
@@ -112,6 +113,7 @@ import {
   LIST_FAVORITES_CHANNEL,
   LIST_PLUGINS_CHANNEL,
   OPEN_DATA_DIRECTORY_CHANNEL,
+  OPEN_REPOSITORY_CHANNEL,
   REMOVE_FAVORITE_CHANNEL,
   REMOVE_RECENT_APP_CHANNEL,
   REMOVE_PLUGIN_CHANNEL,
@@ -881,6 +883,10 @@ ipcMain.handle(OPEN_DATA_DIRECTORY_CHANNEL, async () => {
 
   return { path };
 });
+
+ipcMain.handle(OPEN_REPOSITORY_CHANNEL, () =>
+  openRepository({ openExternal: (url) => shell.openExternal(url) }),
+);
 
 ipcMain.handle(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) => {
   const pluginId =

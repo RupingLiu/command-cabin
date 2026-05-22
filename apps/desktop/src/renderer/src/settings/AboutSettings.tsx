@@ -9,6 +9,7 @@ export interface AboutSettingsApi {
   getUpdateStatus: () => Promise<UpdateStatus>;
   installUpdate: () => Promise<UpdateInstallResult>;
   onUpdateStatusChanged: (listener: (status: UpdateStatus) => void) => () => void;
+  openRepository: () => Promise<boolean>;
 }
 
 export interface AboutSettingsState {
@@ -79,6 +80,12 @@ function getStatusText(status: UpdateStatus, strings: UiStrings['settings']['abo
   }
 
   return strings.idle;
+}
+
+export function openRepositoryFromSettings(
+  api: Pick<AboutSettingsApi, 'openRepository'> | undefined,
+): Promise<boolean> {
+  return api?.openRepository() ?? Promise.resolve(false);
 }
 
 export function AboutSettings({
@@ -177,6 +184,17 @@ export function AboutSettings({
     }
   }, [state, strings.error, updatesApi]);
 
+  const handleOpenRepository = useCallback(async () => {
+    try {
+      await openRepositoryFromSettings(updatesApi);
+    } catch (error) {
+      setInternalState((current) => ({
+        ...current,
+        errorMessage: error instanceof Error ? error.message : strings.error,
+      }));
+    }
+  }, [strings.error, updatesApi]);
+
   return (
     <section className="settings-section about-settings" aria-label={strings.ariaLabel}>
       <header className="settings-section__header">
@@ -190,6 +208,13 @@ export function AboutSettings({
         </p>
       ) : null}
       <div className="about-settings__actions">
+        <button
+          disabled={!updatesApi?.openRepository}
+          type="button"
+          onClick={() => void handleOpenRepository()}
+        >
+          {strings.repository}
+        </button>
         <button
           disabled={!currentState.status.canCheck || currentState.isChecking}
           type="button"

@@ -224,6 +224,7 @@ const fallbackDesktopApi: DesktopApi = {
   openDataDirectory: async () => ({
     path: '',
   }),
+  openRepository: async () => false,
   pluginHost: {
     createEntry: async (input) => {
       const pluginRootPath = input.pluginRoot.replace(/\\/g, '/');

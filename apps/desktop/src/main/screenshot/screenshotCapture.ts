@@ -10,6 +10,11 @@ export interface ScreenshotDisplay {
   scaleFactor: number;
 }
 
+export interface ScreenshotPoint {
+  x: number;
+  y: number;
+}
+
 export interface ScreenshotSource {
   display_id?: string;
   id: string;
@@ -27,13 +32,14 @@ export interface ScreenshotSourceRequest {
 }
 
 export interface CaptureDisplaysOptions {
+  getActivePoint?: (() => ScreenshotPoint) | undefined;
   getAllDisplays: () => ScreenshotDisplay[];
   getSources: (request: ScreenshotSourceRequest) => Promise<ScreenshotSource[]>;
 }
 
 export type ScreenshotDisplayCapture = Omit<ScreenshotLaunchState, 'mode'>;
 
-function calculateVirtualBounds(displays: ScreenshotDisplay[]): ScreenshotBounds {
+export function calculateVirtualBounds(displays: ScreenshotDisplay[]): ScreenshotBounds {
   if (displays.length === 0) {
     return { height: 0, width: 0, x: 0, y: 0 };
   }
@@ -61,6 +67,28 @@ function calculateThumbnailSize(displays: ScreenshotDisplay[]): { height: number
   );
 }
 
+function pointInBounds(point: ScreenshotPoint, bounds: ScreenshotBounds): boolean {
+  return (
+    point.x >= bounds.x &&
+    point.x < bounds.x + bounds.width &&
+    point.y >= bounds.y &&
+    point.y < bounds.y + bounds.height
+  );
+}
+
+function selectDisplaysForCapture(
+  displays: ScreenshotDisplay[],
+  activePoint: ScreenshotPoint | undefined,
+): ScreenshotDisplay[] {
+  if (!activePoint) {
+    return displays;
+  }
+
+  const activeDisplay = displays.find((display) => pointInBounds(activePoint, display.bounds));
+
+  return activeDisplay ? [activeDisplay] : displays;
+}
+
 function findSourceForDisplay(
   display: ScreenshotDisplay,
   displayIndex: number,
@@ -82,10 +110,11 @@ function findSourceForDisplay(
 }
 
 export async function captureDisplays({
+  getActivePoint,
   getAllDisplays,
   getSources,
 }: CaptureDisplaysOptions): Promise<ScreenshotDisplayCapture> {
-  const displays = getAllDisplays();
+  const displays = selectDisplaysForCapture(getAllDisplays(), getActivePoint?.());
   const sources = await getSources({
     thumbnailSize: calculateThumbnailSize(displays),
     types: ['screen'],

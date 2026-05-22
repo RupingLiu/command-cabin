@@ -4,13 +4,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   OcrPanel,
+  ScreenshotOverlay,
   ScreenshotOverlayView,
   TextAnnotationInput,
+  areDisplayImagesLoaded,
   createPendingTextAnnotationController,
+  getNextLoadedDisplaySourceIds,
   getPendingTextPointerAction,
   getScreenshotCompletionAction,
   getTextAnnotationKeyAction,
   requireScreenshotApi,
+  shouldNotifyScreenshotReady,
 } from './ScreenshotOverlay.js';
 import {
   createInitialScreenshotState,
@@ -33,6 +37,16 @@ const launchState: ScreenshotLaunchState = {
   mode: 'ocr',
   virtualBounds: { height: 200, width: 300, x: 0, y: 0 },
 };
+
+describe('ScreenshotOverlay', () => {
+  it('server renders loading while waiting for a launch state subscription event', () => {
+    const markup = renderToStaticMarkup(createElement(ScreenshotOverlay));
+
+    expect(markup).toContain(getUiStrings('zh-CN').screenshot.loading);
+    expect(markup).not.toContain(getUiStrings('zh-CN').screenshot.controlsUnavailable);
+    expect(markup).not.toContain(getUiStrings('zh-CN').screenshot.loadError);
+  });
+});
 
 describe('ScreenshotOverlayView', () => {
   it('renders display backgrounds, tools, output actions, and style controls', () => {
@@ -201,6 +215,39 @@ describe('ScreenshotOverlayView', () => {
     expect(getScreenshotCompletionAction({ mode: 'capture' })).toBe('copy');
     expect(getScreenshotCompletionAction({ mode: 'capture-delay-3' })).toBe('copy');
     expect(getScreenshotCompletionAction({ mode: 'capture-delay-5' })).toBe('copy');
+  });
+
+  it('tracks display image loading by source id before notifying readiness', () => {
+    const multiDisplayLaunchState: ScreenshotLaunchState = {
+      ...launchState,
+      displays: [
+        ...launchState.displays,
+        {
+          bounds: { height: 200, width: 300, x: 300, y: 0 },
+          id: 2,
+          imageDataUrl: 'data:image/png;base64,BBBB',
+          scaleFactor: 1,
+          sourceId: 'screen:2',
+        },
+      ],
+      virtualBounds: { height: 200, width: 600, x: 0, y: 0 },
+    };
+
+    const loadedOne = getNextLoadedDisplaySourceIds(new Set<string>(), 'screen:1');
+
+    expect(loadedOne).toEqual(new Set(['screen:1']));
+    expect(areDisplayImagesLoaded(loadedOne, multiDisplayLaunchState)).toBe(false);
+    expect(shouldNotifyScreenshotReady(loadedOne, multiDisplayLaunchState)).toBe(false);
+    expect(
+      areDisplayImagesLoaded(
+        getNextLoadedDisplaySourceIds(loadedOne, 'screen:2'),
+        multiDisplayLaunchState,
+      ),
+    ).toBe(true);
+    expect(areDisplayImagesLoaded(new Set<string>(), { ...launchState, displays: [] })).toBe(true);
+    expect(
+      shouldNotifyScreenshotReady(new Set<string>(), { ...launchState, displays: [] }),
+    ).toBe(true);
   });
 
   it('cancels stale delayed text annotation commits', () => {

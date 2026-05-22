@@ -92,6 +92,45 @@ describe('createScreenshotOverlayWindow', () => {
     expect(MockBrowserWindow.instances[0]?.loadURL).not.toHaveBeenCalled();
   });
 
+  it('can preload hidden until the caller explicitly shows it', async () => {
+    const { createScreenshotOverlayWindow } = await import('./createScreenshotOverlayWindow.js');
+
+    await createScreenshotOverlayWindow({
+      isPackaged: true,
+      preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
+      rendererDevServerUrl: 'http://localhost:5173',
+      rendererIndexPath: 'C:\\CommandCabin\\dist\\renderer\\index.html',
+      showOnReady: false,
+      virtualBounds: { height: 600, width: 800, x: 0, y: 0 },
+    });
+
+    MockBrowserWindow.instances[0]?.emitReadyToShow();
+
+    expect(MockBrowserWindow.instances[0]?.show).not.toHaveBeenCalled();
+  });
+
+  it('can start from offscreen preload bounds before the caller moves it into place', async () => {
+    const { createScreenshotOverlayWindow } = await import('./createScreenshotOverlayWindow.js');
+
+    await createScreenshotOverlayWindow({
+      initialBounds: { height: 1, width: 1, x: -32000, y: -32000 },
+      isPackaged: true,
+      preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
+      rendererDevServerUrl: 'http://localhost:5173',
+      rendererIndexPath: 'C:\\CommandCabin\\dist\\renderer\\index.html',
+      showOnReady: false,
+      virtualBounds: { height: 1080, width: 3360, x: -1440, y: 0 },
+    });
+
+    expect(MockBrowserWindow.instances[0]?.options).toMatchObject({
+      height: 1,
+      skipTaskbar: true,
+      width: 1,
+      x: -32000,
+      y: -32000,
+    });
+  });
+
   it('reports the overlay window before renderer loading completes', async () => {
     const { createScreenshotOverlayWindow } = await import('./createScreenshotOverlayWindow.js');
     const onWindowCreated = vi.fn();

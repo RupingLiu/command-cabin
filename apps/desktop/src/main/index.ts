@@ -36,6 +36,7 @@ import {
   shell,
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
+  type WebContents,
 } from 'electron';
 import { access, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -69,7 +70,10 @@ import {
   createDesktopPluginService,
   type DesktopPluginService,
 } from './plugins/desktopPluginService.js';
-import { captureDisplays } from './screenshot/screenshotCapture.js';
+import {
+  calculateVirtualBounds,
+  captureDisplays,
+} from './screenshot/screenshotCapture.js';
 import { runLocalOcr } from './screenshot/localOcr.js';
 import { createScreenshotController } from './screenshot/screenshotController.js';
 import { createScreenshotShortcutController } from './screenshot/screenshotShortcutController.js';
@@ -117,7 +121,9 @@ import {
   SCREENSHOT_COPY_IMAGE_CHANNEL,
   SCREENSHOT_GET_LAUNCH_STATE_CHANNEL,
   SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL,
+  SCREENSHOT_LAUNCH_STATE_CHANNEL,
   SCREENSHOT_PIN_IMAGE_CHANNEL,
+  SCREENSHOT_READY_TO_SHOW_CHANNEL,
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
@@ -229,6 +235,15 @@ function getScreenshotOverlayWindowOptions(virtualBounds: {
   };
 }
 
+function getScreenshotOverlayPreloadBounds() {
+  return {
+    height: 1,
+    width: 1,
+    x: -32000,
+    y: -32000,
+  };
+}
+
 function getPinnedImageWindowOptions() {
   return {
     isPackaged: app.isPackaged,
@@ -245,6 +260,9 @@ async function createApplicationWindow({ showWindow }: { showWindow: boolean }):
     launchAtLoginController.sync(settingsStore.getSettings().launchAtLogin);
     await screenshotShortcutController.start();
     await desktopApplication.start({ showWindow });
+    void screenshotController.prepare().catch((error: unknown) => {
+      console.warn('Screenshot overlay preload failed.', error);
+    });
   } finally {
     nextWindowShowOnReady = true;
   }
@@ -482,17 +500,24 @@ const altSpaceHotkeyCapture = createAltSpaceHotkeyCaptureController({
 const screenshotController = createScreenshotController({
   captureDisplays: () =>
     captureDisplays({
+      getActivePoint: () => screen.getCursorScreenPoint(),
       getAllDisplays: () => screen.getAllDisplays(),
       getSources: (request) => desktopCapturer.getSources(request),
     }),
   createOverlayWindow: (capture, registerWindow) =>
     createScreenshotOverlayWindow({
-      ...getScreenshotOverlayWindowOptions(capture.virtualBounds),
+      initialBounds: getScreenshotOverlayPreloadBounds(),
+      ...getScreenshotOverlayWindowOptions(capture),
       onWindowCreated: registerWindow,
+      showOnReady: false,
     }),
   createPinnedImageToken: () => randomUUID(),
+  getOverlayBounds: () => calculateVirtualBounds(screen.getAllDisplays()),
   hideLauncher: () => {
     BrowserWindow.getFocusedWindow()?.hide();
+  },
+  notifyOverlayLaunchState: (window, launchState) => {
+    (window.webContents as WebContents).send(SCREENSHOT_LAUNCH_STATE_CHANNEL, launchState);
   },
   pinImage: (request, registerWindow) =>
     createPinnedImageWindow({
@@ -759,6 +784,10 @@ ipcMain.handle(INSTALL_UPDATE_CHANNEL, () => getUpdateController().installUpdate
 
 ipcMain.handle(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL, (event) =>
   screenshotController.getLaunchState(event.sender),
+);
+
+ipcMain.handle(SCREENSHOT_READY_TO_SHOW_CHANNEL, (event) =>
+  screenshotController.markOverlayReady(event.sender),
 );
 
 ipcMain.handle(SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL, (event, token: unknown) =>

@@ -38,9 +38,14 @@ interface PendingTextAnnotation {
 export type OcrPanelState = { status: 'running' } | ScreenshotOcrResult;
 
 type ScreenshotApi = NonNullable<Window['desktopApi']['screenshot']>;
+type DesktopApi = Window['desktopApi'];
 type PendingTextTimer = ReturnType<typeof setTimeout>;
 type ScreenshotStrings = UiStrings['screenshot'];
 type MosaicAnnotation = ScreenshotAnnotation & { rect: ScreenshotRect; type: 'mosaic' };
+
+export interface ScreenshotOverlayProps {
+  desktopApi?: DesktopApi | undefined;
+}
 
 export interface PendingTextAnnotationController {
   cancel: () => void;
@@ -134,14 +139,37 @@ export function getPendingTextPointerAction(
   return hasPendingTextAnnotation ? 'commit' : 'none';
 }
 
-export function ScreenshotOverlay() {
+export function getNextLoadedDisplaySourceIds(
+  sourceIds: ReadonlySet<string>,
+  sourceId: string,
+): Set<string> {
+  return new Set([...sourceIds, sourceId]);
+}
+
+export function areDisplayImagesLoaded(
+  loadedSourceIds: ReadonlySet<string>,
+  launchState: Pick<ScreenshotLaunchState, 'displays'>,
+): boolean {
+  return launchState.displays.every((display) => loadedSourceIds.has(display.sourceId));
+}
+
+export function shouldNotifyScreenshotReady(
+  loadedSourceIds: ReadonlySet<string>,
+  launchState: Pick<ScreenshotLaunchState, 'displays'>,
+): boolean {
+  return areDisplayImagesLoaded(loadedSourceIds, launchState);
+}
+
+export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: ScreenshotOverlayProps = {}) {
   const [launchState, setLaunchState] = useState<ScreenshotLaunchState | undefined>();
+  const [launchVersion, setLaunchVersion] = useState(0);
   const [error, setError] = useState<string | undefined>();
   const [strings, setStrings] = useState<ScreenshotStrings>(defaultScreenshotStrings);
 
   useEffect(() => {
     const desktopApi =
-      typeof window !== 'undefined' && 'desktopApi' in window ? window.desktopApi : undefined;
+      injectedDesktopApi ??
+      (typeof window !== 'undefined' && 'desktopApi' in window ? window.desktopApi : undefined);
     let screenshotApi: ScreenshotApi;
 
     try {
@@ -158,13 +186,12 @@ export function ScreenshotOverlay() {
       })
       .catch(() => undefined);
 
-    void screenshotApi
-      .getLaunchState()
-      .then(setLaunchState)
-      .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : defaultScreenshotStrings.loadError);
-      });
-  }, []);
+    return screenshotApi.onLaunchState((nextLaunchState) => {
+      setLaunchState(nextLaunchState);
+      setError(undefined);
+      setLaunchVersion((version) => version + 1);
+    });
+  }, [injectedDesktopApi]);
 
   if (error) {
     return <div className="screenshot-overlay screenshot-overlay--empty">{error}</div>;
@@ -178,7 +205,11 @@ export function ScreenshotOverlay() {
 
   return (
     <ScreenshotOverlayView
-      desktopApi={window.desktopApi.screenshot}
+      desktopApi={
+        injectedDesktopApi?.screenshot ??
+        (typeof window !== 'undefined' ? window.desktopApi.screenshot : undefined)
+      }
+      key={launchVersion}
       launchState={launchState}
       strings={strings}
     />
@@ -211,6 +242,9 @@ export function ScreenshotOverlayView({
   const [pendingTextAnnotation, setPendingTextAnnotation] = useState<
     PendingTextAnnotation | undefined
   >();
+  const [loadedDisplaySourceIds, setLoadedDisplaySourceIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [pointer, setPointer] = useState<ScreenshotPoint>({
     x: launchState.virtualBounds.x,
     y: launchState.virtualBounds.y,
@@ -364,6 +398,24 @@ export function ScreenshotOverlayView({
   }, [pendingTextAnnotation]);
 
   useEffect(() => cancelPendingTextAnnotation, [cancelPendingTextAnnotation]);
+
+  useEffect(() => {
+    if (!shouldNotifyScreenshotReady(loadedDisplaySourceIds, launchState)) {
+      return;
+    }
+
+    const animationFrameId = requestAnimationFrame(() => {
+      try {
+        void requireScreenshotApi(desktopApi, strings.controlsUnavailable)
+          .readyToShow()
+          .catch(() => undefined);
+      } catch {
+        // The overlay can still render in tests or degraded preload contexts.
+      }
+    });
+
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [desktopApi, launchState, loadedDisplaySourceIds, strings.controlsUnavailable]);
 
   const beginPointer = (point: ScreenshotPoint, detail: number) => {
     setPointer(point);
@@ -522,6 +574,11 @@ export function ScreenshotOverlayView({
             data-source-id={display.sourceId}
             draggable={false}
             key={display.sourceId}
+            onLoad={() => {
+              setLoadedDisplaySourceIds((sourceIds) =>
+                getNextLoadedDisplaySourceIds(sourceIds, display.sourceId),
+              );
+            }}
             src={display.imageDataUrl}
             style={{
               height: display.bounds.height,

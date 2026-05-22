@@ -20,7 +20,9 @@ import {
   SCREENSHOT_COPY_IMAGE_CHANNEL,
   SCREENSHOT_GET_LAUNCH_STATE_CHANNEL,
   SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL,
+  SCREENSHOT_LAUNCH_STATE_CHANNEL,
   SCREENSHOT_PIN_IMAGE_CHANNEL,
+  SCREENSHOT_READY_TO_SHOW_CHANNEL,
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
@@ -405,5 +407,52 @@ describe('preload desktopApi settings bridge', () => {
     await expect(
       api.screenshot!.copyImage({ imageDataUrl: 'data:image/gif;base64,AAAA' }),
     ).rejects.toThrow(/image data url/i);
+  });
+
+  it('exposes screenshot launch state notifications with cleanup', async () => {
+    const api = await loadDesktopApi();
+    const listener = vi.fn();
+    const launchState = {
+      mode: 'capture' as const,
+      displays: [
+        {
+          bounds: { height: 1080, width: 1920, x: 0, y: 0 },
+          id: 1,
+          imageDataUrl: 'data:image/png;base64,AAAA',
+          scaleFactor: 1,
+          sourceId: 'screen:1',
+        },
+      ],
+      virtualBounds: { height: 1080, width: 1920, x: 0, y: 0 },
+    };
+
+    expect(api.screenshot).toHaveProperty('onLaunchState', expect.any(Function));
+
+    const removeListener = api.screenshot!.onLaunchState(listener);
+    const registeredListener = electronMock.on.mock.calls.find(
+      ([channel]) => channel === SCREENSHOT_LAUNCH_STATE_CHANNEL,
+    )?.[1] as ((_event: unknown, payload: unknown) => void) | undefined;
+
+    registeredListener?.(undefined, launchState);
+    removeListener();
+
+    expect(listener).toHaveBeenCalledWith(launchState);
+    expect(electronMock.removeListener).toHaveBeenCalledWith(
+      SCREENSHOT_LAUNCH_STATE_CHANNEL,
+      registeredListener,
+    );
+  });
+
+  it('exposes screenshot ready-to-show handshake with parsed response', async () => {
+    const api = await loadDesktopApi();
+
+    expect(api.screenshot).toHaveProperty('readyToShow', expect.any(Function));
+
+    electronMock.invoke.mockResolvedValueOnce(true);
+    await expect(api.screenshot!.readyToShow()).resolves.toBe(true);
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_READY_TO_SHOW_CHANNEL);
+
+    electronMock.invoke.mockResolvedValueOnce('yes');
+    await expect(api.screenshot!.readyToShow()).rejects.toThrow(/ready-to-show response/i);
   });
 });

@@ -6,9 +6,11 @@ import { resolveSafeRendererDevServerUrl } from './devServerUrl.js';
 export interface CreateScreenshotOverlayWindowOptions {
   isPackaged: boolean;
   onWindowCreated?: ((window: BrowserWindow) => void) | undefined;
+  initialBounds?: ScreenshotBounds | undefined;
   preloadPath: string;
   rendererDevServerUrl?: string | undefined;
   rendererIndexPath: string;
+  showOnReady?: boolean | undefined;
   virtualBounds: ScreenshotBounds;
 }
 
@@ -21,21 +23,25 @@ function appendScreenshotMode(rendererDevServerUrl: string): string {
 
 export async function createScreenshotOverlayWindow({
   isPackaged,
+  initialBounds,
   onWindowCreated,
   preloadPath,
   rendererDevServerUrl,
   rendererIndexPath,
+  showOnReady = true,
   virtualBounds,
 }: CreateScreenshotOverlayWindowOptions): Promise<BrowserWindow> {
+  const windowBounds = initialBounds ?? virtualBounds;
   const overlayWindow = new BrowserWindow({
-    x: virtualBounds.x,
-    y: virtualBounds.y,
-    width: virtualBounds.width,
-    height: virtualBounds.height,
+    x: windowBounds.x,
+    y: windowBounds.y,
+    width: windowBounds.width,
+    height: windowBounds.height,
     show: false,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
+    skipTaskbar: true,
     resizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -49,7 +55,9 @@ export async function createScreenshotOverlayWindow({
     },
   });
   overlayWindow.once('ready-to-show', () => {
-    overlayWindow.show();
+    if (showOnReady) {
+      overlayWindow.show();
+    }
   });
   onWindowCreated?.(overlayWindow);
 

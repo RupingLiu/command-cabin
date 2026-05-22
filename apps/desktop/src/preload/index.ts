@@ -29,7 +29,9 @@ import {
   SCREENSHOT_COPY_IMAGE_CHANNEL,
   SCREENSHOT_GET_LAUNCH_STATE_CHANNEL,
   SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL,
+  SCREENSHOT_LAUNCH_STATE_CHANNEL,
   SCREENSHOT_PIN_IMAGE_CHANNEL,
+  SCREENSHOT_READY_TO_SHOW_CHANNEL,
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
@@ -168,7 +170,9 @@ export interface ScreenshotPreloadApi {
   copyImage: (request: ScreenshotImageRequest) => Promise<ScreenshotOperationResult>;
   getLaunchState: () => Promise<ScreenshotLaunchState>;
   getPinnedImageState: (token: string) => Promise<ScreenshotPinnedImageState>;
+  onLaunchState: (listener: (launchState: ScreenshotLaunchState) => void) => () => void;
   pinImage: (request: ScreenshotImageRequest) => Promise<ScreenshotPinImageResult>;
+  readyToShow: () => Promise<boolean>;
   runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult>;
   saveImage: (request: ScreenshotSaveImageRequest) => Promise<ScreenshotSaveImageResult>;
 }
@@ -449,12 +453,28 @@ const desktopApi = {
           parseScreenshotPinnedImageToken(token),
         ),
       ),
+    onLaunchState: (listener) => {
+      const handleLaunchState = (_event: unknown, payload: unknown) => {
+        listener(parseScreenshotLaunchState(payload));
+      };
+
+      ipcRenderer.on(SCREENSHOT_LAUNCH_STATE_CHANNEL, handleLaunchState);
+
+      return () => {
+        ipcRenderer.removeListener(SCREENSHOT_LAUNCH_STATE_CHANNEL, handleLaunchState);
+      };
+    },
     pinImage: async (request) =>
       parseScreenshotPinImageResult(
         await ipcRenderer.invoke(
           SCREENSHOT_PIN_IMAGE_CHANNEL,
           parseScreenshotPinImageRequest(request),
         ),
+      ),
+    readyToShow: async () =>
+      parseBoolean(
+        await ipcRenderer.invoke(SCREENSHOT_READY_TO_SHOW_CHANNEL),
+        'Screenshot ready-to-show response',
       ),
     runOcr: async (request) =>
       parseScreenshotOcrResult(

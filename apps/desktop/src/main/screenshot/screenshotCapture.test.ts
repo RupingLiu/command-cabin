@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { captureDisplays } from './screenshotCapture.js';
 
 describe('captureDisplays', () => {
-  it('captures every display at scaled thumbnail size and matches sources by display id', async () => {
+  it('captures every display at physical thumbnail size and matches sources by display id', async () => {
     const getAllDisplays = vi.fn(() => [
       { bounds: { height: 1080, width: 1920, x: 0, y: 0 }, id: 10, scaleFactor: 1 },
       { bounds: { height: 900, width: 1440, x: 1920, y: 0 }, id: 20, scaleFactor: 1.5 },
@@ -42,6 +42,48 @@ describe('captureDisplays', () => {
     });
     expect(getSources).toHaveBeenCalledWith({
       thumbnailSize: { height: 1350, width: 2160 },
+      types: ['screen'],
+    });
+  });
+
+  it('captures only the display containing the active cursor point', async () => {
+    const getAllDisplays = vi.fn(() => [
+      { bounds: { height: 1080, width: 1920, x: -1920, y: 0 }, id: 10, scaleFactor: 1 },
+      { bounds: { height: 1440, width: 2560, x: 0, y: 0 }, id: 20, scaleFactor: 1.5 },
+    ]);
+    const getSources = vi.fn(async () => [
+      {
+        display_id: '10',
+        id: 'screen:10',
+        thumbnail: { toDataURL: () => 'data:image/png;base64,TEN' },
+      },
+      {
+        display_id: '20',
+        id: 'screen:20',
+        thumbnail: { toDataURL: () => 'data:image/png;base64,TWENTY' },
+      },
+    ]);
+
+    await expect(
+      captureDisplays({
+        getActivePoint: () => ({ x: 100, y: 200 }),
+        getAllDisplays,
+        getSources,
+      }),
+    ).resolves.toEqual({
+      displays: [
+        {
+          bounds: { height: 1440, width: 2560, x: 0, y: 0 },
+          id: 20,
+          imageDataUrl: 'data:image/png;base64,TWENTY',
+          scaleFactor: 1.5,
+          sourceId: 'screen:20',
+        },
+      ],
+      virtualBounds: { height: 1440, width: 2560, x: 0, y: 0 },
+    });
+    expect(getSources).toHaveBeenCalledWith({
+      thumbnailSize: { height: 2160, width: 3840 },
       types: ['screen'],
     });
   });

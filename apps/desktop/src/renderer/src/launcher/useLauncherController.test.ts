@@ -4,6 +4,7 @@ import {
   getExecutableSelectedResult,
   getLauncherKeyIntent,
   createLauncherSearchRequestKey,
+  createStartScreenshotCapture,
   getPluginPageLaunchRequest,
   getSystemExecutionAction,
   isHorizontalLauncherNavigation,
@@ -417,5 +418,65 @@ describe('launcher system execution actions', () => {
         },
       }),
     ).toBeUndefined();
+  });
+});
+
+describe('launcher screenshot capture action', () => {
+  it('executes the screenshot capture command and hides the launcher', async () => {
+    const executeCommand = vi.fn(async () => ({
+      status: 'success' as const,
+      actionType: 'run-system' as const,
+      commandId: 'system.screenshot.capture',
+      metadata: {},
+    }));
+    const hideLauncher = vi.fn(async () => undefined);
+    const dispatch = vi.fn();
+    const startScreenshotCapture = createStartScreenshotCapture(
+      {
+        executeCommand,
+        hideLauncher,
+      },
+      dispatch,
+    );
+
+    await startScreenshotCapture();
+
+    expect(executeCommand).toHaveBeenCalledWith('system.screenshot.capture');
+    expect(hideLauncher).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'execution-started',
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'execution-succeeded',
+    });
+  });
+
+  it('reports execution failure when screenshot capture fails', async () => {
+    const executeCommand = vi.fn(async () => ({
+      status: 'failure' as const,
+      actionType: 'run-system' as const,
+      commandId: 'system.screenshot.capture',
+      error: {
+        code: 'handler-error' as const,
+        message: 'Capture failed.',
+      },
+    }));
+    const hideLauncher = vi.fn(async () => undefined);
+    const dispatch = vi.fn();
+    const startScreenshotCapture = createStartScreenshotCapture(
+      {
+        executeCommand,
+        hideLauncher,
+      },
+      dispatch,
+    );
+
+    await startScreenshotCapture();
+
+    expect(hideLauncher).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith({
+      errorMessage: 'Capture failed.',
+      type: 'execution-failed',
+    });
   });
 });

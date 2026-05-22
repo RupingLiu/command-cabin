@@ -21,6 +21,8 @@ CommandCabin is built for everyday desktop productivity with a light, fast, loca
 - Unified command registration, ranking, and execution.
 - Local settings, command history, and clipboard history storage.
 - Built-in calculator, clipboard history, text tools, and quick converter.
+- Home action buttons for unit conversion and screenshot capture without typing a command first.
+- Dedicated unit conversion page for weight and length with swappable source and target units.
 - Screenshot capture with global hotkeys, delay capture, annotations, mosaic, text, OCR, pinning, copy, and save actions.
 - Local plugin runtime and hosted plugin pages.
 

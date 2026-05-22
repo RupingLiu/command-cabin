@@ -32,6 +32,11 @@ const zhCnStrings = {
       unresolvedShortcut: '快捷方式信息不完整',
     },
     ariaLabel: 'CommandCabin 启动器',
+    homeActions: {
+      screenshot: '截图',
+      unitConverter: '单位换算',
+    },
+    homeActionsLabel: '首页功能',
     openSettings: '打开设置',
     pinnedAppMenu: {
       edit: '修改',
@@ -130,6 +135,21 @@ const zhCnStrings = {
       save: '保存',
       undo: '撤销',
     },
+  },
+  unitConverter: {
+    ariaLabel: '单位换算',
+    back: '返回',
+    categoryLabel: '换算类型',
+    categories: {
+      length: '长度',
+      weight: '重量',
+    },
+    fromUnit: '源单位',
+    fromValue: '数值',
+    swap: '交换单位',
+    title: '单位换算',
+    toUnit: '目标单位',
+    toValue: '结果',
   },
   settings: {
     ariaLabel: 'CommandCabin 设置',
@@ -303,6 +323,11 @@ const zhTwStrings: UiStrings = {
       unresolvedShortcut: '捷徑資訊不完整',
     },
     ariaLabel: 'CommandCabin 啟動器',
+    homeActions: {
+      screenshot: '截圖',
+      unitConverter: '單位換算',
+    },
+    homeActionsLabel: '首頁功能',
     openSettings: '開啟設定',
     pinnedAppMenu: {
       edit: '修改',
@@ -401,6 +426,21 @@ const zhTwStrings: UiStrings = {
       save: '儲存',
       undo: '復原',
     },
+  },
+  unitConverter: {
+    ariaLabel: '單位換算',
+    back: '返回',
+    categoryLabel: '換算類型',
+    categories: {
+      length: '長度',
+      weight: '重量',
+    },
+    fromUnit: '來源單位',
+    fromValue: '數值',
+    swap: '交換單位',
+    title: '單位換算',
+    toUnit: '目標單位',
+    toValue: '結果',
   },
   settings: {
     ariaLabel: 'CommandCabin 設定',
@@ -566,6 +606,11 @@ const enUsStrings: UiStrings = {
       unresolvedShortcut: 'Shortcut details unavailable',
     },
     ariaLabel: 'CommandCabin launcher',
+    homeActions: {
+      screenshot: 'Screenshot',
+      unitConverter: 'Unit converter',
+    },
+    homeActionsLabel: 'Home actions',
     openSettings: 'Open settings',
     pinnedAppMenu: {
       edit: 'Modify',
@@ -664,6 +709,21 @@ const enUsStrings: UiStrings = {
       save: 'Save',
       undo: 'Undo',
     },
+  },
+  unitConverter: {
+    ariaLabel: 'Unit converter',
+    back: 'Back',
+    categoryLabel: 'Conversion type',
+    categories: {
+      length: 'Length',
+      weight: 'Weight',
+    },
+    fromUnit: 'From unit',
+    fromValue: 'Value',
+    swap: 'Swap units',
+    title: 'Unit Converter',
+    toUnit: 'To unit',
+    toValue: 'Result',
   },
   settings: {
     ariaLabel: 'CommandCabin settings',

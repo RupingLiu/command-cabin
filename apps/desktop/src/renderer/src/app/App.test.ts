@@ -43,6 +43,24 @@ describe('App plugin host routing', () => {
     ).toEqual(initialAppState);
   });
 
+  it('opens and closes the unit converter view from app state', () => {
+    const converterOpen = appReducer(initialAppState, {
+      type: 'open-unit-converter',
+    });
+
+    expect(converterOpen).toEqual({
+      activePlugin: undefined,
+      lastPluginFailure: undefined,
+      view: 'unit-converter',
+    });
+
+    expect(
+      appReducer(converterOpen, {
+        type: 'open-launcher',
+      }),
+    ).toEqual(initialAppState);
+  });
+
   it('opens and closes a plugin host from launcher state', () => {
     const plugin = createPluginEntry();
     const opened = appReducer(initialAppState, {
@@ -68,6 +86,7 @@ describe('App plugin host routing', () => {
     const state: AppState = {
       activePlugin: plugin,
       lastPluginFailure: undefined,
+      view: 'launcher',
     };
     const failure = {
       message: 'Plugin page failed to load.',
@@ -97,6 +116,7 @@ describe('App plugin host routing', () => {
         onLanguageUpdated: vi.fn(),
         onOpenPluginPage: vi.fn(),
         onOpenSettings: vi.fn(),
+        onOpenUnitConverter: vi.fn(),
         onPluginHostFailure: vi.fn(),
         onReturnToLauncher: vi.fn(),
         onThemeUpdated: vi.fn(),
@@ -108,12 +128,14 @@ describe('App plugin host routing', () => {
         state: {
           activePlugin: plugin,
           lastPluginFailure: undefined,
+          view: 'launcher',
         },
         theme: 'system',
         onClosePlugin: vi.fn(),
         onLanguageUpdated: vi.fn(),
         onOpenPluginPage: vi.fn(),
         onOpenSettings: vi.fn(),
+        onOpenUnitConverter: vi.fn(),
         onPluginHostFailure: vi.fn(),
         onReturnToLauncher: vi.fn(),
         onThemeUpdated: vi.fn(),
@@ -145,6 +167,7 @@ describe('App plugin host routing', () => {
         onLanguageUpdated: vi.fn(),
         onOpenPluginPage: vi.fn(),
         onOpenSettings: vi.fn(),
+        onOpenUnitConverter: vi.fn(),
         onPluginHostFailure: vi.fn(),
         onReturnToLauncher: vi.fn(),
         onThemeUpdated: vi.fn(),

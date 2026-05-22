@@ -1,6 +1,20 @@
 export { createDefaultSettings } from './defaultSettings.js';
 export type { CommandCabinDefaults } from './defaultSettings.js';
 export {
+  convertUnitValue,
+  formatUnitConversionValue,
+  getDefaultUnitPair,
+  getUnitsForCategory,
+} from './unitConversion.js';
+export type {
+  LengthUnitId,
+  UnitConversionCategory,
+  UnitConversionInput,
+  UnitDefinition,
+  UnitId,
+  WeightUnitId,
+} from './unitConversion.js';
+export {
   DEFAULT_COMMAND_CABIN_SETTINGS,
   createDefaultCommandCabinSettings,
   createInMemorySettingsStore,

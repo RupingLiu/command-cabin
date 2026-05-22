@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+import { LauncherPage } from './LauncherPage.js';
 import { ResultList } from './ResultList.js';
 import { SearchInput } from './SearchInput.js';
 
@@ -80,5 +81,22 @@ describe('launcher ARIA markup', () => {
 
     expect(html).toContain('aria-disabled="true"');
     expect(html).toContain('data-disabled="true"');
+  });
+
+  it('exposes home action buttons for unit conversion and screenshot capture', () => {
+    const html = renderToStaticMarkup(
+      createElement(LauncherPage, {
+        language: 'zh-CN',
+        onOpenSettings: vi.fn(),
+        onOpenUnitConverter: vi.fn(),
+      }),
+    );
+
+    expect(html).toContain('单位换算');
+    expect(html).toContain('截图');
+    expect(html).toContain('class="launcher-home-actions"');
+    expect(html.indexOf('launcher-results-listbox')).toBeLessThan(
+      html.indexOf('launcher-home-actions'),
+    );
   });
 });

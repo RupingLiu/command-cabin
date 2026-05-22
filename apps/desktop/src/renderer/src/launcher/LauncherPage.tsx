@@ -11,6 +11,7 @@ import type { PluginHostEntry } from '../plugin-host/PluginHost.js';
 export interface LauncherPageProps {
   language?: CommandCabinLanguage | undefined;
   onOpenSettings?: () => void;
+  onOpenUnitConverter?: () => void;
   onOpenPluginPage?: (plugin: PluginHostEntry) => void;
 }
 
@@ -71,7 +72,12 @@ function SettingsGearIcon() {
   );
 }
 
-export function LauncherPage({ language, onOpenPluginPage, onOpenSettings }: LauncherPageProps) {
+export function LauncherPage({
+  language,
+  onOpenPluginPage,
+  onOpenSettings,
+  onOpenUnitConverter,
+}: LauncherPageProps) {
   const strings = getUiStrings(language);
   const [isAddAppPickerOpen, setIsAddAppPickerOpen] = useState(false);
   const {
@@ -88,6 +94,7 @@ export function LauncherPage({ language, onOpenPluginPage, onOpenSettings }: Lau
     searchInputId,
     selectResult,
     setQuery,
+    startScreenshotCapture,
     removePinnedApp,
     removeRecentApp,
     state,
@@ -150,6 +157,27 @@ export function LauncherPage({ language, onOpenPluginPage, onOpenSettings }: Lau
           selectedIndex={state.selectedIndex}
           status={state.status}
         />
+        {state.query.trim().length === 0 ? (
+          <div className="launcher-home-actions" aria-label={strings.launcher.homeActionsLabel}>
+            <button type="button" onClick={onOpenUnitConverter}>
+              <span className="launcher-home-actions__icon" aria-hidden="true">
+                ⇄
+              </span>
+              <span>{strings.launcher.homeActions.unitConverter}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void startScreenshotCapture();
+              }}
+            >
+              <span className="launcher-home-actions__icon" aria-hidden="true">
+                ⛶
+              </span>
+              <span>{strings.launcher.homeActions.screenshot}</span>
+            </button>
+          </div>
+        ) : null}
         {isAddAppPickerOpen ? (
           <AddAppPicker
             language={language}

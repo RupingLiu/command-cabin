@@ -24,6 +24,8 @@ const lineWidths = [2, 4, 6];
 const fontSizes = [16, 22, 30];
 const toolOrder: ScreenshotTool[] = ['rectangle', 'ellipse', 'arrow', 'pen', 'text', 'mosaic'];
 const defaultScreenshotStrings = getUiStrings(DEFAULT_UI_LANGUAGE).screenshot;
+const screenshotToolbarGap = 12;
+const defaultScreenshotToolbarSize = { height: 56, width: 640 };
 
 interface ScreenshotOverlayStatus {
   tone: 'info' | 'error';
@@ -45,6 +47,18 @@ type MosaicAnnotation = ScreenshotAnnotation & { rect: ScreenshotRect; type: 'mo
 
 export interface ScreenshotOverlayProps {
   desktopApi?: DesktopApi | undefined;
+}
+
+export interface ScreenshotToolbarPlacementInput {
+  selection: ScreenshotRect;
+  toolbar: {
+    height: number;
+    width: number;
+  };
+  viewport: {
+    height: number;
+    width: number;
+  };
 }
 
 export interface PendingTextAnnotationController {
@@ -78,6 +92,30 @@ export function getScreenshotCompletionAction(
   launchState: Pick<ScreenshotLaunchState, 'mode'>,
 ): 'copy' | 'ocr' {
   return launchState.mode === 'ocr' ? 'ocr' : 'copy';
+}
+
+export function getScreenshotToolbarPlacement({
+  selection,
+  toolbar,
+  viewport,
+}: ScreenshotToolbarPlacementInput): ScreenshotPoint {
+  const centeredX = selection.x + selection.width / 2 - toolbar.width / 2;
+  const x = clamp(centeredX, 0, Math.max(0, viewport.width - toolbar.width));
+  const belowY = selection.y + selection.height + screenshotToolbarGap;
+  const aboveY = selection.y - toolbar.height - screenshotToolbarGap;
+
+  if (belowY + toolbar.height <= viewport.height) {
+    return { x, y: belowY };
+  }
+
+  if (aboveY >= 0) {
+    return { x, y: aboveY };
+  }
+
+  return {
+    x,
+    y: clamp(belowY, 0, Math.max(0, viewport.height - toolbar.height)),
+  };
 }
 
 export function requireScreenshotApi(
@@ -198,9 +236,7 @@ export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: Screenshot
   }
 
   if (!launchState) {
-    return (
-      <div className="screenshot-overlay screenshot-overlay--empty">{strings.loading}</div>
-    );
+    return <div className="screenshot-overlay screenshot-overlay--empty">{strings.loading}</div>;
   }
 
   return (
@@ -239,6 +275,8 @@ export function ScreenshotOverlayView({
   const [saveFormat, setSaveFormat] = useState<ScreenshotSaveFormat>('png');
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [ocrPanel, setOcrPanel] = useState<OcrPanelState | undefined>();
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const [toolbarSize, setToolbarSize] = useState(defaultScreenshotToolbarSize);
   const [pendingTextAnnotation, setPendingTextAnnotation] = useState<
     PendingTextAnnotation | undefined
   >();
@@ -253,6 +291,25 @@ export function ScreenshotOverlayView({
   const offsetSelection = useMemo(
     () => (state.selection ? offsetRect(state.selection, launchState.virtualBounds) : undefined),
     [launchState.virtualBounds, state.selection],
+  );
+  const toolbarPlacement = useMemo(
+    () =>
+      offsetSelection
+        ? getScreenshotToolbarPlacement({
+            selection: offsetSelection,
+            toolbar: toolbarSize,
+            viewport: {
+              height: launchState.virtualBounds.height,
+              width: launchState.virtualBounds.width,
+            },
+          })
+        : undefined,
+    [
+      launchState.virtualBounds.height,
+      launchState.virtualBounds.width,
+      offsetSelection,
+      toolbarSize,
+    ],
   );
   const visibleAnnotations = useMemo(() => {
     const annotations = state.draftAnnotation
@@ -398,6 +455,26 @@ export function ScreenshotOverlayView({
   }, [pendingTextAnnotation]);
 
   useEffect(() => cancelPendingTextAnnotation, [cancelPendingTextAnnotation]);
+
+  useEffect(() => {
+    const toolbarRect = toolbarRef.current?.getBoundingClientRect();
+
+    if (!toolbarRect || toolbarRect.width === 0 || toolbarRect.height === 0) {
+      return;
+    }
+
+    const nextToolbarSize = {
+      height: toolbarRect.height,
+      width: toolbarRect.width,
+    };
+
+    setToolbarSize((currentToolbarSize) =>
+      currentToolbarSize.height === nextToolbarSize.height &&
+      currentToolbarSize.width === nextToolbarSize.width
+        ? currentToolbarSize
+        : nextToolbarSize,
+    );
+  }, [offsetSelection]);
 
   useEffect(() => {
     if (!shouldNotifyScreenshotReady(loadedDisplaySourceIds, launchState)) {
@@ -646,7 +723,18 @@ export function ScreenshotOverlayView({
         </div>
       </div>
 
-      <div className="screenshot-controls">
+      <div
+        className="screenshot-controls"
+        data-floating={toolbarPlacement ? 'true' : undefined}
+        style={
+          toolbarPlacement
+            ? {
+                left: toolbarPlacement.x,
+                top: toolbarPlacement.y,
+              }
+            : undefined
+        }
+      >
         {ocrPanel ? (
           <OcrPanel state={ocrPanel} strings={strings} onCopyAll={copyOcrText} />
         ) : undefined}
@@ -655,10 +743,11 @@ export function ScreenshotOverlayView({
             {status.value}
           </div>
         ) : undefined}
-        <div className="screenshot-toolbar" role="toolbar">
+        <div className="screenshot-toolbar" ref={toolbarRef} role="toolbar">
           <div className="screenshot-tool-group">
             {toolOrder.map((tool) => (
               <button
+                aria-label={strings.tools[tool]}
                 data-active={state.tool === tool}
                 key={tool}
                 onClick={() => {
@@ -669,18 +758,28 @@ export function ScreenshotOverlayView({
                 type="button"
               >
                 <span>{toolIcon(tool)}</span>
-                {strings.tools[tool]}
+                <span className="screenshot-button-label">{strings.tools[tool]}</span>
               </button>
             ))}
           </div>
           <div className="screenshot-tool-group">
-            <button onClick={() => dispatch({ type: 'undo' })} type="button">
+            <button
+              aria-label={strings.toolbar.undo}
+              onClick={() => dispatch({ type: 'undo' })}
+              title={strings.toolbar.undo}
+              type="button"
+            >
               <span>&lt;</span>
-              {strings.toolbar.undo}
+              <span className="screenshot-button-label">{strings.toolbar.undo}</span>
             </button>
-            <button onClick={() => dispatch({ type: 'redo' })} type="button">
+            <button
+              aria-label={strings.toolbar.redo}
+              onClick={() => dispatch({ type: 'redo' })}
+              title={strings.toolbar.redo}
+              type="button"
+            >
               <span>&gt;</span>
-              {strings.toolbar.redo}
+              <span className="screenshot-button-label">{strings.toolbar.redo}</span>
             </button>
           </div>
           <fieldset className="screenshot-tool-group">
@@ -693,6 +792,7 @@ export function ScreenshotOverlayView({
                 key={color}
                 onClick={() => dispatch({ color, type: 'color-selected' })}
                 style={{ backgroundColor: color }}
+                title={`${strings.groups.color} ${color}`}
                 type="button"
               />
             ))}
@@ -701,9 +801,11 @@ export function ScreenshotOverlayView({
             <legend>{strings.groups.line}</legend>
             {lineWidths.map((lineWidth) => (
               <button
+                aria-label={`${strings.groups.line} ${lineWidth}`}
                 data-active={state.style.lineWidth === lineWidth}
                 key={lineWidth}
                 onClick={() => dispatch({ lineWidth, type: 'line-width-selected' })}
+                title={`${strings.groups.line} ${lineWidth}`}
                 type="button"
               >
                 {lineWidth}
@@ -714,9 +816,11 @@ export function ScreenshotOverlayView({
             <legend>{strings.groups.font}</legend>
             {fontSizes.map((fontSize) => (
               <button
+                aria-label={`${strings.groups.font} ${fontSize}`}
                 data-active={state.style.fontSize === fontSize}
                 key={fontSize}
                 onClick={() => dispatch({ fontSize, type: 'font-size-selected' })}
+                title={`${strings.groups.font} ${fontSize}`}
                 type="button"
               >
                 {fontSize}
@@ -727,9 +831,11 @@ export function ScreenshotOverlayView({
             <legend>{strings.groups.format}</legend>
             {(['png', 'jpg'] as ScreenshotSaveFormat[]).map((format) => (
               <button
+                aria-label={`${strings.groups.format} ${format.toUpperCase()}`}
                 data-active={saveFormat === format}
                 key={format}
                 onClick={() => setSaveFormat(format)}
+                title={`${strings.groups.format} ${format.toUpperCase()}`}
                 type="button"
               >
                 {format.toUpperCase()}
@@ -737,25 +843,54 @@ export function ScreenshotOverlayView({
             ))}
           </fieldset>
           <div className="screenshot-tool-group screenshot-tool-group--actions">
-            <button disabled={!ready} onClick={() => void runOutputAction('ocr')} type="button">
+            <button
+              aria-label={strings.toolbar.ocr}
+              disabled={!ready}
+              onClick={() => void runOutputAction('ocr')}
+              title={strings.toolbar.ocr}
+              type="button"
+            >
               <span>Tx</span>
-              {strings.toolbar.ocr}
+              <span className="screenshot-button-label">{strings.toolbar.ocr}</span>
             </button>
-            <button disabled={!ready} onClick={() => void runOutputAction('pin')} type="button">
+            <button
+              aria-label={strings.toolbar.pin}
+              disabled={!ready}
+              onClick={() => void runOutputAction('pin')}
+              title={strings.toolbar.pin}
+              type="button"
+            >
               <span>^</span>
-              {strings.toolbar.pin}
+              <span className="screenshot-button-label">{strings.toolbar.pin}</span>
             </button>
-            <button disabled={!ready} onClick={() => void runOutputAction('save')} type="button">
+            <button
+              aria-label={strings.toolbar.save}
+              disabled={!ready}
+              onClick={() => void runOutputAction('save')}
+              title={strings.toolbar.save}
+              type="button"
+            >
               <span>v</span>
-              {strings.toolbar.save}
+              <span className="screenshot-button-label">{strings.toolbar.save}</span>
             </button>
-            <button disabled={!ready} onClick={() => void finish()} type="button">
+            <button
+              aria-label={strings.toolbar.done}
+              disabled={!ready}
+              onClick={() => void finish()}
+              title={strings.toolbar.done}
+              type="button"
+            >
               <span>OK</span>
-              {strings.toolbar.done}
+              <span className="screenshot-button-label">{strings.toolbar.done}</span>
             </button>
-            <button onClick={cancel} type="button">
+            <button
+              aria-label={strings.toolbar.cancel}
+              onClick={cancel}
+              title={strings.toolbar.cancel}
+              type="button"
+            >
               <span>X</span>
-              {strings.toolbar.cancel}
+              <span className="screenshot-button-label">{strings.toolbar.cancel}</span>
             </button>
           </div>
         </div>
@@ -848,7 +983,10 @@ export function TextAnnotationInput({
         onBlur={(event) => {
           const nextTarget = event.relatedTarget;
 
-          if (nextTarget instanceof Node && event.currentTarget.parentElement?.contains(nextTarget)) {
+          if (
+            nextTarget instanceof Node &&
+            event.currentTarget.parentElement?.contains(nextTarget)
+          ) {
             return;
           }
 
@@ -936,6 +1074,10 @@ function pointInRect(point: ScreenshotPoint, rect: ScreenshotRect): boolean {
 
 function distance(from: ScreenshotPoint, to: ScreenshotPoint): number {
   return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, max));
 }
 
 function toolIcon(tool: ScreenshotTool): string {

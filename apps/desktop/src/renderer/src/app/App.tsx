@@ -4,6 +4,7 @@ import { useEffect, useReducer, useState } from 'react';
 
 import type { CommandCabinLanguage, CommandCabinTheme } from '@command-cabin/core';
 
+import { UnitConverterPage } from '../converter/UnitConverterPage.js';
 import { DEFAULT_UI_LANGUAGE } from '../i18n.js';
 import { LauncherPage } from '../launcher/LauncherPage.js';
 import {
@@ -19,7 +20,7 @@ import { applyThemePreferenceToRoot } from '../settings/ThemeSettings.js';
 export interface AppState {
   activePlugin: PluginHostEntry | undefined;
   lastPluginFailure: PluginHostFailure | undefined;
-  view: 'launcher' | 'settings';
+  view: 'launcher' | 'settings' | 'unit-converter';
 }
 
 type AppAction =
@@ -38,6 +39,9 @@ type AppAction =
       type: 'open-settings';
     }
   | {
+      type: 'open-unit-converter';
+    }
+  | {
       type: 'open-launcher';
     };
 
@@ -47,6 +51,7 @@ export interface AppViewProps {
   onLanguageUpdated: (language: CommandCabinLanguage) => void;
   onOpenPluginPage: (plugin: PluginHostEntry) => void;
   onOpenSettings: () => void;
+  onOpenUnitConverter: () => void;
   onPluginHostFailure: (failure: PluginHostFailure) => void;
   onReturnToLauncher: () => void;
   onThemeUpdated: (theme: CommandCabinTheme) => void;
@@ -82,6 +87,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         lastPluginFailure: undefined,
         view: 'settings',
       };
+    case 'open-unit-converter':
+      return {
+        activePlugin: undefined,
+        lastPluginFailure: undefined,
+        view: 'unit-converter',
+      };
     case 'open-launcher':
       return initialAppState;
   }
@@ -91,6 +102,7 @@ export function AppView({
   onClosePlugin,
   onOpenPluginPage,
   onOpenSettings,
+  onOpenUnitConverter,
   onLanguageUpdated,
   onPluginHostFailure,
   onReturnToLauncher,
@@ -121,11 +133,16 @@ export function AppView({
     );
   }
 
+  if (state.view === 'unit-converter') {
+    return <UnitConverterPage language={language} onReturnToLauncher={onReturnToLauncher} />;
+  }
+
   return (
     <LauncherPage
       language={language}
       onOpenPluginPage={onOpenPluginPage}
       onOpenSettings={onOpenSettings}
+      onOpenUnitConverter={onOpenUnitConverter}
     />
   );
 }
@@ -212,6 +229,11 @@ export function App() {
       onOpenSettings={() =>
         dispatch({
           type: 'open-settings',
+        })
+      }
+      onOpenUnitConverter={() =>
+        dispatch({
+          type: 'open-unit-converter',
         })
       }
       onClosePlugin={() =>

@@ -484,6 +484,43 @@ export function getSystemExecutionAction(
   return result.metadata.systemCommand === 'open-settings' ? 'open-settings' : undefined;
 }
 
+type ScreenshotCaptureApi = Pick<DesktopApi, 'executeCommand' | 'hideLauncher'>;
+type LauncherDispatch = (action: LauncherAction) => void;
+
+export function createStartScreenshotCapture(
+  desktopApi: ScreenshotCaptureApi,
+  dispatch: LauncherDispatch,
+): () => Promise<void> {
+  return async () => {
+    dispatch({
+      type: 'execution-started',
+    });
+
+    try {
+      const executionResult = await desktopApi.executeCommand('system.screenshot.capture');
+      const executionErrorMessage = getExecutionErrorMessage(executionResult);
+
+      if (executionErrorMessage) {
+        dispatch({
+          errorMessage: executionErrorMessage,
+          type: 'execution-failed',
+        });
+        return;
+      }
+
+      dispatch({
+        type: 'execution-succeeded',
+      });
+      await desktopApi.hideLauncher();
+    } catch (error) {
+      dispatch({
+        errorMessage: formatUnknownError(error, 'Screenshot capture failed.'),
+        type: 'execution-failed',
+      });
+    }
+  };
+}
+
 export function launcherReducer(state: LauncherState, action: LauncherAction): LauncherState {
   switch (action.type) {
     case 'query-changed':
@@ -694,6 +731,11 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
       executionInFlightRef.current = false;
     }
   }, [desktopApi, executableSelectedResult, onOpenPluginPage, onOpenSettings]);
+
+  const startScreenshotCapture = useMemo(
+    () => createStartScreenshotCapture(desktopApi, dispatch),
+    [desktopApi],
+  );
 
   const refreshCurrentQuery = useCallback(() => {
     dispatch({
@@ -906,6 +948,7 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     selectedResult,
     selectResult,
     setQuery,
+    startScreenshotCapture,
     removePinnedApp,
     removeRecentApp,
     state,

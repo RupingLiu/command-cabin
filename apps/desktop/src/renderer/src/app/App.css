@@ -2271,9 +2271,9 @@ select {
 
 .pinned-image-close:hover,
 .pinned-image-close:focus-visible {
-  border-color: rgba(234, 112, 93, 0.36);
+  border-color: color-mix(in srgb, var(--screenshot-danger), transparent 52%);
   outline: none;
-  background: rgba(234, 112, 93, 0.16);
+  background: var(--screenshot-danger-bg);
 }
 
 .pinned-image {

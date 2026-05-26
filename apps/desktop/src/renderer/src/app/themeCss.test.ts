@@ -132,6 +132,12 @@ describe('app theme CSS', () => {
     expect(css).toMatch(
       /\.pinned-image-titlebar\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s,
     );
+    expect(css).toMatch(
+      /\.pinned-image-close:hover,\s*\.pinned-image-close:focus-visible\s*{[^}]*border-color:\s*color-mix\(in srgb, var\(--screenshot-danger\), transparent 52%\)/s,
+    );
+    expect(css).toMatch(
+      /\.pinned-image-close:hover,\s*\.pinned-image-close:focus-visible\s*{[^}]*background:\s*var\(--screenshot-danger-bg\)/s,
+    );
   });
 
   it('uses a single uncluttered launcher surface instead of a nested panel frame', () => {

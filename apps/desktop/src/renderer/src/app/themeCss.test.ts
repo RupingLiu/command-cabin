@@ -10,10 +10,40 @@ describe('app theme CSS', () => {
   it('drives launcher and settings surfaces from theme variables', () => {
     const css = readFileSync(cssPath, 'utf8');
 
-    expect(css).toMatch(/:root\[data-theme='light'\]\s*{[^}]*--app-bg:/s);
+    expect(css).toMatch(/^:root\s*{[^}]*--app-bg:/s);
     expect(css).toMatch(/\.launcher-shell\s*{[^}]*background:\s*var\(--app-bg\)/s);
     expect(css).toMatch(/\.search-field-wrap\s*{[^}]*background:\s*var\(--app-control-bg\)/s);
     expect(css).toMatch(/\.settings-shell\s*{[^}]*background:\s*var\(--app-bg\)/s);
+  });
+
+  it('uses the soft frosted palette instead of the old industrial grid palette', () => {
+    const css = readFileSync(cssPath, 'utf8');
+    const themeBlocks = [
+      css.match(/^:root\s*{[^}]*}/s)?.[0] ?? '',
+      css.match(/:root\[data-theme='dark'\]\s*{[^}]*}/s)?.[0] ?? '',
+      css.match(/:root\[data-theme='light'\]\s*{[^}]*}/s)?.[0] ?? '',
+    ].join('\n');
+
+    expect(themeBlocks).not.toContain('repeating-linear-gradient');
+    expect(css).toMatch(/--app-accent:\s*#ff2d55/i);
+    expect(css).toMatch(/--app-secondary-accent:\s*#007aff/i);
+    expect(css).toMatch(/--app-success:\s*#34c759/i);
+    expect(css).toMatch(/--app-warm:\s*#ff9f0a/i);
+    expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-accent:\s*#ff375f/is);
+    expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-success:\s*#30d158/is);
+    expect(css).toMatch(/^:root\s*{[^}]*radial-gradient\(circle at 16% 8%/is);
+    expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*radial-gradient\(circle at 16% 8%/is);
+  });
+
+  it('defines shared frosted surface tokens for app and screenshot UI', () => {
+    const css = readFileSync(cssPath, 'utf8');
+
+    expect(css).toMatch(/--app-surface-blur:\s*blur\(22px\) saturate\(1\.28\)/);
+    expect(css).toMatch(/--app-radius-panel:\s*24px/);
+    expect(css).toMatch(/--app-radius-control:\s*18px/);
+    expect(css).toMatch(/--screenshot-toolbar-bg:\s*rgba\(18,\s*24,\s*38,\s*0\.74\)/);
+    expect(css).toMatch(/--screenshot-accent:\s*#ff375f/i);
+    expect(css).toMatch(/--screenshot-success:\s*#30d158/i);
   });
 
   it('uses a single uncluttered launcher surface instead of a nested panel frame', () => {

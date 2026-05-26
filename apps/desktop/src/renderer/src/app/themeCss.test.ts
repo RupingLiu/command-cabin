@@ -47,6 +47,31 @@ describe('app theme CSS', () => {
     expect(css).toMatch(/--screenshot-success:\s*#30d158/i);
   });
 
+  it('styles screenshot overlay controls as dark frosted floating surfaces', () => {
+    const css = readFileSync(cssPath, 'utf8');
+
+    expect(css).toMatch(
+      /\.screenshot-selection\s*{[^}]*border:\s*1px solid var\(--screenshot-accent\)/s,
+    );
+    expect(css).toMatch(/\.screenshot-toolbar\s*{[^}]*border-radius:\s*24px/s);
+    expect(css).toMatch(
+      /\.screenshot-toolbar\s*{[^}]*background:\s*var\(--screenshot-toolbar-bg\)/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-toolbar\s*{[^}]*backdrop-filter:\s*var\(--app-surface-blur\)/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-tool-group button\[data-active='true'\]\s*{[^}]*var\(--screenshot-accent\)/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-status\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-ocr-panel\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s,
+    );
+    expect(css).toMatch(/\.screenshot-text-input\s*{[^}]*border-radius:\s*16px/s);
+  });
+
   it('applies frosted rounded surfaces to launcher and add-app picker', () => {
     const css = readFileSync(cssPath, 'utf8');
 

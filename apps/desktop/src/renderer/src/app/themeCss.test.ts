@@ -62,10 +62,13 @@ describe('app theme CSS', () => {
       /\.screenshot-toolbar\s*{[^}]*backdrop-filter:\s*var\(--app-surface-blur\)/s,
     );
     expect(css).toMatch(
-      /\.screenshot-tool-group button:not\(:disabled\):not\(\.screenshot-color-swatch\):hover,\s*\.screenshot-tool-group button:not\(:disabled\):not\(\.screenshot-color-swatch\)\[data-active='true'\]\s*{[^}]*var\(--screenshot-accent\)/s,
+      /\.screenshot-tool-group\s+button:not\(:disabled\):not\(\.screenshot-color-swatch\):not\(\.screenshot-action-button--done\):not\(\s*\.screenshot-action-button--cancel\s*\):hover,\s*\.screenshot-tool-group\s+button:not\(:disabled\):not\(\.screenshot-color-swatch\):not\(\.screenshot-action-button--done\):not\(\s*\.screenshot-action-button--cancel\s*\)\[data-active='true'\]\s*{[^}]*var\(--screenshot-accent\)/s,
     );
     expect(css).toMatch(
       /\.screenshot-tool-group button:disabled\s*{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.06\)[^}]*box-shadow:\s*none/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-tool-group button:not\(:disabled\):focus-visible\s*{[^}]*outline:\s*none[^}]*0 0 0 3px rgba\(255,\s*55,\s*95,\s*0\.26\)/s,
     );
     expect(css).toMatch(
       /\.screenshot-color-swatch:not\(:disabled\):hover\s*{[^}]*border-color:[^}]*box-shadow:/s,
@@ -74,10 +77,19 @@ describe('app theme CSS', () => {
       /\.screenshot-color-swatch:not\(:disabled\)\[data-active='true'\]\s*{[^}]*0 0 0 2px var\(--screenshot-accent\)/s,
     );
     expect(css).toMatch(
+      /\.screenshot-tool-group\s+button\.screenshot-color-swatch:not\(:disabled\)\[data-active='true'\]:focus-visible\s*{[^}]*inset 0 0 0 3px rgba\(15,\s*17,\s*23,\s*0\.86\)[^}]*0 0 0 5px rgba\(255,\s*55,\s*95,\s*0\.26\)/s,
+    );
+    expect(css).toMatch(
       /\.screenshot-action-button--done:not\(:disabled\)\s*{[^}]*background:\s*rgba\(48,\s*209,\s*88,\s*0\.88\)/s,
     );
     expect(css).toMatch(
       /\.screenshot-action-button--cancel\s*{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.1\)/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-tool-group button\.screenshot-action-button--done:not\(:disabled\):focus-visible\s*{[^}]*rgba\(48,\s*209,\s*88,\s*0\.22\)/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-tool-group button\.screenshot-action-button--cancel:not\(:disabled\):focus-visible\s*{[^}]*rgba\(15,\s*23,\s*42,\s*0\.22\)/s,
     );
     expect(css).not.toMatch(/\.screenshot-tool-group--actions button:nth-last-child/);
     expect(css).not.toMatch(/\.screenshot-tool-group--actions button:last-child/);

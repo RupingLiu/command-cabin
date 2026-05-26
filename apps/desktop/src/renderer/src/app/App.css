@@ -1983,10 +1983,15 @@ select {
   white-space: nowrap;
 }
 
-.screenshot-tool-group button:not(:disabled):not(.screenshot-color-swatch):hover,
-.screenshot-tool-group button:not(:disabled):not(.screenshot-color-swatch)[data-active='true'] {
+.screenshot-tool-group
+  button:not(:disabled):not(.screenshot-color-swatch):not(.screenshot-action-button--done):not(
+    .screenshot-action-button--cancel
+  ):hover,
+.screenshot-tool-group
+  button:not(:disabled):not(.screenshot-color-swatch):not(.screenshot-action-button--done):not(
+    .screenshot-action-button--cancel
+  )[data-active='true'] {
   border-color: rgba(255, 55, 95, 0.62);
-  outline: none;
   background: linear-gradient(135deg, var(--screenshot-accent), var(--app-warm));
   box-shadow: 0 12px 26px rgba(255, 55, 95, 0.24);
 }
@@ -2043,6 +2048,43 @@ select {
   border-color: rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.14);
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.22);
+}
+
+.screenshot-tool-group button:not(:disabled):focus-visible {
+  border-color: rgba(255, 55, 95, 0.72);
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(255, 55, 95, 0.26),
+    0 12px 26px rgba(255, 55, 95, 0.2);
+}
+
+.screenshot-tool-group button.screenshot-color-swatch:not(:disabled):focus-visible {
+  border-color: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 0 0 3px rgba(255, 55, 95, 0.26),
+    0 0 0 5px rgba(255, 255, 255, 0.16);
+}
+
+.screenshot-tool-group
+  button.screenshot-color-swatch:not(:disabled)[data-active='true']:focus-visible {
+  box-shadow:
+    inset 0 0 0 3px rgba(15, 17, 23, 0.86),
+    0 0 0 2px var(--screenshot-accent),
+    0 0 0 5px rgba(255, 55, 95, 0.26);
+}
+
+.screenshot-tool-group button.screenshot-action-button--done:not(:disabled):focus-visible {
+  border-color: rgba(48, 209, 88, 0.78);
+  box-shadow:
+    0 0 0 3px rgba(255, 55, 95, 0.26),
+    0 12px 26px rgba(48, 209, 88, 0.22);
+}
+
+.screenshot-tool-group button.screenshot-action-button--cancel:not(:disabled):focus-visible {
+  border-color: rgba(255, 255, 255, 0.32);
+  box-shadow:
+    0 0 0 3px rgba(255, 55, 95, 0.26),
+    0 12px 26px rgba(15, 23, 42, 0.22);
 }
 
 .screenshot-status {

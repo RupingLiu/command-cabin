@@ -1021,7 +1021,7 @@ select {
   }
 
   .result-item {
-    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-columns: 38px minmax(0, 1fr);
   }
 
   .result-source {

@@ -197,7 +197,7 @@ select {
 .launcher-shell {
   display: grid;
   min-height: 100vh;
-  padding: 24px 30px;
+  padding: 26px 30px;
   background: var(--app-bg);
   -webkit-app-region: drag;
 }
@@ -205,13 +205,13 @@ select {
 .launcher-frame {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
   min-height: 100%;
   margin: 0 auto;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
@@ -232,11 +232,11 @@ select {
 }
 
 .launcher-brand-mark {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
-  border-radius: 8px;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.18));
+  border-radius: 12px;
+  filter: drop-shadow(0 12px 22px rgba(255, 45, 85, 0.18));
 }
 
 .launcher-kicker,
@@ -274,26 +274,23 @@ select {
 .launcher-settings-button,
 .settings-back,
 .clipboard-history-settings button {
-  min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--app-control-line);
+  border-radius: 999px;
   color: var(--app-text);
   background: var(--app-button-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .launcher-settings-button {
   display: grid;
-  width: 36px;
-  min-height: 36px;
+  width: 38px;
+  min-height: 38px;
   place-items: center;
   padding: 0;
   color: var(--app-title);
-}
-
-.launcher-settings-button:hover {
-  border-color: var(--app-accent-line);
-  background: var(--app-accent-soft);
 }
 
 .launcher-settings-icon {
@@ -301,17 +298,21 @@ select {
   height: 18px;
 }
 
+.launcher-settings-button:hover,
 .launcher-settings-button:focus-visible,
+.settings-back:hover,
 .settings-back:focus-visible,
+.clipboard-history-settings button:hover,
 .clipboard-history-settings button:focus-visible {
   border-color: var(--app-accent-line);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  background: var(--app-accent-soft);
+  box-shadow: var(--focus-ring), var(--app-shadow-soft);
 }
 
 .search-box {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   -webkit-app-region: no-drag;
 }
 
@@ -325,8 +326,10 @@ select {
   position: relative;
   overflow: hidden;
   border: 1px solid var(--app-control-line);
-  border-radius: 8px;
+  border-radius: var(--app-radius-panel);
   background: var(--app-control-bg);
+  box-shadow: var(--app-shadow);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .search-field-wrap::after {
@@ -334,8 +337,13 @@ select {
   right: 0;
   bottom: 0;
   left: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--app-accent), #d7b56d, var(--app-accent));
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--app-accent),
+    var(--app-warm),
+    var(--app-secondary-accent)
+  );
   content: '';
   opacity: 0;
   transform: translateX(-100%);
@@ -347,14 +355,14 @@ select {
 }
 
 .search-field-wrap:focus-within {
-  border-color: var(--app-accent);
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  border-color: var(--app-accent-line);
+  box-shadow: var(--focus-ring), var(--app-shadow);
 }
 
 .search-field-wrap input {
   width: 100%;
-  height: 54px;
-  padding: 0 16px;
+  height: 58px;
+  padding: 0 18px;
   border: 0;
   outline: none;
   color: var(--app-input-text);
@@ -370,8 +378,8 @@ select {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 7px;
-  min-height: 34px;
+  gap: 8px;
+  min-height: 36px;
   -webkit-app-region: no-drag;
 }
 
@@ -380,13 +388,15 @@ select {
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 32px;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--app-line-soft);
+  min-height: 34px;
+  gap: 7px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--app-control-line);
   border-radius: 999px;
   color: var(--app-text);
-  background: var(--app-panel-bg-soft);
+  background: var(--app-button-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .launcher-home-actions button:hover,
@@ -394,17 +404,17 @@ select {
   border-color: var(--app-accent-line);
   outline: none;
   background: var(--app-accent-soft);
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  box-shadow: var(--focus-ring), var(--app-shadow-soft);
 }
 
 .launcher-home-actions__icon {
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid var(--app-icon-border);
-  border-radius: 7px;
+  border-radius: 999px;
   color: var(--app-icon-text);
   background: var(--app-icon-bg);
   font-size: 12px;
@@ -426,11 +436,13 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 42px;
-  padding: 8px 10px;
+  min-height: 46px;
+  padding: 10px 12px;
   border: 1px solid var(--app-accent-line);
-  border-radius: 8px;
+  border-radius: var(--app-radius-control);
   background: var(--app-accent-soft);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
   -webkit-app-region: no-drag;
 }
 
@@ -463,10 +475,10 @@ select {
   flex: 0 0 auto;
   min-height: 30px;
   padding: 0 12px;
-  border: 1px solid var(--app-accent-line);
+  border: 1px solid var(--app-control-line);
   border-radius: 999px;
   color: var(--app-title);
-  background: var(--app-panel-bg);
+  background: var(--app-button-bg);
   font-size: 12px;
   font-weight: 700;
 }
@@ -474,8 +486,8 @@ select {
 .launcher-update-banner button:hover,
 .launcher-update-banner button:focus-visible {
   outline: none;
-  background: var(--app-icon-bg);
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  background: var(--app-accent-soft);
+  box-shadow: var(--focus-ring), var(--app-shadow-soft);
 }
 
 .launcher-update-banner button:disabled {
@@ -487,7 +499,7 @@ select {
 .result-skeleton {
   display: grid;
   align-content: start;
-  gap: 7px;
+  gap: 8px;
   min-height: 0;
   margin: 0;
   padding: 0;
@@ -500,9 +512,9 @@ select {
 }
 
 .result-list--recent-apps {
-  grid-template-columns: repeat(auto-fill, minmax(82px, 94px));
+  grid-template-columns: repeat(auto-fill, minmax(86px, 98px));
   justify-content: start;
-  gap: 7px;
+  gap: 8px;
 }
 
 .result-list::-webkit-scrollbar {
@@ -517,22 +529,25 @@ select {
 
 .result-item {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) minmax(58px, auto);
+  grid-template-columns: 40px minmax(0, 1fr) minmax(58px, auto);
   align-items: center;
   gap: 12px;
-  min-height: 61px;
-  padding: 9px 11px;
-  border: 1px solid var(--app-line-soft);
-  border-radius: 8px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-control-line);
+  border-radius: 20px;
   background: var(--app-panel-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
   cursor: default;
   user-select: none;
 }
 
 .result-item[data-selected='true'] {
   border-color: var(--app-accent-line);
-  background: var(--app-accent-soft);
-  box-shadow: inset 3px 0 0 var(--app-accent);
+  background: color-mix(in srgb, var(--app-panel-bg) 82%, var(--app-accent-soft));
+  box-shadow: inset 4px 0 0 var(--app-accent), var(--app-shadow);
+  transform: translateY(-1px);
 }
 
 .result-item[data-disabled='true'] {
@@ -543,14 +558,15 @@ select {
 .result-item--recent-app {
   grid-template-columns: 1fr;
   justify-items: center;
-  min-height: 78px;
-  padding: 8px 7px 7px;
-  gap: 6px;
+  min-height: 84px;
+  padding: 10px 8px 9px;
+  gap: 7px;
+  border-radius: 20px;
   text-align: center;
 }
 
 .result-item--recent-app[data-selected='true'] {
-  box-shadow: inset 0 0 0 1px var(--app-accent);
+  box-shadow: inset 0 0 0 2px var(--app-accent-line), var(--app-shadow-soft);
 }
 
 .result-item[data-manageable='true'] {
@@ -581,14 +597,15 @@ select {
 
 .result-icon {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--app-icon-border);
-  border-radius: 8px;
+  border-radius: 13px;
   color: var(--app-icon-text);
-  background: var(--app-icon-bg);
+  background: linear-gradient(135deg, var(--app-icon-bg), var(--app-secondary-soft)),
+    var(--app-panel-bg);
   font-size: 14px;
   font-weight: 720;
   line-height: 1;
@@ -603,8 +620,8 @@ select {
 }
 
 .result-item--recent-app .result-icon {
-  width: 30px;
-  height: 30px;
+  width: 38px;
+  height: 38px;
 }
 
 .result-icon--add {
@@ -660,9 +677,10 @@ select {
   justify-self: end;
   min-width: 58px;
   padding: 4px 7px;
-  border: 1px solid var(--app-line);
+  border: 1px solid var(--app-control-line);
   border-radius: 999px;
-  background: var(--app-panel-bg);
+  color: var(--app-muted);
+  background: var(--app-panel-bg-soft);
   text-align: center;
 }
 
@@ -670,12 +688,13 @@ select {
   position: fixed;
   z-index: 20;
   display: grid;
-  min-width: 112px;
+  min-width: 120px;
   overflow: hidden;
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
+  border: 1px solid var(--app-control-line);
+  border-radius: 16px;
   background: var(--app-frame-bg);
   box-shadow: var(--app-shadow);
+  backdrop-filter: var(--app-surface-blur);
   -webkit-app-region: no-drag;
 }
 
@@ -701,20 +720,21 @@ select {
   display: grid;
   place-items: center;
   padding: 22px;
-  background: rgba(6, 8, 7, 0.3);
+  background: rgba(15, 23, 42, 0.28);
   -webkit-app-region: no-drag;
 }
 
 .add-app-picker {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  width: min(680px, 100%);
-  max-height: 456px;
+  width: min(700px, 100%);
+  max-height: 468px;
   overflow: hidden;
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
+  border: 1px solid var(--app-control-line);
+  border-radius: var(--app-radius-panel);
   background: var(--app-frame-bg);
   box-shadow: var(--app-shadow);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .add-app-picker__header,
@@ -743,16 +763,30 @@ select {
 .add-app-picker__footer button,
 .add-app-candidate button {
   min-height: 34px;
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
+  border: 1px solid var(--app-control-line);
+  border-radius: 999px;
   color: var(--app-text);
   background: var(--app-button-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .add-app-picker__close {
   width: 36px;
   padding: 0;
   font-size: 16px;
+}
+
+.add-app-picker__close:hover,
+.add-app-picker__close:focus-visible,
+.add-app-picker__footer button:hover,
+.add-app-picker__footer button:focus-visible,
+.add-app-candidate button:hover,
+.add-app-candidate button:focus-visible {
+  border-color: var(--app-accent-line);
+  outline: none;
+  background: var(--app-accent-soft);
+  box-shadow: var(--focus-ring), var(--app-shadow-soft);
 }
 
 .add-app-picker__search {
@@ -766,13 +800,19 @@ select {
 
 .add-app-picker__search input {
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 12px;
-  border: 1px solid var(--app-accent-line);
-  border-radius: 8px;
+  border: 1px solid var(--app-control-line);
+  border-radius: var(--app-radius-control);
   outline: none;
   color: var(--app-input-text);
   background: var(--app-control-bg);
+  box-shadow: var(--app-shadow-soft);
+}
+
+.add-app-picker__search input:focus {
+  border-color: var(--app-accent-line);
+  box-shadow: var(--focus-ring), var(--app-shadow-soft);
 }
 
 .add-app-picker__body {
@@ -802,10 +842,12 @@ select {
   min-height: 164px;
   gap: 4px;
   padding: 18px;
-  border: 1px dashed var(--app-line);
-  border-radius: 8px;
+  border: 1px solid var(--app-control-line);
+  border-radius: var(--app-radius-control);
   color: var(--app-muted);
   background: var(--app-panel-bg-soft);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .add-app-picker__state strong {
@@ -828,31 +870,35 @@ select {
 
 .add-app-candidate {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) minmax(64px, auto);
+  grid-template-columns: 40px minmax(0, 1fr) minmax(64px, auto);
   align-items: center;
   gap: 10px;
-  min-height: 56px;
-  padding: 8px 10px;
-  border: 1px solid var(--app-line-soft);
-  border-radius: 8px;
+  min-height: 60px;
+  padding: 9px 11px;
+  border: 1px solid var(--app-control-line);
+  border-radius: 18px;
   background: var(--app-panel-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .add-app-candidate[data-selected='true'] {
   border-color: var(--app-accent-line);
-  background: var(--app-accent-soft);
+  background: color-mix(in srgb, var(--app-panel-bg) 82%, var(--app-accent-soft));
+  box-shadow: inset 3px 0 0 var(--app-accent), var(--app-shadow-soft);
 }
 
 .add-app-candidate__icon {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--app-icon-border);
-  border-radius: 8px;
+  border-radius: 13px;
   color: var(--app-icon-text);
-  background: var(--app-icon-bg);
+  background: linear-gradient(135deg, var(--app-icon-bg), var(--app-secondary-soft)),
+    var(--app-panel-bg);
   font-size: 14px;
   font-weight: 720;
 }
@@ -897,7 +943,7 @@ select {
 }
 
 .add-app-picker__footer {
-  border-top: 1px solid var(--app-line-soft);
+  border-top: 1px solid var(--app-control-line);
 }
 
 .add-app-picker__footer button {
@@ -910,9 +956,11 @@ select {
   align-content: center;
   min-height: 188px;
   padding: 22px;
-  border: 1px dashed var(--app-line);
-  border-radius: 8px;
+  border: 1px solid var(--app-control-line);
+  border-radius: var(--app-radius-panel);
   background: var(--app-panel-bg-soft);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
   -webkit-app-region: no-drag;
 }
 
@@ -929,9 +977,9 @@ select {
 }
 
 .result-skeleton span {
-  min-height: 61px;
-  border: 1px solid var(--app-line-soft);
-  border-radius: 8px;
+  min-height: 64px;
+  border: 1px solid var(--app-control-line);
+  border-radius: 20px;
   background:
     linear-gradient(90deg, var(--app-skeleton-a), var(--app-skeleton-b), var(--app-skeleton-a)),
     var(--app-panel-bg-soft);

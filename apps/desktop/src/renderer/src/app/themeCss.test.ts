@@ -47,6 +47,20 @@ describe('app theme CSS', () => {
     expect(css).toMatch(/--screenshot-success:\s*#30d158/i);
   });
 
+  it('applies frosted rounded surfaces to launcher and add-app picker', () => {
+    const css = readFileSync(cssPath, 'utf8');
+
+    expect(css).toMatch(/\.search-field-wrap\s*{[^}]*border-radius:\s*var\(--app-radius-panel\)/s);
+    expect(css).toMatch(/\.search-field-wrap\s*{[^}]*backdrop-filter:\s*var\(--app-surface-blur\)/s);
+    expect(css).toMatch(/\.result-item\s*{[^}]*border-radius:\s*20px/s);
+    expect(css).toMatch(
+      /\.result-item\[data-selected='true'\]\s*{[^}]*inset 4px 0 0 var\(--app-accent\)/s,
+    );
+    expect(css).toMatch(/\.launcher-home-actions button\s*{[^}]*border-radius:\s*999px/s);
+    expect(css).toMatch(/\.add-app-picker\s*{[^}]*border-radius:\s*var\(--app-radius-panel\)/s);
+    expect(css).toMatch(/\.add-app-picker\s*{[^}]*backdrop-filter:\s*var\(--app-surface-blur\)/s);
+  });
+
   it('uses a single uncluttered launcher surface instead of a nested panel frame', () => {
     const css = readFileSync(cssPath, 'utf8');
 

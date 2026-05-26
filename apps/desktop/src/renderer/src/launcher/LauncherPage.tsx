@@ -40,23 +40,38 @@ function CommandCabinMark() {
       viewBox="0 0 256 256"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect x="22" y="22" width="212" height="212" rx="48" fill="#F7F3EA" />
-      <rect x="22" y="22" width="212" height="212" rx="48" stroke="#303A39" strokeWidth="12" />
+      <defs>
+        <linearGradient id="commandCabinMarkBg" x1="38" x2="218" y1="38" y2="218">
+          <stop offset="0" stopColor="#FF2D55" />
+          <stop offset="0.52" stopColor="#FF9F0A" />
+          <stop offset="1" stopColor="#007AFF" />
+        </linearGradient>
+      </defs>
+      <rect x="22" y="22" width="212" height="212" rx="48" fill="url(#commandCabinMarkBg)" />
+      <rect
+        x="22"
+        y="22"
+        width="212"
+        height="212"
+        rx="48"
+        stroke="rgba(255,255,255,0.7)"
+        strokeWidth="10"
+      />
       <path
         d="M157 84H93C75.3 84 61 98.3 61 116v24c0 17.7 14.3 32 32 32h64"
-        stroke="#303A39"
+        stroke="rgba(255,255,255,0.9)"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="26"
       />
       <path
         d="M88 112L114 128L88 144"
-        stroke="#8EA18C"
+        stroke="#FF9F0A"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="12"
       />
-      <path d="M157 146V176" stroke="#9DB7BC" strokeLinecap="round" strokeWidth="22" />
+      <path d="M157 146V176" stroke="#007AFF" strokeLinecap="round" strokeWidth="22" />
     </svg>
   );
 }

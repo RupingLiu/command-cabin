@@ -32,6 +32,7 @@ describe('app theme CSS', () => {
     expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-accent:\s*#ff375f/is);
     expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-success:\s*#30d158/is);
     expect(css).toMatch(/^:root\s*{[^}]*radial-gradient\(circle at 16% 8%/is);
+    expect(css).toMatch(/:root\[data-theme='light'\]\s*{[^}]*--app-bg:[^}]*radial-gradient\(circle at 16% 8%/is);
     expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*radial-gradient\(circle at 16% 8%/is);
   });
 

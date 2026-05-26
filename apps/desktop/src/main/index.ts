@@ -49,6 +49,7 @@ import { createAltSpaceHotkeyCaptureController } from './hotkey/altSpaceHotkeyCa
 import { createAppIconResolver } from './icons/appIconResolver.js';
 import { createIconDataUrlCache, type IconDataUrlCache } from './icons/iconDataUrlCache.js';
 import { hydrateSearchResultsWithCachedIcons } from './icons/searchResultIconHydration.js';
+import { createWindowsAssociatedIconResolver } from './icons/windowsAssociatedIconResolver.js';
 import { createWindowsAppUserModelIconResolver } from './icons/windowsAppUserModelIconResolver.js';
 import { startAppIndexing } from './launcher/appIndexStartup.js';
 import { createExplorerAppsFolderAppLauncher } from './launcher/appsFolderAppLauncher.js';
@@ -71,10 +72,7 @@ import {
   type DesktopPluginService,
 } from './plugins/desktopPluginService.js';
 import { openRepository } from './repository/openRepository.js';
-import {
-  calculateVirtualBounds,
-  captureDisplays,
-} from './screenshot/screenshotCapture.js';
+import { calculateVirtualBounds, captureDisplays } from './screenshot/screenshotCapture.js';
 import { runLocalOcr } from './screenshot/localOcr.js';
 import { createScreenshotController } from './screenshot/screenshotController.js';
 import { createScreenshotShortcutController } from './screenshot/screenshotShortcutController.js';
@@ -159,6 +157,9 @@ const appCandidateShortcutResolver = createWindowsShortcutResolver({
 const appUserModelIconResolver = createWindowsAppUserModelIconResolver({
   logger: console,
 });
+const associatedIconResolver = createWindowsAssociatedIconResolver({
+  logger: console,
+});
 const appIconResolver = createAppIconResolver({
   fileExists: async (path) => {
     try {
@@ -180,6 +181,7 @@ const appIconResolver = createAppIconResolver({
 
     return image.isEmpty() ? undefined : image.toDataURL();
   },
+  resolveAssociatedFileIcon: (path) => associatedIconResolver.resolve(path),
   resolveAppUserModelIcon: (appUserModelId) => appUserModelIconResolver.resolve(appUserModelId),
   resolveShortcut: (path) => shortcutResolver.resolve(path),
 });

@@ -42,6 +42,7 @@ export interface AppIndexer {
 
 const EXECUTABLE_EXTENSIONS = new Set(['.exe', '.com', '.bat', '.cmd']);
 const COMMON_START_MENU_PARENT_NAMES = new Set(['programs', 'start menu', 'startmenu']);
+const ICON_INDEX_ONLY_PATTERN = /^,\d+$/;
 
 function normalizeCommandIdInput(shortcutPath: string): string {
   return shortcutPath.replaceAll('/', '\\').toLowerCase();
@@ -102,6 +103,12 @@ function isExecutableTarget(targetPath: string | undefined): targetPath is strin
   );
 }
 
+function isUsefulIconPath(iconPath: string | undefined): iconPath is string {
+  const trimmedIconPath = iconPath?.trim();
+
+  return trimmedIconPath !== undefined && !ICON_INDEX_ONLY_PATTERN.test(trimmedIconPath);
+}
+
 function createOpenAppPayload(shortcut: StartMenuShortcut): CommandPayload {
   const payload: CommandPayload = {
     shortcutPath: shortcut.shortcutPath,
@@ -156,7 +163,7 @@ function createCommandFromShortcut(shortcut: StartMenuShortcut): Command {
         },
   };
 
-  if (shortcut.iconPath !== undefined) {
+  if (isUsefulIconPath(shortcut.iconPath)) {
     command.icon = shortcut.iconPath;
   }
 

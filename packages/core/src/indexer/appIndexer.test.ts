@@ -82,6 +82,31 @@ describe('app indexer', () => {
     ]);
   });
 
+  it('does not expose invalid Windows icon locations as command icons', () => {
+    const commands = createAppCommandsFromShortcuts([
+      {
+        name: 'GBChargeDoctor',
+        shortcutPath: 'C:\\StartMenu\\GBChargeDoctor.lnk',
+        targetPath: 'C:\\Program Files\\GBChargeDoctor\\gbcharge-doctor.exe',
+        iconPath: ',0',
+      },
+    ]);
+
+    expect(commands[0]).toMatchObject({
+      source: 'app',
+      title: 'GBChargeDoctor',
+      subtitle: 'C:\\Program Files\\GBChargeDoctor\\gbcharge-doctor.exe',
+      action: {
+        type: 'open-app',
+        payload: {
+          executablePath: 'C:\\Program Files\\GBChargeDoctor\\gbcharge-doctor.exe',
+          shortcutPath: 'C:\\StartMenu\\GBChargeDoctor.lnk',
+        },
+      },
+    });
+    expect(commands[0]).not.toHaveProperty('icon');
+  });
+
   it('de-duplicates generated app commands by stable shortcut id', () => {
     const commands = createAppCommandsFromShortcuts([
       {

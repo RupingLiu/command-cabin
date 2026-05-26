@@ -26,6 +26,7 @@ export interface AppIconResolverOptions {
   iconTimeoutMs?: number;
   logger?: Pick<Console, 'warn'>;
   readImageDataUrl?: ((path: string) => Promise<string | undefined>) | undefined;
+  resolveAssociatedFileIcon?: ((path: string) => Promise<string | undefined>) | undefined;
   resolveAppUserModelIcon?: ((appUserModelId: string) => Promise<string | undefined>) | undefined;
   resolveShortcut?: ((path: string) => Promise<AppIconResolvedShortcut>) | undefined;
   shortcutTimeoutMs?: number;
@@ -45,7 +46,10 @@ const ICON_INDEX_SUFFIX_PATTERN = /,\d+$/;
 const ENV_VAR_PATTERN = /%([^%]+)%/g;
 const DEFAULT_ICON_TIMEOUT_MS = 700;
 const DEFAULT_SHORTCUT_TIMEOUT_MS = 750;
+const ASSOCIATED_ICON_FALLBACK_PNG_BYTE_THRESHOLD = 1_200;
 const IMAGE_FILE_EXTENSIONS = new Set(['.ico', '.jpg', '.jpeg', '.png', '.webp']);
+const EXECUTABLE_ICON_EXTENSIONS = new Set(['.com', '.exe']);
+const ICON_INDEX_ONLY_PATTERN = /^,\d+$/;
 const RESULT_ICON_CACHE_HASH_LENGTH = 16;
 const WINDOWS_APPS_FOLDER_CANDIDATE_PATTERN = /^shell:AppsFolder[\\/](.+)$/i;
 const PACKAGED_APP_ASSET_PATHS = [
@@ -60,6 +64,7 @@ const PACKAGED_APP_ASSET_PATHS = [
 
 interface ExpandedIconCandidates {
   candidates: string[];
+  hasInvalidIconLocationCandidate: boolean;
   hasWeakShortcutExpansion: boolean;
 }
 
@@ -132,7 +137,7 @@ function createResultIconCacheKey(result: LauncherCommandSearchResult): string {
     .digest('hex')
     .slice(0, RESULT_ICON_CACHE_HASH_LENGTH);
 
-  return `app-result:${result.id}:${fingerprint}`;
+  return `app-result-v2:${result.id}:${fingerprint}`;
 }
 
 export function createAppIconResolver({
@@ -142,6 +147,7 @@ export function createAppIconResolver({
   iconTimeoutMs = DEFAULT_ICON_TIMEOUT_MS,
   logger = console,
   readImageDataUrl,
+  resolveAssociatedFileIcon,
   resolveAppUserModelIcon,
   resolveShortcut,
   shortcutTimeoutMs = DEFAULT_SHORTCUT_TIMEOUT_MS,
@@ -233,7 +239,13 @@ export function createAppIconResolver({
       }
 
       try {
-        const dataUrl = (await getImageDataUrl(iconPath)) ?? (await getFileIconDataUrl(iconPath));
+        const imageDataUrl = await getImageDataUrl(iconPath);
+        const nativeDataUrl = imageDataUrl ?? (await getFileIconDataUrl(iconPath));
+        const associatedDataUrl =
+          imageDataUrl === undefined
+            ? await getAssociatedFileIconDataUrl(iconPath, nativeDataUrl, expandedCandidates)
+            : undefined;
+        const dataUrl = associatedDataUrl ?? nativeDataUrl;
 
         if (dataUrl !== undefined) {
           iconCache.set(iconPath, dataUrl);
@@ -250,6 +262,67 @@ export function createAppIconResolver({
     }
 
     return undefined;
+  }
+
+  async function getAssociatedFileIconDataUrl(
+    iconPath: string,
+    nativeDataUrl: string | undefined,
+    expandedCandidates: ExpandedIconCandidates,
+  ): Promise<string | undefined> {
+    if (
+      resolveAssociatedFileIcon === undefined ||
+      !shouldResolveAssociatedFileIcon(iconPath, nativeDataUrl, expandedCandidates)
+    ) {
+      return undefined;
+    }
+
+    try {
+      const associatedDataUrl = await resolveAssociatedFileIcon(iconPath);
+
+      return associatedDataUrl !== undefined && isImageDataUrl(associatedDataUrl)
+        ? associatedDataUrl
+        : undefined;
+    } catch (error) {
+      logger.warn('Failed to resolve associated app icon.', error);
+      return undefined;
+    }
+  }
+
+  function shouldResolveAssociatedFileIcon(
+    iconPath: string,
+    nativeDataUrl: string | undefined,
+    expandedCandidates: ExpandedIconCandidates,
+  ): boolean {
+    if (!isExecutableIconPath(iconPath)) {
+      return false;
+    }
+
+    return (
+      nativeDataUrl === undefined ||
+      expandedCandidates.hasInvalidIconLocationCandidate ||
+      isSmallImageDataUrl(nativeDataUrl)
+    );
+  }
+
+  function isExecutableIconPath(iconPath: string): boolean {
+    return EXECUTABLE_ICON_EXTENSIONS.has(path.extname(iconPath).toLowerCase());
+  }
+
+  function isSmallImageDataUrl(dataUrl: string): boolean {
+    const separatorIndex = dataUrl.indexOf(',');
+
+    if (separatorIndex < 0) {
+      return false;
+    }
+
+    try {
+      return (
+        Buffer.from(dataUrl.slice(separatorIndex + 1), 'base64').byteLength <=
+        ASSOCIATED_ICON_FALLBACK_PNG_BYTE_THRESHOLD
+      );
+    } catch {
+      return false;
+    }
   }
 
   function isWeakResultIconPath(iconPath: string): boolean {
@@ -417,9 +490,15 @@ export function createAppIconResolver({
     const dataUrlCandidates: string[] = [];
     const directCandidates: string[] = [];
     const shortcutCandidates: string[] = [];
+    let hasInvalidIconLocationCandidate = false;
     let hasWeakShortcutExpansion = false;
 
     for (const icon of candidates) {
+      if (isInvalidIconLocationCandidate(icon)) {
+        hasInvalidIconLocationCandidate = true;
+        continue;
+      }
+
       const candidate = getIconFilePathCandidate(icon);
 
       if (!candidate) {
@@ -447,6 +526,8 @@ export function createAppIconResolver({
 
       for (const shortcutPath of shortcutCandidates) {
         const nextCandidates = await getShortcutCandidates(shortcutPath);
+        hasInvalidIconLocationCandidate =
+          hasInvalidIconLocationCandidate || nextCandidates.some(isInvalidIconLocationCandidate);
 
         if (isWeakShortcutExpansion(shortcutPath, nextCandidates)) {
           hasWeakShortcutExpansion = true;
@@ -468,8 +549,13 @@ export function createAppIconResolver({
 
     return {
       candidates: expandedCandidates,
+      hasInvalidIconLocationCandidate,
       hasWeakShortcutExpansion,
     };
+  }
+
+  function isInvalidIconLocationCandidate(icon: string | undefined): boolean {
+    return typeof icon === 'string' && ICON_INDEX_ONLY_PATTERN.test(icon.trim());
   }
 
   function isWeakShortcutExpansion(shortcutPath: string, candidates: readonly string[]): boolean {

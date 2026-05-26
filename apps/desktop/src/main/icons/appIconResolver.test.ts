@@ -98,7 +98,7 @@ describe('createAppIconResolver', () => {
     });
 
     expect(iconDataUrlCache.read).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result:app\.codex:/),
+      expect.stringMatching(/^app-result-v2:app\.codex:/),
     );
     expect(getFileIcon).not.toHaveBeenCalled();
   });
@@ -198,7 +198,7 @@ describe('createAppIconResolver', () => {
     });
 
     expect(iconDataUrlCache.write).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result:app\.codex:/),
+      expect.stringMatching(/^app-result-v2:app\.codex:/),
       'data:image/png;base64,CODEX',
     );
   });
@@ -654,6 +654,37 @@ describe('createAppIconResolver', () => {
       'C:\\Users\\Ada\\AppData\\Local\\UGit\\app-5.47.1\\resources\\app\\static\\logo-256x256.png',
     );
     expect(getFileIcon).not.toHaveBeenCalled();
+  });
+
+  it('uses associated executable icons when shortcut icon locations are invalid', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,GENERIC_EXE',
+    }));
+    const resolveAssociatedFileIcon = vi.fn(async () => 'data:image/png;base64,GB_REAL_ICON');
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      resolveAssociatedFileIcon,
+      resolveShortcut: vi.fn(async () => ({
+        iconPath: ',0',
+        targetPath: 'C:\\Program Files\\GBChargeDoctor\\gbcharge-doctor.exe',
+      })),
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: ['C:\\Users\\Public\\Desktop\\GBChargeDoctor.lnk'],
+        id: 'app.gbcharge',
+        score: 1,
+        source: 'app',
+        title: 'GBChargeDoctor',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,GB_REAL_ICON',
+    });
+
+    expect(resolveAssociatedFileIcon).toHaveBeenCalledWith(
+      'C:\\Program Files\\GBChargeDoctor\\gbcharge-doctor.exe',
+    );
   });
 
   it('skips invalid icon locations and tries executable candidates before shortcuts', async () => {

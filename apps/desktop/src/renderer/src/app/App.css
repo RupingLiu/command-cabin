@@ -1042,27 +1042,28 @@ select {
   display: grid;
   gap: 12px;
   max-width: 680px;
-  color: var(--app-text);
+  color: var(--settings-text);
 }
 
 .favorites-settings button,
 .favorites-settings input {
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
+  border: 1px solid var(--settings-line);
+  border-radius: var(--app-radius-control);
 }
 
 .favorites-settings button {
-  min-height: 32px;
-  padding: 0 11px;
-  color: var(--app-text);
-  background: var(--app-button-bg);
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--settings-text);
+  background: var(--settings-button-bg);
 }
 
 .favorites-settings__row--kind label[data-selected='true'],
 .favorites-settings button:focus-visible {
   border-color: var(--app-accent-line);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  box-shadow: var(--focus-ring);
 }
 
 .favorites-settings button:disabled,
@@ -1088,7 +1089,7 @@ select {
 .favorites-settings__row--kind legend {
   margin: 0 0 5px;
   padding: 0;
-  color: var(--app-muted);
+  color: var(--settings-muted);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -1096,19 +1097,19 @@ select {
 .favorites-settings__form .favorites-settings__row--kind label {
   display: flex;
   align-items: center;
-  min-height: 32px;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
-  background: var(--app-control-bg);
+  min-height: 34px;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--settings-line);
+  border-radius: 999px;
+  background: var(--settings-control-bg);
 }
 
 .favorites-settings__form .favorites-settings__row--kind input {
   width: 14px;
   min-height: 14px;
   padding: 0;
-  accent-color: var(--app-accent);
+  accent-color: var(--settings-accent);
 }
 
 .favorites-settings__header {
@@ -1117,7 +1118,7 @@ select {
 
 .favorites-settings__header h2 {
   margin: 0;
-  color: var(--app-title);
+  color: var(--settings-title);
   font-size: 18px;
   line-height: 1.2;
 }
@@ -1136,7 +1137,7 @@ select {
 .favorites-settings__item small,
 .favorites-settings__empty,
 .favorites-settings__error {
-  color: var(--app-muted);
+  color: var(--settings-muted);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -1146,7 +1147,7 @@ select {
   width: 100%;
   padding: 0 10px;
   color: var(--app-input-text);
-  background: var(--app-control-bg);
+  background: var(--settings-control-bg);
 }
 
 .favorites-settings__list {
@@ -1161,9 +1162,10 @@ select {
   gap: 8px;
   min-height: 52px;
   padding: 8px 9px;
-  border: 1px solid var(--app-line-soft);
-  border-radius: 8px;
-  background: var(--app-panel-bg);
+  border: 1px solid var(--settings-line);
+  border-radius: var(--app-radius-control);
+  background: var(--settings-panel-bg);
+  box-shadow: var(--app-shadow-soft);
 }
 
 .favorites-settings__item div {
@@ -1180,25 +1182,26 @@ select {
 }
 
 .favorites-settings__item strong {
-  color: var(--app-title);
+  color: var(--settings-title);
   font-size: 13px;
 }
 
 .favorites-settings__item span {
-  color: var(--app-muted);
+  color: var(--settings-muted);
   font-size: 12px;
 }
 
 .favorites-settings__error {
   margin: 0;
-  color: var(--app-danger);
+  color: var(--settings-danger);
 }
 
 .favorites-settings__empty {
   margin: 0;
   padding: 14px;
-  border: 1px dashed var(--app-line);
-  border-radius: 8px;
+  border: 1px solid var(--settings-line);
+  border-radius: var(--app-radius-control);
+  background: var(--settings-control-bg);
 }
 
 @media (max-width: 520px) {
@@ -1214,7 +1217,7 @@ select {
 .plugin-host-shell {
   display: grid;
   min-height: 100vh;
-  padding: 14px;
+  padding: 18px;
   background: var(--app-bg);
   -webkit-app-region: drag;
 }
@@ -1222,7 +1225,7 @@ select {
 .converter-shell {
   display: grid;
   min-height: 100vh;
-  padding: 24px 30px;
+  padding: 26px 30px;
   background: var(--app-bg);
   -webkit-app-region: drag;
 }
@@ -1253,11 +1256,13 @@ select {
 .converter-back,
 .converter-categories button,
 .converter-swap {
-  min-height: 34px;
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
+  min-height: 36px;
+  border: 1px solid var(--app-control-line);
+  border-radius: 999px;
   color: var(--app-text);
   background: var(--app-button-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .converter-back {
@@ -1281,10 +1286,12 @@ select {
 
 .converter-categories button {
   padding: 0 14px;
+  border-radius: 999px;
 }
 
 .converter-categories button[data-selected='true'] {
   border-color: var(--app-accent-line);
+  color: var(--app-title);
   background: var(--app-accent-soft);
 }
 
@@ -1310,11 +1317,13 @@ select {
 .converter-value input,
 .converter-value select {
   width: 100%;
-  min-height: 42px;
+  min-height: 46px;
   border: 1px solid var(--app-control-line);
-  border-radius: 8px;
+  border-radius: var(--app-radius-control);
   color: var(--app-input-text);
   background: var(--app-control-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .converter-value input {
@@ -1336,13 +1345,13 @@ select {
 .converter-value select:focus {
   border-color: var(--app-accent-line);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  box-shadow: var(--focus-ring), var(--app-shadow-soft);
 }
 
 .converter-swap {
   display: grid;
   width: 42px;
-  min-height: 42px;
+  min-height: 36px;
   place-items: center;
   padding: 0;
   color: var(--app-title);
@@ -1353,7 +1362,7 @@ select {
   display: grid;
   height: 100vh;
   min-height: 0;
-  padding: 24px 30px;
+  padding: 26px 30px;
   overflow: hidden;
   background: var(--app-bg);
   -webkit-app-region: drag;
@@ -1413,8 +1422,13 @@ select {
   display: grid;
   gap: 10px;
   min-width: 0;
-  padding: 14px 0;
-  border-top: 1px solid var(--settings-line);
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px solid var(--settings-line);
+  border-radius: var(--app-radius-control);
+  background: var(--settings-panel-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .settings-section__header {
@@ -1461,17 +1475,17 @@ select {
 }
 
 .settings-section button {
-  min-height: 32px;
-  padding: 0 11px;
+  min-height: 34px;
+  padding: 0 12px;
   border: 1px solid var(--settings-line);
-  border-radius: 8px;
+  border-radius: 999px;
 }
 
 .settings-section button:focus-visible,
 .settings-segmented-control label:focus-within {
-  border-color: rgba(120, 199, 178, 0.52);
+  border-color: var(--app-accent-line);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  box-shadow: var(--focus-ring);
 }
 
 .settings-section button:disabled,
@@ -1502,17 +1516,17 @@ select {
 .settings-segmented-control label {
   display: flex;
   align-items: center;
-  min-height: 32px;
-  gap: 6px;
-  padding: 0 10px;
+  min-height: 34px;
+  gap: 7px;
+  padding: 0 12px;
   border: 1px solid var(--settings-line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--settings-control-bg);
 }
 
 .settings-segmented-control label[data-selected='true'] {
-  border-color: rgba(120, 199, 178, 0.52);
-  background: rgba(120, 199, 178, 0.13);
+  border-color: var(--app-accent-line);
+  background: var(--app-accent-soft);
 }
 
 .settings-segmented-control input {
@@ -1527,17 +1541,17 @@ select {
   align-items: center;
   justify-self: start;
   gap: 8px;
-  min-height: 32px;
-  padding: 0 10px;
+  min-height: 34px;
+  padding: 0 12px;
   border: 1px solid var(--settings-line);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--settings-control-bg);
 }
 
 .settings-toggle:focus-within {
-  border-color: rgba(120, 199, 178, 0.52);
+  border-color: var(--app-accent-line);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  box-shadow: var(--focus-ring);
 }
 
 .settings-toggle input {
@@ -1570,8 +1584,9 @@ select {
   min-height: 56px;
   padding: 8px 9px;
   border: 1px solid var(--settings-line);
-  border-radius: 8px;
+  border-radius: var(--app-radius-control);
   background: var(--settings-panel-bg);
+  box-shadow: var(--app-shadow-soft);
 }
 
 .plugin-settings__item div {
@@ -1611,7 +1626,7 @@ select {
   min-height: 34px;
   padding: 8px 10px;
   border: 1px solid var(--settings-line);
-  border-radius: 8px;
+  border-radius: var(--app-radius-control);
   background: var(--settings-control-bg);
 }
 
@@ -1660,15 +1675,16 @@ select {
 .plugin-host-frame {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  width: min(100%, 860px);
+  gap: 12px;
+  width: min(100%, 880px);
   min-height: 100%;
   margin: 0 auto;
-  padding: 12px;
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
+  padding: 14px;
+  border: 1px solid var(--app-control-line);
+  border-radius: var(--app-radius-panel);
   background: var(--app-frame-bg);
   box-shadow: var(--app-shadow);
+  backdrop-filter: var(--app-surface-blur);
 }
 
 .plugin-host-titlebar {
@@ -1695,19 +1711,21 @@ select {
 }
 
 .plugin-host-close {
-  min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid var(--app-line);
-  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--app-control-line);
+  border-radius: 999px;
   color: var(--app-text);
   background: var(--app-button-bg);
+  box-shadow: var(--app-shadow-soft);
+  backdrop-filter: var(--app-surface-blur);
   -webkit-app-region: no-drag;
 }
 
 .plugin-host-close:focus-visible {
   border-color: var(--app-accent-line);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(120, 199, 178, 0.13);
+  box-shadow: var(--focus-ring), var(--app-shadow-soft);
 }
 
 .plugin-host-webview {
@@ -1715,7 +1733,7 @@ select {
   width: 100%;
   min-height: 0;
   border: 1px solid var(--app-line-soft);
-  border-radius: 8px;
+  border-radius: 18px;
   background: var(--app-panel-bg-soft);
   -webkit-app-region: no-drag;
 }
@@ -1725,8 +1743,8 @@ select {
   align-content: center;
   min-height: 188px;
   padding: 22px;
-  border: 1px dashed var(--app-danger-line);
-  border-radius: 8px;
+  border: 1px solid var(--app-danger-line);
+  border-radius: 18px;
   background: var(--app-danger-bg);
   -webkit-app-region: no-drag;
 }
@@ -2114,10 +2132,10 @@ select {
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: 30px minmax(0, 1fr);
+  grid-template-rows: 32px minmax(0, 1fr);
   overflow: hidden;
-  color: #eef1ed;
-  background: #10110f;
+  color: var(--screenshot-text);
+  background: var(--screenshot-bg);
 }
 
 .pinned-image-shell--empty {
@@ -2131,22 +2149,23 @@ select {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  min-height: 30px;
-  padding: 4px;
-  background: rgba(23, 24, 20, 0.94);
+  min-height: 32px;
+  padding: 5px;
+  background: var(--screenshot-panel-bg);
+  backdrop-filter: var(--app-surface-blur);
   -webkit-app-region: drag;
 }
 
 .pinned-image-close {
   display: grid;
-  width: 24px;
-  height: 22px;
+  width: 26px;
+  height: 24px;
   place-items: center;
   padding: 0;
-  border: 1px solid rgba(226, 229, 216, 0.14);
-  border-radius: 6px;
-  color: #eef1ed;
-  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid var(--screenshot-border);
+  border-radius: 999px;
+  color: var(--screenshot-text);
+  background: rgba(255, 255, 255, 0.08);
   font-size: 11px;
   line-height: 1;
   -webkit-app-region: no-drag;

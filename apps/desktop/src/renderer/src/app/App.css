@@ -1028,13 +1028,9 @@ select {
     display: none;
   }
 
-  .launcher-home-actions,
-  .converter-grid {
+  .launcher-home-actions {
+    display: grid;
     grid-template-columns: 1fr;
-  }
-
-  .converter-swap {
-    justify-self: center;
   }
 }
 
@@ -1358,6 +1354,20 @@ select {
   font-size: 18px;
 }
 
+@media (max-width: 520px) {
+  .converter-shell {
+    padding: 16px;
+  }
+
+  .converter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .converter-swap {
+    justify-self: center;
+  }
+}
+
 .settings-shell {
   display: grid;
   height: 100vh;
@@ -1378,7 +1388,7 @@ select {
   margin: 0 auto;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   color: var(--settings-text);
   background: transparent;
   box-shadow: none;

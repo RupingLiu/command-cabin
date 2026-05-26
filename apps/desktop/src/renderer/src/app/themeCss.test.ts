@@ -32,7 +32,9 @@ describe('app theme CSS', () => {
     expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-accent:\s*#ff375f/is);
     expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-success:\s*#30d158/is);
     expect(css).toMatch(/^:root\s*{[^}]*radial-gradient\(circle at 16% 8%/is);
-    expect(css).toMatch(/:root\[data-theme='light'\]\s*{[^}]*--app-bg:[^}]*radial-gradient\(circle at 16% 8%/is);
+    expect(css).toMatch(
+      /:root\[data-theme='light'\]\s*{[^}]*--app-bg:[^}]*radial-gradient\(circle at 16% 8%/is,
+    );
     expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*radial-gradient\(circle at 16% 8%/is);
   });
 
@@ -93,9 +95,7 @@ describe('app theme CSS', () => {
     );
     expect(css).not.toMatch(/\.screenshot-tool-group--actions button:nth-last-child/);
     expect(css).not.toMatch(/\.screenshot-tool-group--actions button:last-child/);
-    expect(css).toMatch(
-      /\.screenshot-status\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s,
-    );
+    expect(css).toMatch(/\.screenshot-status\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s);
     expect(css).toMatch(
       /\.screenshot-ocr-panel\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s,
     );
@@ -106,7 +106,9 @@ describe('app theme CSS', () => {
     const css = readFileSync(cssPath, 'utf8');
 
     expect(css).toMatch(/\.search-field-wrap\s*{[^}]*border-radius:\s*var\(--app-radius-panel\)/s);
-    expect(css).toMatch(/\.search-field-wrap\s*{[^}]*backdrop-filter:\s*var\(--app-surface-blur\)/s);
+    expect(css).toMatch(
+      /\.search-field-wrap\s*{[^}]*backdrop-filter:\s*var\(--app-surface-blur\)/s,
+    );
     expect(css).toMatch(/\.result-item\s*{[^}]*border-radius:\s*20px/s);
     expect(css).toMatch(
       /\.result-item\[data-selected='true'\]\s*{[^}]*inset 4px 0 0 var\(--app-accent\)/s,
@@ -127,7 +129,9 @@ describe('app theme CSS', () => {
       /\.converter-value input,\s*\.converter-value select\s*{[^}]*border-radius:\s*var\(--app-radius-control\)/s,
     );
     expect(css).toMatch(/\.plugin-host-frame\s*{[^}]*border-radius:\s*var\(--app-radius-panel\)/s);
-    expect(css).toMatch(/\.pinned-image-titlebar\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s);
+    expect(css).toMatch(
+      /\.pinned-image-titlebar\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s,
+    );
   });
 
   it('uses a single uncluttered launcher surface instead of a nested panel frame', () => {
@@ -142,6 +146,7 @@ describe('app theme CSS', () => {
     const css = readFileSync(cssPath, 'utf8');
 
     expect(css).toMatch(/\.settings-frame\s*{[^}]*border:\s*0/s);
+    expect(css).toMatch(/\.settings-frame\s*{[^}]*border-radius:\s*0/s);
     expect(css).toMatch(/\.settings-frame\s*{[^}]*background:\s*transparent/s);
     expect(css).toMatch(/\.settings-frame\s*{[^}]*box-shadow:\s*none/s);
     expect(css).toMatch(/\.settings-grid\s*{[^}]*overflow:\s*auto/s);
@@ -156,5 +161,39 @@ describe('app theme CSS', () => {
     expect(css).toMatch(/\.settings-frame\s*{[^}]*height:\s*100%/s);
     expect(css).toMatch(/\.settings-grid\s*{[^}]*flex:\s*1\s+1\s+auto/s);
     expect(css).toMatch(/\.settings-grid\s*{[^}]*overflow:\s*auto/s);
+  });
+
+  it('keeps compact layouts responsive after base component styles', () => {
+    const css = readFileSync(cssPath, 'utf8');
+
+    const launcherMobileBlock = css.slice(css.indexOf('@media (max-width: 520px)'));
+    expect(launcherMobileBlock).toMatch(/\.launcher-shell\s*{[^}]*padding:\s*16px/s);
+    expect(launcherMobileBlock).toMatch(
+      /\.result-item\s*{[^}]*grid-template-columns:\s*38px minmax\(0,\s*1fr\)/s,
+    );
+    expect(launcherMobileBlock).toMatch(
+      /\.launcher-home-actions\s*{[^}]*display:\s*grid[^}]*grid-template-columns:\s*1fr/s,
+    );
+
+    const converterBaseIndex = css.search(/\.converter-grid\s*{\s*display:\s*grid/);
+    expect(converterBaseIndex).toBeGreaterThan(-1);
+    const converterMobileBlock = css.slice(
+      css.indexOf('@media (max-width: 520px)', converterBaseIndex),
+    );
+    expect(converterMobileBlock).toMatch(/\.converter-shell\s*{[^}]*padding:\s*16px/s);
+    expect(converterMobileBlock).toMatch(/\.converter-grid\s*{[^}]*grid-template-columns:\s*1fr/s);
+
+    const settingsBaseIndex = css.search(/\.settings-shell\s*{\s*display:\s*grid/);
+    expect(settingsBaseIndex).toBeGreaterThan(-1);
+    const settingsMobileBlock = css.slice(
+      css.indexOf('@media (max-width: 520px)', settingsBaseIndex),
+    );
+    expect(settingsMobileBlock).toMatch(/\.settings-shell\s*{[^}]*padding:\s*16px/s);
+
+    const screenshotMobileBlock = css.slice(css.indexOf('@media (max-width: 820px)'));
+    expect(screenshotMobileBlock).toMatch(
+      /\.screenshot-toolbar\s*{[^}]*justify-content:\s*flex-start[^}]*overflow-x:\s*auto/s,
+    );
+    expect(screenshotMobileBlock).toMatch(/\.screenshot-tool-group\s*{[^}]*flex:\s*0 0 auto/s);
   });
 });

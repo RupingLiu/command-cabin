@@ -233,8 +233,7 @@ describe('launcher command service', () => {
       {
         id: 'quick-converter.result',
         source: 'plugin',
-        title:
-          '1 厘米 × 1 厘米 × 1 厘米 = 1 立方厘米 = 1 毫升 = 0.001 升 = 0.000001 立方米',
+        title: '1 厘米 × 1 厘米 × 1 厘米 = 1 立方厘米 = 1 毫升 = 0.001 升 = 0.000001 立方米',
       },
     ]);
   });
@@ -666,7 +665,7 @@ describe('launcher command service', () => {
     }
   });
 
-  it('returns pinned app favorites before recent app commands for an empty query', async () => {
+  it('returns recently used app commands before unused pinned app favorites for an empty query', async () => {
     const database = openInMemoryCommandCabinDatabase();
 
     try {
@@ -702,7 +701,7 @@ describe('launcher command service', () => {
       const homeResults = await service.searchCommands('');
 
       expect(pinnedApp.title).toBe('ksolaunch');
-      expect(homeResults.map((result) => result.title)).toEqual(['ksolaunch', 'Notepad']);
+      expect(homeResults.map((result) => result.title)).toEqual(['Notepad', 'ksolaunch']);
       expect(homeResults.every((result) => result.source === 'app')).toBe(true);
     } finally {
       database.close();

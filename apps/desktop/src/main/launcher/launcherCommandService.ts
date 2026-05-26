@@ -704,8 +704,8 @@ export function createLauncherCommandService(
     const seenAppKeys = new Set<string>();
 
     for (const result of [
-      ...listPinnedAppSearchResults(limit),
       ...listRecentAppSearchResults(limit),
+      ...listPinnedAppSearchResults(limit),
     ]) {
       const appKey = createAppResultIdentityKey(result);
 

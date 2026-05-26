@@ -126,4 +126,52 @@ describe('launcher ARIA markup', () => {
       html.indexOf('launcher-update-banner'),
     );
   });
+
+  it('shows update download progress on the launcher home screen', () => {
+    const html = renderToStaticMarkup(
+      createElement(LauncherPage, {
+        language: 'zh-CN',
+        onOpenSettings: vi.fn(),
+        onOpenUnitConverter: vi.fn(),
+        updateState: {
+          errorMessage: undefined,
+          isInstalling: false,
+          status: {
+            canCheck: false,
+            canInstall: false,
+            percent: 42,
+            phase: 'downloading',
+            version: '0.8.3',
+          },
+        },
+      }),
+    );
+
+    expect(html).toContain('正在从 GitHub 下载版本 0.8.3 · 42%');
+    expect(html).toContain('class="launcher-update-banner"');
+  });
+
+  it('shows update connection failures on the launcher home screen', () => {
+    const html = renderToStaticMarkup(
+      createElement(LauncherPage, {
+        language: 'zh-CN',
+        onOpenSettings: vi.fn(),
+        onOpenUnitConverter: vi.fn(),
+        updateState: {
+          errorMessage: undefined,
+          isInstalling: false,
+          status: {
+            canCheck: true,
+            canInstall: false,
+            error: 'Network timeout',
+            phase: 'error',
+          },
+        },
+      }),
+    );
+
+    expect(html).toContain('无法连接 GitHub 检查更新');
+    expect(html).toContain('Network timeout');
+    expect(html).toContain('查看设置');
+  });
 });

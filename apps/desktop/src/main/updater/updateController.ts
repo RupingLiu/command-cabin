@@ -189,9 +189,17 @@ export function createUpdateController({
       return checkInFlight;
     }
 
+    mergeStatus({ phase: 'checking' });
+
     checkInFlight = autoUpdater
       .checkForUpdates()
-      .then(() => status)
+      .then(() => {
+        if (status.phase === 'checking') {
+          return mergeStatus({ phase: 'up-to-date' });
+        }
+
+        return status;
+      })
       .catch((error: unknown) => {
         logger.error('Update check failed.', error);
         return mergeStatus({ error: getErrorMessage(error), phase: 'error' });

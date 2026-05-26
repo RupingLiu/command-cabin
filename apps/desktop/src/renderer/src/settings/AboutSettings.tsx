@@ -201,7 +201,9 @@ export function AboutSettings({
         <h2>{strings.title}</h2>
         <span>{versionText}</span>
       </header>
-      <p className="about-settings__status">{statusText}</p>
+      <p className="about-settings__status" role="status" aria-live="polite">
+        {statusText}
+      </p>
       {currentState.errorMessage ? (
         <p className="settings-section__error" role="alert">
           {currentState.errorMessage}

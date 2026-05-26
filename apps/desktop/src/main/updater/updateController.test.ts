@@ -42,6 +42,43 @@ describe('createUpdateController', () => {
     expect(updater.checkForUpdates).not.toHaveBeenCalled();
   });
 
+  it('publishes checking status immediately when a check starts', () => {
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    void controller.checkForUpdates();
+
+    expect(controller.getStatus()).toMatchObject({
+      canCheck: false,
+      phase: 'checking',
+    });
+    expect(sender.send).toHaveBeenLastCalledWith(
+      UPDATE_STATUS_CHANGED_CHANNEL,
+      expect.objectContaining({
+        canCheck: false,
+        phase: 'checking',
+      }),
+    );
+  });
+
+  it('does not leave the updater stuck in checking when no result event is emitted', async () => {
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    await expect(controller.checkForUpdates()).resolves.toMatchObject({
+      canCheck: true,
+      phase: 'up-to-date',
+    });
+  });
+
   it('checks for updates and starts automatic downloads when available', async () => {
     const controller = createUpdateController({
       autoUpdater: updater,

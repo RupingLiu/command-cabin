@@ -34,7 +34,7 @@ describe('AboutSettings', () => {
     );
 
     expect(markup).toContain('CommandCabin v0.2.0');
-    expect(markup).toContain('已是最新版本');
+    expect(markup).toContain('已连接 GitHub，当前是最新版本');
     expect(markup).toContain('检查更新');
     expect(markup).toContain('GitHub 仓库');
     expect(markup).not.toContain('重启安装');
@@ -79,6 +79,27 @@ describe('AboutSettings', () => {
     );
 
     expect(downloadedMarkup).toContain('重启安装');
+  });
+
+  it('renders explicit GitHub connection feedback while checking', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AboutSettings, {
+        appInfo,
+        state: {
+          errorMessage: undefined,
+          isChecking: true,
+          isInstalling: false,
+          status: {
+            canCheck: false,
+            canInstall: false,
+            phase: 'checking',
+          },
+        },
+      }),
+    );
+
+    expect(markup).toContain('正在连接 GitHub 检查更新');
+    expect(markup).toContain('role="status"');
   });
 
   it('opens the repository through the settings API', async () => {

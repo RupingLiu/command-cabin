@@ -113,6 +113,10 @@ function formatTemplate(template: string, values: Record<string, string>): strin
   );
 }
 
+function formatPercent(percent: number | undefined): string {
+  return Math.round(percent ?? 0).toString();
+}
+
 export function LauncherPage({
   language,
   onOpenPluginPage,
@@ -154,11 +158,51 @@ export function LauncherPage({
     onOpenSettings,
   });
   const isBusy = state.status === 'loading' || state.status === 'executing';
-  const shouldShowUpdateBanner =
-    state.query.trim().length === 0 && currentUpdateState.status.phase === 'downloaded';
-  const updateBannerText = formatTemplate(strings.launcher.updateBanner.ready, {
-    version: currentUpdateState.status.version ?? '',
-  });
+  const updateBanner = useMemo(() => {
+    const version = currentUpdateState.status.version ?? '';
+
+    if (currentUpdateState.status.phase === 'downloading') {
+      return {
+        action: 'none' as const,
+        detail: undefined,
+        text: formatTemplate(strings.launcher.updateBanner.downloading, {
+          percent: formatPercent(currentUpdateState.status.percent),
+          version,
+        }),
+      };
+    }
+
+    if (currentUpdateState.status.phase === 'downloaded') {
+      return {
+        action: 'install' as const,
+        detail: undefined,
+        text: formatTemplate(strings.launcher.updateBanner.ready, { version }),
+      };
+    }
+
+    if (currentUpdateState.status.phase === 'error') {
+      return {
+        action: 'settings' as const,
+        detail:
+          currentUpdateState.status.error ??
+          currentUpdateState.errorMessage ??
+          strings.launcher.updateBanner.error,
+        text: strings.launcher.updateBanner.checkFailed,
+      };
+    }
+
+    return undefined;
+  }, [
+    currentUpdateState.errorMessage,
+    currentUpdateState.status.error,
+    currentUpdateState.status.percent,
+    currentUpdateState.status.phase,
+    currentUpdateState.status.version,
+    strings.launcher.updateBanner.checkFailed,
+    strings.launcher.updateBanner.downloading,
+    strings.launcher.updateBanner.error,
+    strings.launcher.updateBanner.ready,
+  ]);
 
   const checkForUpdates = useCallback(async () => {
     if (!launcherUpdateApi || updateState) {
@@ -290,25 +334,30 @@ export function LauncherPage({
           selectedIndex={state.selectedIndex}
           status={state.status}
         />
-        {shouldShowUpdateBanner ? (
+        {state.query.trim().length === 0 && updateBanner ? (
           <div className="launcher-update-banner" role="status" aria-live="polite">
             <div className="launcher-update-banner__copy">
-              <strong>{updateBannerText}</strong>
-              {currentUpdateState.errorMessage ? (
-                <span role="alert">{currentUpdateState.errorMessage}</span>
-              ) : null}
+              <strong>{updateBanner.text}</strong>
+              {updateBanner.detail ? <span role="alert">{updateBanner.detail}</span> : null}
             </div>
-            <button
-              disabled={!currentUpdateState.status.canInstall || currentUpdateState.isInstalling}
-              type="button"
-              onClick={() => {
-                void installUpdate();
-              }}
-            >
-              {currentUpdateState.isInstalling
-                ? strings.launcher.updateBanner.installing
-                : strings.launcher.updateBanner.install}
-            </button>
+            {updateBanner.action === 'install' ? (
+              <button
+                disabled={!currentUpdateState.status.canInstall || currentUpdateState.isInstalling}
+                type="button"
+                onClick={() => {
+                  void installUpdate();
+                }}
+              >
+                {currentUpdateState.isInstalling
+                  ? strings.launcher.updateBanner.installing
+                  : strings.launcher.updateBanner.install}
+              </button>
+            ) : null}
+            {updateBanner.action === 'settings' && onOpenSettings ? (
+              <button type="button" onClick={onOpenSettings}>
+                {strings.launcher.updateBanner.openSettings}
+              </button>
+            ) : null}
           </div>
         ) : null}
         {state.query.trim().length === 0 ? (

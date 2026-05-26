@@ -79,5 +79,8 @@ describe('ScreenshotOverlayView toolbar', () => {
       expect(markup).toContain(`aria-label="${label}"`);
       expect(markup).toContain(`title="${label}"`);
     }
+
+    expect(markup).toContain('class="screenshot-action-button screenshot-action-button--done"');
+    expect(markup).toContain('class="screenshot-action-button screenshot-action-button--cancel"');
   });
 });

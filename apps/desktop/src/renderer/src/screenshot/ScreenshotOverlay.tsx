@@ -875,6 +875,7 @@ export function ScreenshotOverlayView({
             </button>
             <button
               aria-label={strings.toolbar.done}
+              className="screenshot-action-button screenshot-action-button--done"
               disabled={!ready}
               onClick={() => void finish()}
               title={strings.toolbar.done}
@@ -885,6 +886,7 @@ export function ScreenshotOverlayView({
             </button>
             <button
               aria-label={strings.toolbar.cancel}
+              className="screenshot-action-button screenshot-action-button--cancel"
               onClick={cancel}
               title={strings.toolbar.cancel}
               type="button"

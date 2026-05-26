@@ -53,6 +53,7 @@ describe('app theme CSS', () => {
     expect(css).toMatch(
       /\.screenshot-selection\s*{[^}]*border:\s*1px solid var\(--screenshot-accent\)/s,
     );
+    expect(css).toMatch(/\.screenshot-selection\s*{[^}]*border-radius:\s*0/s);
     expect(css).toMatch(/\.screenshot-toolbar\s*{[^}]*border-radius:\s*24px/s);
     expect(css).toMatch(
       /\.screenshot-toolbar\s*{[^}]*background:\s*var\(--screenshot-toolbar-bg\)/s,
@@ -61,8 +62,25 @@ describe('app theme CSS', () => {
       /\.screenshot-toolbar\s*{[^}]*backdrop-filter:\s*var\(--app-surface-blur\)/s,
     );
     expect(css).toMatch(
-      /\.screenshot-tool-group button\[data-active='true'\]\s*{[^}]*var\(--screenshot-accent\)/s,
+      /\.screenshot-tool-group button:not\(:disabled\):not\(\.screenshot-color-swatch\):hover,\s*\.screenshot-tool-group button:not\(:disabled\):not\(\.screenshot-color-swatch\)\[data-active='true'\]\s*{[^}]*var\(--screenshot-accent\)/s,
     );
+    expect(css).toMatch(
+      /\.screenshot-tool-group button:disabled\s*{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.06\)[^}]*box-shadow:\s*none/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-color-swatch:not\(:disabled\):hover\s*{[^}]*border-color:[^}]*box-shadow:/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-color-swatch:not\(:disabled\)\[data-active='true'\]\s*{[^}]*0 0 0 2px var\(--screenshot-accent\)/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-action-button--done:not\(:disabled\)\s*{[^}]*background:\s*rgba\(48,\s*209,\s*88,\s*0\.88\)/s,
+    );
+    expect(css).toMatch(
+      /\.screenshot-action-button--cancel\s*{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.1\)/s,
+    );
+    expect(css).not.toMatch(/\.screenshot-tool-group--actions button:nth-last-child/);
+    expect(css).not.toMatch(/\.screenshot-tool-group--actions button:last-child/);
     expect(css).toMatch(
       /\.screenshot-status\s*{[^}]*background:\s*var\(--screenshot-panel-bg\)/s,
     );

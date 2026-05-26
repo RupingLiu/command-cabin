@@ -43,10 +43,13 @@ export interface UpdateController {
 
 export interface UpdateControllerOptions {
   autoUpdater: UpdateControllerAutoUpdater;
+  automaticCheckIntervalMs?: number | undefined;
   getWindows: () => readonly UpdateControllerWindow[];
   isPackaged: boolean;
   logger?: Pick<Console, 'error' | 'log'> | undefined;
 }
+
+const defaultAutomaticCheckIntervalMs = 6 * 60 * 60 * 1000;
 
 function getVersion(value: unknown): string | undefined {
   if (!value || typeof value !== 'object') {
@@ -85,6 +88,7 @@ function getErrorMessage(error: unknown): string {
 
 export function createUpdateController({
   autoUpdater,
+  automaticCheckIntervalMs = defaultAutomaticCheckIntervalMs,
   getWindows,
   isPackaged,
   logger = console,
@@ -103,6 +107,7 @@ export function createUpdateController({
       };
   let checkInFlight: Promise<UpdateCheckResult> | undefined;
   let automaticCheckStarted = false;
+  let automaticCheckTimer: ReturnType<typeof setInterval> | undefined;
 
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.autoDownload = false;
@@ -118,12 +123,14 @@ export function createUpdateController({
   }
 
   function mergeStatus(patch: Partial<UpdateStatus> & Pick<UpdateStatus, 'phase'>): UpdateStatus {
+    const isBusyOrReady =
+      patch.phase === 'checking' ||
+      patch.phase === 'available' ||
+      patch.phase === 'downloading' ||
+      patch.phase === 'downloaded';
+
     return publish({
-      canCheck:
-        patch.phase !== 'checking' &&
-        patch.phase !== 'available' &&
-        patch.phase !== 'downloading' &&
-        isPackaged,
+      canCheck: !isBusyOrReady && isPackaged,
       canInstall: patch.phase === 'downloaded',
       error: patch.error,
       percent: patch.percent,
@@ -172,7 +179,8 @@ export function createUpdateController({
     if (
       status.phase === 'checking' ||
       status.phase === 'available' ||
-      status.phase === 'downloading'
+      status.phase === 'downloading' ||
+      status.phase === 'downloaded'
     ) {
       return status;
     }
@@ -216,6 +224,11 @@ export function createUpdateController({
 
       automaticCheckStarted = true;
       void checkForUpdates();
+      if (isPackaged && automaticCheckIntervalMs > 0 && !automaticCheckTimer) {
+        automaticCheckTimer = setInterval(() => {
+          void checkForUpdates();
+        }, automaticCheckIntervalMs);
+      }
     },
   };
 }

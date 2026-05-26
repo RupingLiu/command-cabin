@@ -99,4 +99,31 @@ describe('launcher ARIA markup', () => {
       html.indexOf('launcher-home-actions'),
     );
   });
+
+  it('shows a downloaded update prompt on the launcher home screen', () => {
+    const html = renderToStaticMarkup(
+      createElement(LauncherPage, {
+        language: 'zh-CN',
+        onOpenSettings: vi.fn(),
+        onOpenUnitConverter: vi.fn(),
+        updateState: {
+          errorMessage: undefined,
+          isInstalling: false,
+          status: {
+            canCheck: false,
+            canInstall: true,
+            phase: 'downloaded',
+            version: '0.8.0',
+          },
+        },
+      }),
+    );
+
+    expect(html).toContain('新版本 0.8.0 已下载');
+    expect(html).toContain('立即安装');
+    expect(html).toContain('class="launcher-update-banner"');
+    expect(html.indexOf('launcher-results-listbox')).toBeLessThan(
+      html.indexOf('launcher-update-banner'),
+    );
+  });
 });

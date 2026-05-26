@@ -46,6 +46,12 @@ const zhCnStrings = {
       label: '搜索',
       placeholder: '输入命令',
     },
+    updateBanner: {
+      error: '无法安装更新。',
+      install: '立即安装',
+      installing: '正在重启',
+      ready: '新版本 {version} 已下载',
+    },
     results: {
       ariaLabel: '命令结果',
       errorDetail: '启动器无法完成请求。',
@@ -337,6 +343,12 @@ const zhTwStrings: UiStrings = {
       label: '搜尋',
       placeholder: '輸入指令',
     },
+    updateBanner: {
+      error: '無法安裝更新。',
+      install: '立即安裝',
+      installing: '正在重新啟動',
+      ready: '新版本 {version} 已下載',
+    },
     results: {
       ariaLabel: '指令結果',
       errorDetail: '啟動器無法完成請求。',
@@ -619,6 +631,12 @@ const enUsStrings: UiStrings = {
     search: {
       label: 'Search',
       placeholder: 'Type a command',
+    },
+    updateBanner: {
+      error: 'Update could not be installed.',
+      install: 'Install now',
+      installing: 'Restarting',
+      ready: 'Version {version} is ready',
     },
     results: {
       ariaLabel: 'Command results',

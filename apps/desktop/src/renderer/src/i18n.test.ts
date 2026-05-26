@@ -35,6 +35,7 @@ describe('renderer i18n strings', () => {
     expect(getUiStrings('zh-TW').unitConverter.categories.length).toBe('長度');
     expect(getUiStrings('en-US').launcher.homeActions.unitConverter).toBe('Unit converter');
     expect(getUiStrings('en-US').launcher.homeActions.screenshot).toBe('Screenshot');
+    expect(getUiStrings('en-US').launcher.updateBanner.install).toBe('Install now');
     expect(getUiStrings('en-US').unitConverter.categories.length).toBe('Length');
   });
 

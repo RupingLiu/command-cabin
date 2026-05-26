@@ -1,6 +1,7 @@
 import type { CommandCabinLanguage } from '@command-cabin/core';
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import type { UpdateInstallResult, UpdateStatus } from '../../../shared/updateApi.js';
 import { AddAppPicker } from './AddAppPicker.js';
 import { getUiStrings } from '../i18n.js';
 import { ResultList } from './ResultList.js';
@@ -13,6 +14,21 @@ export interface LauncherPageProps {
   onOpenSettings?: () => void;
   onOpenUnitConverter?: () => void;
   onOpenPluginPage?: (plugin: PluginHostEntry) => void;
+  updateState?: LauncherUpdateState | undefined;
+  updatesApi?: LauncherUpdateApi | undefined;
+}
+
+export interface LauncherUpdateApi {
+  checkForUpdates: () => Promise<UpdateStatus>;
+  installUpdate: () => Promise<UpdateInstallResult>;
+  onFocusSearchInput: (listener: () => void) => () => void;
+  onUpdateStatusChanged: (listener: (status: UpdateStatus) => void) => () => void;
+}
+
+export interface LauncherUpdateState {
+  errorMessage: string | undefined;
+  isInstalling: boolean;
+  status: UpdateStatus;
 }
 
 function CommandCabinMark() {
@@ -72,14 +88,49 @@ function SettingsGearIcon() {
   );
 }
 
+const initialLauncherUpdateState: LauncherUpdateState = {
+  errorMessage: undefined,
+  isInstalling: false,
+  status: {
+    canCheck: false,
+    canInstall: false,
+    phase: 'idle',
+  },
+};
+
+function getDefaultLauncherUpdateApi(): LauncherUpdateApi | undefined {
+  if (typeof window === 'undefined' || !('desktopApi' in window)) {
+    return undefined;
+  }
+
+  return window.desktopApi;
+}
+
+function formatTemplate(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce(
+    (formatted, [key, value]) => formatted.replaceAll(`{${key}}`, value),
+    template,
+  );
+}
+
 export function LauncherPage({
   language,
   onOpenPluginPage,
   onOpenSettings,
   onOpenUnitConverter,
+  updateState,
+  updatesApi,
 }: LauncherPageProps) {
   const strings = getUiStrings(language);
+  const launcherUpdateApi = useMemo(
+    () => updatesApi ?? getDefaultLauncherUpdateApi(),
+    [updatesApi],
+  );
   const [isAddAppPickerOpen, setIsAddAppPickerOpen] = useState(false);
+  const [internalUpdateState, setInternalUpdateState] = useState<LauncherUpdateState>(
+    initialLauncherUpdateState,
+  );
+  const currentUpdateState = updateState ?? internalUpdateState;
   const {
     activeDescendantId,
     appInfo,
@@ -103,6 +154,88 @@ export function LauncherPage({
     onOpenSettings,
   });
   const isBusy = state.status === 'loading' || state.status === 'executing';
+  const shouldShowUpdateBanner =
+    state.query.trim().length === 0 && currentUpdateState.status.phase === 'downloaded';
+  const updateBannerText = formatTemplate(strings.launcher.updateBanner.ready, {
+    version: currentUpdateState.status.version ?? '',
+  });
+
+  const checkForUpdates = useCallback(async () => {
+    if (!launcherUpdateApi || updateState) {
+      return;
+    }
+
+    try {
+      const status = await launcherUpdateApi.checkForUpdates();
+      setInternalUpdateState((current) => ({
+        ...current,
+        errorMessage: undefined,
+        status,
+      }));
+    } catch {
+      setInternalUpdateState((current) => ({
+        ...current,
+        errorMessage: undefined,
+      }));
+    }
+  }, [launcherUpdateApi, updateState]);
+
+  const installUpdate = useCallback(async () => {
+    if (!launcherUpdateApi || updateState) {
+      return;
+    }
+
+    setInternalUpdateState((current) => ({
+      ...current,
+      errorMessage: undefined,
+      isInstalling: true,
+    }));
+
+    try {
+      const result = await launcherUpdateApi.installUpdate();
+
+      if (!result.ok) {
+        setInternalUpdateState((current) => ({
+          ...current,
+          errorMessage: result.error,
+        }));
+      }
+    } catch (error) {
+      setInternalUpdateState((current) => ({
+        ...current,
+        errorMessage: error instanceof Error ? error.message : strings.launcher.updateBanner.error,
+      }));
+    } finally {
+      setInternalUpdateState((current) => ({
+        ...current,
+        isInstalling: false,
+      }));
+    }
+  }, [launcherUpdateApi, strings.launcher.updateBanner.error, updateState]);
+
+  useEffect(() => {
+    if (!launcherUpdateApi || updateState) {
+      return;
+    }
+
+    const removeStatusListener = launcherUpdateApi.onUpdateStatusChanged((status) => {
+      setInternalUpdateState((current) => ({
+        ...current,
+        errorMessage: undefined,
+        status,
+      }));
+    });
+    const removeFocusListener = launcherUpdateApi.onFocusSearchInput(() => {
+      void checkForUpdates();
+    });
+
+    void checkForUpdates();
+
+    return () => {
+      removeStatusListener();
+      removeFocusListener();
+    };
+  }, [checkForUpdates, launcherUpdateApi, updateState]);
 
   return (
     <main className="launcher-shell">
@@ -157,6 +290,27 @@ export function LauncherPage({
           selectedIndex={state.selectedIndex}
           status={state.status}
         />
+        {shouldShowUpdateBanner ? (
+          <div className="launcher-update-banner" role="status" aria-live="polite">
+            <div className="launcher-update-banner__copy">
+              <strong>{updateBannerText}</strong>
+              {currentUpdateState.errorMessage ? (
+                <span role="alert">{currentUpdateState.errorMessage}</span>
+              ) : null}
+            </div>
+            <button
+              disabled={!currentUpdateState.status.canInstall || currentUpdateState.isInstalling}
+              type="button"
+              onClick={() => {
+                void installUpdate();
+              }}
+            >
+              {currentUpdateState.isInstalling
+                ? strings.launcher.updateBanner.installing
+                : strings.launcher.updateBanner.install}
+            </button>
+          </div>
+        ) : null}
         {state.query.trim().length === 0 ? (
           <div className="launcher-home-actions" aria-label={strings.launcher.homeActionsLabel}>
             <button type="button" onClick={onOpenUnitConverter}>

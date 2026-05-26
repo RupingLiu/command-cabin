@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UPDATE_STATUS_CHANGED_CHANNEL } from '../../shared/ipcChannels.js';
 import { createUpdateController, type UpdateControllerAutoUpdater } from './updateController.js';
@@ -18,8 +18,13 @@ describe('createUpdateController', () => {
   let sender: { send: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
+    vi.useRealTimers();
     updater = new MockAutoUpdater();
     sender = { send: vi.fn() };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('reports unavailable status for unpackaged builds', async () => {
@@ -77,6 +82,46 @@ describe('createUpdateController', () => {
       version: '0.3.0',
     });
     expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+  });
+
+  it('checks immediately and then on the automatic background interval', async () => {
+    vi.useFakeTimers();
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      automaticCheckIntervalMs: 1_000,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    controller.startAutomaticCheck();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not re-check once an update package is downloaded', async () => {
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    updater.emit('update-downloaded', { version: '0.3.0' });
+
+    await expect(controller.checkForUpdates()).resolves.toMatchObject({
+      canInstall: true,
+      phase: 'downloaded',
+      version: '0.3.0',
+    });
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
   });
 
   it('publishes download progress and downloaded state', () => {

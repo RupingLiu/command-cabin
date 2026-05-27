@@ -13,6 +13,7 @@ import {
 } from '@command-cabin/built-in-plugin-quick-converter';
 import {
   createClipboardHistoryCommands,
+  isClipboardHistoryCommandId,
   type ClipboardHistoryRepository,
 } from '@command-cabin/built-in-plugin-clipboard-history';
 import {
@@ -247,6 +248,15 @@ function isScreenshotSystemCommand(command: string): boolean {
 }
 
 const PINNED_APP_EXTENSIONS = new Set(['.exe', '.lnk']);
+const MAX_GENERAL_SEARCH_CLIPBOARD_HISTORY_RESULTS = 2;
+const EXPLICIT_CLIPBOARD_HISTORY_QUERY_TOKENS = [
+  'clip',
+  'clipboard',
+  'history',
+  '剪贴板',
+  '粘贴板',
+  '剪切板',
+] as const;
 
 interface NormalizedPinnedAppInput {
   appPath: string;
@@ -343,6 +353,46 @@ function assertNoReservedTextToolCommandIds(commands: readonly Command[]): void 
       throw new Error(`Command id is reserved for the built-in text tools: ${command.id}`);
     }
   }
+}
+
+function isClipboardHistorySearchResult(result: LauncherCommandSearchResult): boolean {
+  return isClipboardHistoryCommandId(result.id);
+}
+
+function isExplicitClipboardHistoryQuery(query: string): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (normalizedQuery.length === 0) {
+    return false;
+  }
+
+  return EXPLICIT_CLIPBOARD_HISTORY_QUERY_TOKENS.some((token) => normalizedQuery.includes(token));
+}
+
+function demoteClipboardHistorySearchResults(
+  query: string,
+  results: readonly LauncherCommandSearchResult[],
+  limit: number,
+): LauncherCommandSearchResult[] {
+  if (isExplicitClipboardHistoryQuery(query)) {
+    return results.slice(0, limit);
+  }
+
+  const primaryResults: LauncherCommandSearchResult[] = [];
+  const clipboardHistoryResults: LauncherCommandSearchResult[] = [];
+
+  for (const result of results) {
+    if (isClipboardHistorySearchResult(result)) {
+      if (clipboardHistoryResults.length < MAX_GENERAL_SEARCH_CLIPBOARD_HISTORY_RESULTS) {
+        clipboardHistoryResults.push(result);
+      }
+      continue;
+    }
+
+    primaryResults.push(result);
+  }
+
+  return [...primaryResults, ...clipboardHistoryResults].slice(0, limit);
 }
 
 export function createLauncherCommandService(
@@ -843,9 +893,10 @@ export function createLauncherCommandService(
       await refreshQuickConverterCommand(query);
       refreshClipboardHistoryCommands();
 
+      const limit = 10;
       const searchOptions: SearchOptions = {
         includeAllOnEmptyQuery: false,
-        limit: 10,
+        limit,
       };
       const ranking = createHistoryRankingContext();
 
@@ -853,7 +904,9 @@ export function createLauncherCommandService(
         searchOptions.ranking = ranking;
       }
 
-      return searchEngine.search(query, searchOptions).map(mapSearchResult);
+      const results = searchEngine.search(query, searchOptions).map(mapSearchResult);
+
+      return demoteClipboardHistorySearchResults(query, results, limit);
     },
     updatePinnedApp: (id, input) => {
       if (!options.favoritesRepository) {

@@ -1,44 +1,45 @@
 :root {
-  --app-accent: #ff6a2a;
-  --app-accent-strong: #e84b1f;
-  --app-accent-line: rgba(255, 106, 42, 0.26);
-  --app-accent-soft: rgba(255, 130, 40, 0.09);
+  --app-accent: #ff4d36;
+  --app-accent-strong: #d83a21;
+  --app-accent-line: rgba(255, 91, 53, 0.42);
+  --app-accent-soft: rgba(255, 113, 37, 0.16);
   --app-bg:
     linear-gradient(
       135deg,
-      rgba(255, 244, 236, 0.92) 0%,
-      rgba(250, 253, 255, 0.96) 46%,
-      rgba(237, 247, 255, 0.92) 100%
+      rgba(255, 82, 68, 0.18) 0%,
+      rgba(255, 159, 10, 0.15) 28%,
+      rgba(255, 255, 255, 0.94) 52%,
+      rgba(10, 132, 255, 0.18) 100%
     ),
-    linear-gradient(180deg, #fbfbfd 0%, #f3f7fb 100%);
-  --app-body-bg: #f3f7fb;
-  --app-button-bg: rgba(255, 255, 255, 0.76);
-  --app-control-bg: rgba(255, 255, 255, 0.84);
-  --app-control-line: rgba(49, 65, 88, 0.13);
+    linear-gradient(180deg, #fff7f2 0%, #eef7ff 100%);
+  --app-body-bg: #f3f8ff;
+  --app-button-bg: rgba(255, 255, 255, 0.84);
+  --app-control-bg: rgba(255, 255, 255, 0.9);
+  --app-control-line: rgba(255, 111, 38, 0.22);
   --app-danger: #c6283f;
   --app-danger-bg: rgba(198, 40, 63, 0.1);
   --app-danger-line: rgba(198, 40, 63, 0.28);
-  --app-frame-bg: rgba(255, 255, 255, 0.78);
+  --app-frame-bg: rgba(255, 255, 255, 0.84);
   --app-green-soft: rgba(52, 199, 89, 0.13);
-  --app-icon-bg: rgba(255, 133, 31, 0.1);
-  --app-icon-border: rgba(255, 255, 255, 0.78);
-  --app-icon-text: #ff6a2a;
+  --app-icon-bg: rgba(255, 84, 53, 0.14);
+  --app-icon-border: rgba(255, 255, 255, 0.86);
+  --app-icon-text: #ff4d36;
   --app-input-text: #111827;
   --app-line: rgba(31, 41, 55, 0.11);
   --app-line-soft: rgba(31, 41, 55, 0.07);
   --app-muted: #657080;
-  --app-orange-soft: rgba(255, 159, 10, 0.12);
-  --app-panel-bg: rgba(255, 255, 255, 0.72);
-  --app-panel-bg-soft: rgba(255, 255, 255, 0.56);
+  --app-orange-soft: rgba(255, 159, 10, 0.18);
+  --app-panel-bg: rgba(255, 255, 255, 0.78);
+  --app-panel-bg-soft: rgba(255, 255, 255, 0.64);
   --app-placeholder: #8d96a7;
   --app-radius-control: 18px;
   --app-radius-panel: 24px;
   --app-scrollbar-thumb: rgba(102, 112, 133, 0.26);
   --app-scrollbar-track: rgba(255, 255, 255, 0.28);
   --app-secondary-accent: #0a84ff;
-  --app-secondary-soft: rgba(10, 132, 255, 0.09);
-  --app-shadow: 0 22px 54px rgba(25, 37, 54, 0.1);
-  --app-shadow-soft: 0 14px 32px rgba(25, 37, 54, 0.08);
+  --app-secondary-soft: rgba(10, 132, 255, 0.13);
+  --app-shadow: 0 22px 54px rgba(25, 60, 96, 0.12);
+  --app-shadow-soft: 0 14px 32px rgba(25, 60, 96, 0.09);
   --app-skeleton-a: rgba(255, 255, 255, 0.48);
   --app-skeleton-b: rgba(255, 255, 255, 0.86);
   --app-subtle: #475467;
@@ -47,7 +48,7 @@
   --app-text: #1f2937;
   --app-title: #111827;
   --app-warm: #ff9f0a;
-  --focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.12), 0 0 0 1px rgba(255, 106, 42, 0.16);
+  --focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.16), 0 0 0 1px rgba(255, 77, 54, 0.22);
   --screenshot-accent: #ff375f;
   --screenshot-bg: #101217;
   --screenshot-border: rgba(255, 255, 255, 0.14);
@@ -133,44 +134,45 @@
 }
 
 :root[data-theme='light'] {
-  --app-accent: #ff6a2a;
-  --app-accent-strong: #e84b1f;
-  --app-accent-line: rgba(255, 106, 42, 0.26);
-  --app-accent-soft: rgba(255, 130, 40, 0.09);
+  --app-accent: #ff4d36;
+  --app-accent-strong: #d83a21;
+  --app-accent-line: rgba(255, 91, 53, 0.42);
+  --app-accent-soft: rgba(255, 113, 37, 0.16);
   --app-bg:
     linear-gradient(
       135deg,
-      rgba(255, 244, 236, 0.92) 0%,
-      rgba(250, 253, 255, 0.96) 46%,
-      rgba(237, 247, 255, 0.92) 100%
+      rgba(255, 82, 68, 0.18) 0%,
+      rgba(255, 159, 10, 0.15) 28%,
+      rgba(255, 255, 255, 0.94) 52%,
+      rgba(10, 132, 255, 0.18) 100%
     ),
-    linear-gradient(180deg, #fbfbfd 0%, #f3f7fb 100%);
-  --app-body-bg: #f3f7fb;
-  --app-button-bg: rgba(255, 255, 255, 0.76);
-  --app-control-bg: rgba(255, 255, 255, 0.84);
-  --app-control-line: rgba(49, 65, 88, 0.13);
+    linear-gradient(180deg, #fff7f2 0%, #eef7ff 100%);
+  --app-body-bg: #f3f8ff;
+  --app-button-bg: rgba(255, 255, 255, 0.84);
+  --app-control-bg: rgba(255, 255, 255, 0.9);
+  --app-control-line: rgba(255, 111, 38, 0.22);
   --app-danger: #c6283f;
   --app-danger-bg: rgba(198, 40, 63, 0.1);
   --app-danger-line: rgba(198, 40, 63, 0.28);
-  --app-frame-bg: rgba(255, 255, 255, 0.78);
+  --app-frame-bg: rgba(255, 255, 255, 0.84);
   --app-green-soft: rgba(52, 199, 89, 0.13);
-  --app-icon-bg: rgba(255, 133, 31, 0.1);
-  --app-icon-border: rgba(255, 255, 255, 0.78);
-  --app-icon-text: #ff6a2a;
+  --app-icon-bg: rgba(255, 84, 53, 0.14);
+  --app-icon-border: rgba(255, 255, 255, 0.86);
+  --app-icon-text: #ff4d36;
   --app-input-text: #111827;
   --app-line: rgba(31, 41, 55, 0.11);
   --app-line-soft: rgba(31, 41, 55, 0.07);
   --app-muted: #657080;
-  --app-orange-soft: rgba(255, 159, 10, 0.12);
-  --app-panel-bg: rgba(255, 255, 255, 0.72);
-  --app-panel-bg-soft: rgba(255, 255, 255, 0.56);
+  --app-orange-soft: rgba(255, 159, 10, 0.18);
+  --app-panel-bg: rgba(255, 255, 255, 0.78);
+  --app-panel-bg-soft: rgba(255, 255, 255, 0.64);
   --app-placeholder: #8d96a7;
   --app-scrollbar-thumb: rgba(102, 112, 133, 0.26);
   --app-scrollbar-track: rgba(255, 255, 255, 0.28);
   --app-secondary-accent: #0a84ff;
-  --app-secondary-soft: rgba(10, 132, 255, 0.09);
-  --app-shadow: 0 22px 54px rgba(25, 37, 54, 0.1);
-  --app-shadow-soft: 0 14px 32px rgba(25, 37, 54, 0.08);
+  --app-secondary-soft: rgba(10, 132, 255, 0.13);
+  --app-shadow: 0 22px 54px rgba(25, 60, 96, 0.12);
+  --app-shadow-soft: 0 14px 32px rgba(25, 60, 96, 0.09);
   --app-skeleton-a: rgba(255, 255, 255, 0.48);
   --app-skeleton-b: rgba(255, 255, 255, 0.86);
   --app-subtle: #475467;
@@ -178,7 +180,7 @@
   --app-text: #1f2937;
   --app-title: #111827;
   --app-warm: #ff9f0a;
-  --focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.12), 0 0 0 1px rgba(255, 106, 42, 0.16);
+  --focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.16), 0 0 0 1px rgba(255, 77, 54, 0.22);
   color-scheme: light;
 }
 
@@ -239,17 +241,17 @@ select {
 .launcher-title {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
 .launcher-brand-mark {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   flex: 0 0 auto;
-  border-radius: 12px;
-  filter: drop-shadow(0 12px 22px rgba(255, 122, 24, 0.2))
-    drop-shadow(0 8px 18px rgba(10, 132, 255, 0.12));
+  border-radius: 16px;
+  filter: drop-shadow(0 14px 24px rgba(255, 96, 32, 0.24))
+    drop-shadow(0 10px 20px rgba(10, 132, 255, 0.14));
 }
 
 .launcher-kicker,
@@ -338,10 +340,19 @@ select {
 .search-field-wrap {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--app-control-line);
+  border: 1px solid transparent;
   border-radius: var(--app-radius-panel);
   background: var(--app-control-bg);
-  box-shadow: var(--app-shadow);
+  background:
+    linear-gradient(var(--app-control-bg), var(--app-control-bg)) padding-box,
+    linear-gradient(
+        90deg,
+        rgba(255, 77, 54, 0.42),
+        rgba(255, 159, 10, 0.35),
+        rgba(10, 132, 255, 0.34)
+      )
+      border-box;
+  box-shadow: 0 16px 40px rgba(22, 52, 82, 0.12);
   backdrop-filter: var(--app-surface-blur);
 }
 
@@ -368,8 +379,10 @@ select {
 }
 
 .search-field-wrap:focus-within {
-  border-color: var(--app-accent-line);
-  box-shadow: var(--focus-ring), var(--app-shadow);
+  border-color: transparent;
+  box-shadow:
+    var(--focus-ring),
+    0 20px 48px rgba(22, 52, 82, 0.16);
 }
 
 .search-field-wrap input {
@@ -404,11 +417,13 @@ select {
   min-height: 34px;
   gap: 7px;
   padding: 0 12px 0 8px;
-  border: 1px solid var(--app-control-line);
+  border: 1px solid rgba(255, 111, 38, 0.24);
   border-radius: 999px;
   color: var(--app-text);
-  background: var(--app-button-bg);
-  box-shadow: var(--app-shadow-soft);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(242, 248, 255, 0.86)) padding-box,
+    linear-gradient(135deg, rgba(255, 77, 54, 0.3), rgba(10, 132, 255, 0.22)) border-box;
+  box-shadow: 0 12px 28px rgba(25, 60, 96, 0.1);
   backdrop-filter: var(--app-surface-blur);
 }
 
@@ -416,7 +431,9 @@ select {
 .launcher-home-actions button:focus-visible {
   border-color: var(--app-accent-line);
   outline: none;
-  background: var(--app-accent-soft);
+  background:
+    linear-gradient(135deg, rgba(255, 244, 236, 0.96), rgba(236, 246, 255, 0.9)) padding-box,
+    linear-gradient(135deg, rgba(255, 77, 54, 0.48), rgba(10, 132, 255, 0.36)) border-box;
   box-shadow: var(--focus-ring), var(--app-shadow-soft);
 }
 
@@ -428,8 +445,8 @@ select {
   place-items: center;
   border: 1px solid var(--app-icon-border);
   border-radius: 999px;
-  color: var(--app-icon-text);
-  background: var(--app-icon-bg);
+  color: #ff4d36;
+  background: linear-gradient(135deg, rgba(255, 77, 54, 0.14), rgba(10, 132, 255, 0.12));
   font-size: 12px;
   line-height: 1;
 }
@@ -549,7 +566,9 @@ select {
   padding: 10px 12px;
   border: 1px solid var(--app-control-line);
   border-radius: 20px;
-  background: var(--app-panel-bg);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(248, 251, 255, 0.76)),
+    var(--app-panel-bg);
   box-shadow: var(--app-shadow-soft);
   backdrop-filter: var(--app-surface-blur);
   cursor: default;
@@ -558,7 +577,9 @@ select {
 
 .result-item[data-selected='true'] {
   border-color: var(--app-accent-line);
-  background: color-mix(in srgb, var(--app-panel-bg) 82%, var(--app-accent-soft));
+  background:
+    linear-gradient(145deg, rgba(255, 246, 240, 0.94), rgba(241, 249, 255, 0.84)),
+    color-mix(in srgb, var(--app-panel-bg) 78%, var(--app-accent-soft));
   box-shadow:
     inset 4px 0 0 var(--app-accent),
     var(--app-shadow);
@@ -581,10 +602,13 @@ select {
 }
 
 .result-item--recent-app[data-selected='true'] {
-  background: color-mix(in srgb, var(--app-panel-bg) 86%, var(--app-orange-soft));
+  border-color: var(--app-accent-line);
+  background:
+    linear-gradient(145deg, rgba(255, 246, 240, 0.96), rgba(239, 248, 255, 0.86)),
+    color-mix(in srgb, var(--app-panel-bg) 74%, var(--app-orange-soft));
   box-shadow:
-    inset 0 0 0 1px var(--app-accent-line),
-    var(--app-shadow-soft);
+    inset 0 0 0 2px rgba(255, 77, 54, 0.18),
+    0 14px 34px rgba(25, 60, 96, 0.1);
 }
 
 .result-item[data-manageable='true'] {
@@ -623,7 +647,13 @@ select {
   border-radius: 13px;
   color: var(--app-icon-text);
   background:
-    linear-gradient(135deg, var(--app-icon-bg), var(--app-secondary-soft)), var(--app-panel-bg);
+    linear-gradient(
+      135deg,
+      rgba(255, 77, 54, 0.15) 0%,
+      rgba(255, 159, 10, 0.12) 45%,
+      rgba(10, 132, 255, 0.13) 100%
+    ),
+    var(--app-panel-bg);
   font-size: 14px;
   font-weight: 720;
   line-height: 1;

@@ -25,7 +25,7 @@ describe('app theme CSS', () => {
     ].join('\n');
 
     expect(themeBlocks).not.toContain('repeating-linear-gradient');
-    expect(css).toMatch(/--app-accent:\s*#ff6a2a/i);
+    expect(css).toMatch(/--app-accent:\s*#ff4d36/i);
     expect(css).toMatch(/--app-secondary-accent:\s*#0a84ff/i);
     expect(css).toMatch(/--app-success:\s*#34c759/i);
     expect(css).toMatch(/--app-warm:\s*#ff9f0a/i);

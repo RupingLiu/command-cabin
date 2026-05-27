@@ -41,37 +41,54 @@ function CommandCabinMark() {
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <linearGradient id="commandCabinMarkBg" x1="38" x2="218" y1="38" y2="218">
+        <linearGradient
+          id="commandCabinLauncherMarkBg"
+          gradientUnits="userSpaceOnUse"
+          x1="46"
+          x2="218"
+          y1="34"
+          y2="218"
+        >
           <stop offset="0" stopColor="#FF2D55" />
-          <stop offset="0.52" stopColor="#FF9F0A" />
-          <stop offset="1" stopColor="#007AFF" />
+          <stop offset="0.52" stopColor="#FF9810" />
+          <stop offset="1" stopColor="#0A84FF" />
         </linearGradient>
       </defs>
-      <rect x="22" y="22" width="212" height="212" rx="48" fill="url(#commandCabinMarkBg)" />
+      <rect x="17" y="17" width="222" height="222" rx="58" fill="#FFF9F1" />
       <rect
-        x="22"
-        y="22"
-        width="212"
-        height="212"
-        rx="48"
-        stroke="rgba(255,255,255,0.7)"
-        strokeWidth="10"
+        x="27"
+        y="27"
+        width="202"
+        height="202"
+        rx="50"
+        fill="url(#commandCabinLauncherMarkBg)"
+      />
+      <rect
+        x="31"
+        y="31"
+        width="194"
+        height="194"
+        rx="46"
+        stroke="#FFE3C6"
+        strokeOpacity="0.74"
+        strokeWidth="7"
       />
       <path
-        d="M157 84H93C75.3 84 61 98.3 61 116v24c0 17.7 14.3 32 32 32h64"
-        stroke="rgba(255,255,255,0.9)"
+        d="M163 84H98C75.9 84 58 101.9 58 124v24c0 22.1 17.9 40 40 40h65"
+        stroke="#FFF4E8"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="26"
+        strokeWidth="27"
       />
       <path
-        d="M88 112L114 128L88 144"
-        stroke="#FF9F0A"
+        d="M89 114L119 132L89 150"
+        stroke="#FFB000"
+        strokeOpacity="0.92"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="12"
+        strokeWidth="15"
       />
-      <path d="M157 146V176" stroke="#007AFF" strokeLinecap="round" strokeWidth="22" />
+      <path d="M162 149V180" stroke="#0A84FF" strokeLinecap="round" strokeWidth="24" />
     </svg>
   );
 }

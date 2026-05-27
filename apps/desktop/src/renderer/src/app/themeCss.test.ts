@@ -25,17 +25,17 @@ describe('app theme CSS', () => {
     ].join('\n');
 
     expect(themeBlocks).not.toContain('repeating-linear-gradient');
-    expect(css).toMatch(/--app-accent:\s*#ff2d55/i);
-    expect(css).toMatch(/--app-secondary-accent:\s*#007aff/i);
+    expect(css).toMatch(/--app-accent:\s*#ff6a2a/i);
+    expect(css).toMatch(/--app-secondary-accent:\s*#0a84ff/i);
     expect(css).toMatch(/--app-success:\s*#34c759/i);
     expect(css).toMatch(/--app-warm:\s*#ff9f0a/i);
-    expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-accent:\s*#ff375f/is);
+    expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-accent:\s*#ff8a1f/is);
     expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*--app-success:\s*#30d158/is);
-    expect(css).toMatch(/^:root\s*{[^}]*radial-gradient\(circle at 16% 8%/is);
+    expect(css).toMatch(/^:root\s*{[^}]*linear-gradient\(\s*135deg/is);
     expect(css).toMatch(
-      /:root\[data-theme='light'\]\s*{[^}]*--app-bg:[^}]*radial-gradient\(circle at 16% 8%/is,
+      /:root\[data-theme='light'\]\s*{[^}]*--app-bg:[^}]*linear-gradient\(\s*135deg/is,
     );
-    expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*radial-gradient\(circle at 16% 8%/is);
+    expect(css).toMatch(/:root\[data-theme='dark'\]\s*{[^}]*linear-gradient\(\s*135deg/is);
   });
 
   it('defines shared frosted surface tokens for app and screenshot UI', () => {

@@ -1,40 +1,44 @@
 :root {
-  --app-accent: #ff2d55;
-  --app-accent-strong: #d91f45;
-  --app-accent-line: rgba(255, 45, 85, 0.34);
-  --app-accent-soft: rgba(255, 45, 85, 0.11);
+  --app-accent: #ff6a2a;
+  --app-accent-strong: #e84b1f;
+  --app-accent-line: rgba(255, 106, 42, 0.26);
+  --app-accent-soft: rgba(255, 130, 40, 0.09);
   --app-bg:
-    radial-gradient(circle at 16% 8%, rgba(255, 45, 85, 0.14), transparent 34%),
-    radial-gradient(circle at 82% 4%, rgba(0, 122, 255, 0.12), transparent 32%),
-    linear-gradient(180deg, #fbfbfd 0%, #f2f4f8 100%);
-  --app-body-bg: #f2f4f8;
-  --app-button-bg: rgba(255, 255, 255, 0.62);
-  --app-control-bg: rgba(255, 255, 255, 0.76);
-  --app-control-line: rgba(255, 255, 255, 0.78);
+    linear-gradient(
+      135deg,
+      rgba(255, 244, 236, 0.92) 0%,
+      rgba(250, 253, 255, 0.96) 46%,
+      rgba(237, 247, 255, 0.92) 100%
+    ),
+    linear-gradient(180deg, #fbfbfd 0%, #f3f7fb 100%);
+  --app-body-bg: #f3f7fb;
+  --app-button-bg: rgba(255, 255, 255, 0.76);
+  --app-control-bg: rgba(255, 255, 255, 0.84);
+  --app-control-line: rgba(49, 65, 88, 0.13);
   --app-danger: #c6283f;
   --app-danger-bg: rgba(198, 40, 63, 0.1);
   --app-danger-line: rgba(198, 40, 63, 0.28);
-  --app-frame-bg: rgba(255, 255, 255, 0.72);
+  --app-frame-bg: rgba(255, 255, 255, 0.78);
   --app-green-soft: rgba(52, 199, 89, 0.13);
-  --app-icon-bg: rgba(255, 45, 85, 0.1);
-  --app-icon-border: rgba(255, 255, 255, 0.7);
-  --app-icon-text: #ff2d55;
+  --app-icon-bg: rgba(255, 133, 31, 0.1);
+  --app-icon-border: rgba(255, 255, 255, 0.78);
+  --app-icon-text: #ff6a2a;
   --app-input-text: #111827;
-  --app-line: rgba(17, 24, 39, 0.1);
-  --app-line-soft: rgba(17, 24, 39, 0.07);
-  --app-muted: #667085;
-  --app-orange-soft: rgba(255, 159, 10, 0.14);
-  --app-panel-bg: rgba(255, 255, 255, 0.68);
-  --app-panel-bg-soft: rgba(255, 255, 255, 0.5);
-  --app-placeholder: #8a94a6;
+  --app-line: rgba(31, 41, 55, 0.11);
+  --app-line-soft: rgba(31, 41, 55, 0.07);
+  --app-muted: #657080;
+  --app-orange-soft: rgba(255, 159, 10, 0.12);
+  --app-panel-bg: rgba(255, 255, 255, 0.72);
+  --app-panel-bg-soft: rgba(255, 255, 255, 0.56);
+  --app-placeholder: #8d96a7;
   --app-radius-control: 18px;
   --app-radius-panel: 24px;
   --app-scrollbar-thumb: rgba(102, 112, 133, 0.26);
   --app-scrollbar-track: rgba(255, 255, 255, 0.28);
-  --app-secondary-accent: #007aff;
-  --app-secondary-soft: rgba(0, 122, 255, 0.11);
-  --app-shadow: 0 22px 54px rgba(31, 41, 55, 0.12);
-  --app-shadow-soft: 0 14px 32px rgba(31, 41, 55, 0.1);
+  --app-secondary-accent: #0a84ff;
+  --app-secondary-soft: rgba(10, 132, 255, 0.09);
+  --app-shadow: 0 22px 54px rgba(25, 37, 54, 0.1);
+  --app-shadow-soft: 0 14px 32px rgba(25, 37, 54, 0.08);
   --app-skeleton-a: rgba(255, 255, 255, 0.48);
   --app-skeleton-b: rgba(255, 255, 255, 0.86);
   --app-subtle: #475467;
@@ -43,7 +47,7 @@
   --app-text: #1f2937;
   --app-title: #111827;
   --app-warm: #ff9f0a;
-  --focus-ring: 0 0 0 3px rgba(255, 45, 85, 0.16);
+  --focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.12), 0 0 0 1px rgba(255, 106, 42, 0.16);
   --screenshot-accent: #ff375f;
   --screenshot-bg: #101217;
   --screenshot-border: rgba(255, 255, 255, 0.14);
@@ -79,13 +83,17 @@
 }
 
 :root[data-theme='dark'] {
-  --app-accent: #ff375f;
-  --app-accent-strong: #ff7a90;
-  --app-accent-line: rgba(255, 55, 95, 0.42);
-  --app-accent-soft: rgba(255, 55, 95, 0.14);
+  --app-accent: #ff8a1f;
+  --app-accent-strong: #ffb340;
+  --app-accent-line: rgba(255, 138, 31, 0.44);
+  --app-accent-soft: rgba(255, 138, 31, 0.14);
   --app-bg:
-    radial-gradient(circle at 16% 8%, rgba(255, 55, 95, 0.2), transparent 34%),
-    radial-gradient(circle at 82% 4%, rgba(10, 132, 255, 0.18), transparent 32%),
+    linear-gradient(
+      135deg,
+      rgba(32, 25, 22, 0.96) 0%,
+      rgba(15, 17, 23, 0.98) 48%,
+      rgba(12, 25, 42, 0.96) 100%
+    ),
     linear-gradient(180deg, #171a23 0%, #0f1117 100%);
   --app-body-bg: #0f1117;
   --app-button-bg: rgba(255, 255, 255, 0.08);
@@ -96,9 +104,9 @@
   --app-danger-line: rgba(255, 122, 144, 0.34);
   --app-frame-bg: rgba(255, 255, 255, 0.08);
   --app-green-soft: rgba(48, 209, 88, 0.13);
-  --app-icon-bg: rgba(255, 55, 95, 0.14);
+  --app-icon-bg: rgba(255, 138, 31, 0.14);
   --app-icon-border: rgba(255, 255, 255, 0.12);
-  --app-icon-text: #ff7a90;
+  --app-icon-text: #ffb340;
   --app-input-text: #f9fafb;
   --app-line: rgba(255, 255, 255, 0.11);
   --app-line-soft: rgba(255, 255, 255, 0.08);
@@ -120,45 +128,49 @@
   --app-text: #eef2f8;
   --app-title: #f9fafb;
   --app-warm: #ffd60a;
-  --focus-ring: 0 0 0 3px rgba(255, 55, 95, 0.2);
+  --focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.24);
   color-scheme: dark;
 }
 
 :root[data-theme='light'] {
-  --app-accent: #ff2d55;
-  --app-accent-strong: #d91f45;
-  --app-accent-line: rgba(255, 45, 85, 0.34);
-  --app-accent-soft: rgba(255, 45, 85, 0.11);
+  --app-accent: #ff6a2a;
+  --app-accent-strong: #e84b1f;
+  --app-accent-line: rgba(255, 106, 42, 0.26);
+  --app-accent-soft: rgba(255, 130, 40, 0.09);
   --app-bg:
-    radial-gradient(circle at 16% 8%, rgba(255, 45, 85, 0.14), transparent 34%),
-    radial-gradient(circle at 82% 4%, rgba(0, 122, 255, 0.12), transparent 32%),
-    linear-gradient(180deg, #fbfbfd 0%, #f2f4f8 100%);
-  --app-body-bg: #f2f4f8;
-  --app-button-bg: rgba(255, 255, 255, 0.62);
-  --app-control-bg: rgba(255, 255, 255, 0.76);
-  --app-control-line: rgba(255, 255, 255, 0.78);
+    linear-gradient(
+      135deg,
+      rgba(255, 244, 236, 0.92) 0%,
+      rgba(250, 253, 255, 0.96) 46%,
+      rgba(237, 247, 255, 0.92) 100%
+    ),
+    linear-gradient(180deg, #fbfbfd 0%, #f3f7fb 100%);
+  --app-body-bg: #f3f7fb;
+  --app-button-bg: rgba(255, 255, 255, 0.76);
+  --app-control-bg: rgba(255, 255, 255, 0.84);
+  --app-control-line: rgba(49, 65, 88, 0.13);
   --app-danger: #c6283f;
   --app-danger-bg: rgba(198, 40, 63, 0.1);
   --app-danger-line: rgba(198, 40, 63, 0.28);
-  --app-frame-bg: rgba(255, 255, 255, 0.72);
+  --app-frame-bg: rgba(255, 255, 255, 0.78);
   --app-green-soft: rgba(52, 199, 89, 0.13);
-  --app-icon-bg: rgba(255, 45, 85, 0.1);
-  --app-icon-border: rgba(255, 255, 255, 0.7);
-  --app-icon-text: #ff2d55;
+  --app-icon-bg: rgba(255, 133, 31, 0.1);
+  --app-icon-border: rgba(255, 255, 255, 0.78);
+  --app-icon-text: #ff6a2a;
   --app-input-text: #111827;
-  --app-line: rgba(17, 24, 39, 0.1);
-  --app-line-soft: rgba(17, 24, 39, 0.07);
-  --app-muted: #667085;
-  --app-orange-soft: rgba(255, 159, 10, 0.14);
-  --app-panel-bg: rgba(255, 255, 255, 0.68);
-  --app-panel-bg-soft: rgba(255, 255, 255, 0.5);
-  --app-placeholder: #8a94a6;
+  --app-line: rgba(31, 41, 55, 0.11);
+  --app-line-soft: rgba(31, 41, 55, 0.07);
+  --app-muted: #657080;
+  --app-orange-soft: rgba(255, 159, 10, 0.12);
+  --app-panel-bg: rgba(255, 255, 255, 0.72);
+  --app-panel-bg-soft: rgba(255, 255, 255, 0.56);
+  --app-placeholder: #8d96a7;
   --app-scrollbar-thumb: rgba(102, 112, 133, 0.26);
   --app-scrollbar-track: rgba(255, 255, 255, 0.28);
-  --app-secondary-accent: #007aff;
-  --app-secondary-soft: rgba(0, 122, 255, 0.11);
-  --app-shadow: 0 22px 54px rgba(31, 41, 55, 0.12);
-  --app-shadow-soft: 0 14px 32px rgba(31, 41, 55, 0.1);
+  --app-secondary-accent: #0a84ff;
+  --app-secondary-soft: rgba(10, 132, 255, 0.09);
+  --app-shadow: 0 22px 54px rgba(25, 37, 54, 0.1);
+  --app-shadow-soft: 0 14px 32px rgba(25, 37, 54, 0.08);
   --app-skeleton-a: rgba(255, 255, 255, 0.48);
   --app-skeleton-b: rgba(255, 255, 255, 0.86);
   --app-subtle: #475467;
@@ -166,7 +178,7 @@
   --app-text: #1f2937;
   --app-title: #111827;
   --app-warm: #ff9f0a;
-  --focus-ring: 0 0 0 3px rgba(255, 45, 85, 0.16);
+  --focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.12), 0 0 0 1px rgba(255, 106, 42, 0.16);
   color-scheme: light;
 }
 
@@ -236,7 +248,8 @@ select {
   height: 36px;
   flex: 0 0 auto;
   border-radius: 12px;
-  filter: drop-shadow(0 12px 22px rgba(255, 45, 85, 0.18));
+  filter: drop-shadow(0 12px 22px rgba(255, 122, 24, 0.2))
+    drop-shadow(0 8px 18px rgba(10, 132, 255, 0.12));
 }
 
 .launcher-kicker,
@@ -546,7 +559,9 @@ select {
 .result-item[data-selected='true'] {
   border-color: var(--app-accent-line);
   background: color-mix(in srgb, var(--app-panel-bg) 82%, var(--app-accent-soft));
-  box-shadow: inset 4px 0 0 var(--app-accent), var(--app-shadow);
+  box-shadow:
+    inset 4px 0 0 var(--app-accent),
+    var(--app-shadow);
   transform: translateY(-1px);
 }
 
@@ -566,7 +581,10 @@ select {
 }
 
 .result-item--recent-app[data-selected='true'] {
-  box-shadow: inset 0 0 0 2px var(--app-accent-line), var(--app-shadow-soft);
+  background: color-mix(in srgb, var(--app-panel-bg) 86%, var(--app-orange-soft));
+  box-shadow:
+    inset 0 0 0 1px var(--app-accent-line),
+    var(--app-shadow-soft);
 }
 
 .result-item[data-manageable='true'] {
@@ -604,8 +622,8 @@ select {
   border: 1px solid var(--app-icon-border);
   border-radius: 13px;
   color: var(--app-icon-text);
-  background: linear-gradient(135deg, var(--app-icon-bg), var(--app-secondary-soft)),
-    var(--app-panel-bg);
+  background:
+    linear-gradient(135deg, var(--app-icon-bg), var(--app-secondary-soft)), var(--app-panel-bg);
   font-size: 14px;
   font-weight: 720;
   line-height: 1;
@@ -885,7 +903,9 @@ select {
 .add-app-candidate[data-selected='true'] {
   border-color: var(--app-accent-line);
   background: color-mix(in srgb, var(--app-panel-bg) 82%, var(--app-accent-soft));
-  box-shadow: inset 3px 0 0 var(--app-accent), var(--app-shadow-soft);
+  box-shadow:
+    inset 3px 0 0 var(--app-accent),
+    var(--app-shadow-soft);
 }
 
 .add-app-candidate__icon {
@@ -897,8 +917,8 @@ select {
   border: 1px solid var(--app-icon-border);
   border-radius: 13px;
   color: var(--app-icon-text);
-  background: linear-gradient(135deg, var(--app-icon-bg), var(--app-secondary-soft)),
-    var(--app-panel-bg);
+  background:
+    linear-gradient(135deg, var(--app-icon-bg), var(--app-secondary-soft)), var(--app-panel-bg);
   font-size: 14px;
   font-weight: 720;
 }

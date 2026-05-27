@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { createClipboardHistoryRepository } from '@command-cabin/built-in-plugin-clipboard-history';
 import {
   createCommandRegistry,
   createFavoritesRepository,
@@ -181,6 +182,35 @@ describe('launcher command service', () => {
     ]);
   });
 
+  it('keeps quick converter results above matching clipboard history entries', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+      clipboardHistoryRepository.saveText('43cm');
+      clipboardHistoryRepository.saveText('43cm*13cm*7cm');
+      const service = createLauncherCommandService({
+        clipboardHistoryRepository,
+        commands: [],
+      });
+
+      const results = await service.searchCommands('43cm');
+
+      expect(results.map((result) => result.id)).toEqual([
+        'quick-converter.result',
+        expect.stringMatching(/^clipboard-history\.entry\./),
+        expect.stringMatching(/^clipboard-history\.entry\./),
+      ]);
+      expect(results[0]).toMatchObject({
+        id: 'quick-converter.result',
+        title: '43 厘米 = 430 毫米 = 0.43 米 = 16.9291 英寸',
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it('keeps calculator results while adding quick converter results', async () => {
     const service = createLauncherCommandService({ commands: [] });
 
@@ -258,6 +288,56 @@ describe('launcher command service', () => {
       },
       status: 'failure',
     });
+  });
+
+  it('caps clipboard history results during normal searches', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+      clipboardHistoryRepository.saveText('alpha one');
+      clipboardHistoryRepository.saveText('alpha two');
+      clipboardHistoryRepository.saveText('alpha three');
+      const service = createLauncherCommandService({
+        clipboardHistoryRepository,
+        commands: [],
+      });
+
+      const results = await service.searchCommands('alpha');
+
+      expect(results).toHaveLength(2);
+      expect(results.every((result) => result.id.startsWith('clipboard-history.entry.'))).toBe(
+        true,
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  it('does not cap clipboard history results for explicit clipboard searches', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+      clipboardHistoryRepository.saveText('clip alpha one');
+      clipboardHistoryRepository.saveText('clip alpha two');
+      clipboardHistoryRepository.saveText('clip alpha three');
+      const service = createLauncherCommandService({
+        clipboardHistoryRepository,
+        commands: [],
+      });
+
+      const results = await service.searchCommands('clip alpha');
+
+      expect(results).toHaveLength(3);
+      expect(results.every((result) => result.id.startsWith('clipboard-history.entry.'))).toBe(
+        true,
+      );
+    } finally {
+      database.close();
+    }
   });
 
   it('rejects configured commands that collide with the calculator result command id', () => {
@@ -531,6 +611,50 @@ describe('launcher command service', () => {
         shortcutPath: 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Notepad.lnk',
       },
     ]);
+  });
+
+  it('keeps app search results above matching clipboard history entries', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+      clipboardHistoryRepository.saveText('wps document draft');
+      clipboardHistoryRepository.saveText('wps office notes');
+      const service = createLauncherCommandService({
+        appCommands: () => [
+          {
+            id: 'app.wps',
+            source: 'app',
+            title: 'WPS Office',
+            subtitle: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+            keywords: ['wps office'],
+            action: {
+              type: 'open-app',
+              payload: {
+                executablePath: 'C:\\Program Files\\WPS Office\\ksolaunch.exe',
+                shortcutPath: 'C:\\Users\\Ada\\Start Menu\\Programs\\WPS Office.lnk',
+              },
+            },
+          },
+        ],
+        clipboardHistoryRepository,
+        commands: [],
+      });
+
+      const results = await service.searchCommands('wps');
+
+      expect(results[0]).toMatchObject({
+        id: 'app.wps',
+        source: 'app',
+        title: 'WPS Office',
+      });
+      expect(results.slice(1).every((result) => result.id.startsWith('clipboard-history.entry.'))).toBe(
+        true,
+      );
+    } finally {
+      database.close();
+    }
   });
 
   it('adds icon, executable, and shortcut paths as app icon candidates', async () => {

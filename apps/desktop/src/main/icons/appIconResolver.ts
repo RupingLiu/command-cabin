@@ -53,6 +53,12 @@ const ICON_INDEX_ONLY_PATTERN = /^,\d+$/;
 const RESULT_ICON_CACHE_HASH_LENGTH = 16;
 const WINDOWS_APPS_FOLDER_CANDIDATE_PATTERN = /^shell:AppsFolder[\\/](.+)$/i;
 const PACKAGED_APP_ASSET_PATHS = [
+  ['resources', 'logo.ico'],
+  ['resources', 'logo.png'],
+  ['resources', 'icon.ico'],
+  ['resources', 'icon.png'],
+  ['resources', 'app.ico'],
+  ['resources', 'app.png'],
   ['resources', 'app', 'static', 'logo-256x256.png'],
   ['resources', 'app', 'static', 'icon-logo.ico'],
   ['resources', 'app', 'static', 'icon.png'],

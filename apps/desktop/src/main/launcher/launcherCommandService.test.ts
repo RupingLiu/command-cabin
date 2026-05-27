@@ -65,9 +65,9 @@ describe('launcher command service', () => {
         id: 'system.open-settings',
         source: 'system',
       });
-      expect(results.filter((result) => result.id.startsWith('clipboard-history.entry.'))).toHaveLength(
-        2,
-      );
+      expect(
+        results.filter((result) => result.id.startsWith('clipboard-history.entry.')),
+      ).toHaveLength(2);
     } finally {
       database.close();
     }
@@ -495,9 +495,9 @@ describe('launcher command service', () => {
         source: 'url',
         title: 'Manual Portal',
       });
-      expect(results.filter((result) => result.id.startsWith('clipboard-history.entry.'))).toHaveLength(
-        2,
-      );
+      expect(
+        results.filter((result) => result.id.startsWith('clipboard-history.entry.')),
+      ).toHaveLength(2);
     } finally {
       database.close();
     }
@@ -710,9 +710,9 @@ describe('launcher command service', () => {
         source: 'app',
         title: 'WPS Office',
       });
-      expect(results.slice(1).every((result) => result.id.startsWith('clipboard-history.entry.'))).toBe(
-        true,
-      );
+      expect(
+        results.slice(1).every((result) => result.id.startsWith('clipboard-history.entry.')),
+      ).toBe(true);
     } finally {
       database.close();
     }

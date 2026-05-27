@@ -51,6 +51,7 @@ const IMAGE_FILE_EXTENSIONS = new Set(['.ico', '.jpg', '.jpeg', '.png', '.webp']
 const EXECUTABLE_ICON_EXTENSIONS = new Set(['.com', '.exe']);
 const ICON_INDEX_ONLY_PATTERN = /^,\d+$/;
 const RESULT_ICON_CACHE_HASH_LENGTH = 16;
+const RESULT_ICON_CACHE_VERSION = 'app-result-v3';
 const WINDOWS_APPS_FOLDER_CANDIDATE_PATTERN = /^shell:AppsFolder[\\/](.+)$/i;
 const PACKAGED_APP_ASSET_PATHS = [
   ['resources', 'logo.ico'],
@@ -143,7 +144,7 @@ function createResultIconCacheKey(result: LauncherCommandSearchResult): string {
     .digest('hex')
     .slice(0, RESULT_ICON_CACHE_HASH_LENGTH);
 
-  return `app-result-v2:${result.id}:${fingerprint}`;
+  return `${RESULT_ICON_CACHE_VERSION}:${result.id}:${fingerprint}`;
 }
 
 export function createAppIconResolver({

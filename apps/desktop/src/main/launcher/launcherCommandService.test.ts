@@ -214,8 +214,11 @@ describe('launcher command service', () => {
     try {
       runMigrations(database);
       const clipboardHistoryRepository = createClipboardHistoryRepository(database);
-      clipboardHistoryRepository.saveText('43cm');
-      clipboardHistoryRepository.saveText('43cm*13cm*7cm');
+
+      for (let index = 0; index < 20; index += 1) {
+        clipboardHistoryRepository.saveText(`43cm snippet ${index}`);
+      }
+
       const service = createLauncherCommandService({
         clipboardHistoryRepository,
         commands: [],
@@ -341,23 +344,67 @@ describe('launcher command service', () => {
     }
   });
 
-  it('does not cap clipboard history results for explicit clipboard searches', async () => {
+  it('keeps ordinary command results above an overflowing clipboard history set', async () => {
     const database = openInMemoryCommandCabinDatabase();
 
     try {
       runMigrations(database);
       const clipboardHistoryRepository = createClipboardHistoryRepository(database);
-      clipboardHistoryRepository.saveText('clip alpha one');
-      clipboardHistoryRepository.saveText('clip alpha two');
-      clipboardHistoryRepository.saveText('clip alpha three');
+
+      for (let index = 0; index < 20; index += 1) {
+        clipboardHistoryRepository.saveText(`eclipse snippet ${index}`);
+      }
+
+      const service = createLauncherCommandService({
+        clipboardHistoryRepository,
+        commands: [
+          {
+            id: 'plugin.eclipse-launcher',
+            source: 'plugin',
+            title: 'Project Launcher',
+            keywords: ['eclipse'],
+            action: {
+              type: 'run-system',
+              payload: {
+                command: 'eclipse',
+              },
+            },
+          },
+        ],
+      });
+
+      const results = await service.searchCommands('eclipse');
+
+      expect(results[0]).toMatchObject({
+        id: 'plugin.eclipse-launcher',
+        title: 'Project Launcher',
+      });
+      expect(results).toHaveLength(3);
+      expect(
+        results.filter((result) => result.id.startsWith('clipboard-history.entry.')),
+      ).toHaveLength(2);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('does not treat embedded clip text as an explicit clipboard query', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+      clipboardHistoryRepository.saveText('eclipse one');
+      clipboardHistoryRepository.saveText('eclipse two');
+      clipboardHistoryRepository.saveText('eclipse three');
       const service = createLauncherCommandService({
         clipboardHistoryRepository,
         commands: [],
       });
 
-      const results = await service.searchCommands('clip alpha');
+      const results = await service.searchCommands('eclipse');
 
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(2);
       expect(results.every((result) => result.id.startsWith('clipboard-history.entry.'))).toBe(
         true,
       );
@@ -365,6 +412,34 @@ describe('launcher command service', () => {
       database.close();
     }
   });
+
+  it.each(['clip alpha', 'clipboard alpha', '剪贴板 alpha'])(
+    'does not cap clipboard history results for explicit clipboard search %s',
+    async (query) => {
+      const database = openInMemoryCommandCabinDatabase();
+
+      try {
+        runMigrations(database);
+        const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+        clipboardHistoryRepository.saveText('clip alpha one');
+        clipboardHistoryRepository.saveText('clip alpha two');
+        clipboardHistoryRepository.saveText('clip alpha three');
+        const service = createLauncherCommandService({
+          clipboardHistoryRepository,
+          commands: [],
+        });
+
+        const results = await service.searchCommands(query);
+
+        expect(results).toHaveLength(3);
+        expect(results.every((result) => result.id.startsWith('clipboard-history.entry.'))).toBe(
+          true,
+        );
+      } finally {
+        database.close();
+      }
+    },
+  );
 
   it('rejects configured commands that collide with the calculator result command id', () => {
     expect(() =>

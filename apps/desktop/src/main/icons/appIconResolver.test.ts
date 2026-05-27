@@ -98,7 +98,7 @@ describe('createAppIconResolver', () => {
     });
 
     expect(iconDataUrlCache.read).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result-v2:app\.codex:/),
+      expect.stringMatching(/^app-result-v3:app\.codex:/),
     );
     expect(getFileIcon).not.toHaveBeenCalled();
   });
@@ -198,7 +198,7 @@ describe('createAppIconResolver', () => {
     });
 
     expect(iconDataUrlCache.write).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result-v2:app\.codex:/),
+      expect.stringMatching(/^app-result-v3:app\.codex:/),
       'data:image/png;base64,CODEX',
     );
   });
@@ -693,6 +693,58 @@ describe('createAppIconResolver', () => {
 
     expect(readImageDataUrl).toHaveBeenCalledWith(
       'C:\\Program Files\\YT Config Tool\\resources\\logo.ico',
+    );
+    expect(getFileIcon).not.toHaveBeenCalled();
+  });
+
+  it('refreshes persisted result icon cache after packaged app asset candidate changes', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,GENERIC_EXE',
+    }));
+    const iconDataUrlCache = {
+      read: vi.fn(async (key: string) =>
+        key.startsWith('app-result-v2:') ? 'data:image/png;base64,LEGACY_GENERIC_EXE' : undefined,
+      ),
+      write: vi.fn(async () => undefined),
+    };
+    const fileExists = vi.fn(async (iconPath: string) =>
+      iconPath.endsWith('\\resources\\logo.ico'),
+    );
+    const readImageDataUrl = vi.fn(async () => 'data:image/png;base64,YT_CONFIG');
+    const resolver = createAppIconResolver({
+      fileExists,
+      getFileIcon,
+      iconDataUrlCache,
+      readImageDataUrl,
+      resolveShortcut: vi.fn(async () => ({
+        iconPath: 'C:\\Program Files\\YT Config Tool\\YT Config Tool.exe,0',
+        targetPath: 'C:\\Program Files\\YT Config Tool\\YT Config Tool.exe',
+        workingDirectory: 'C:\\Program Files\\YT Config Tool',
+      })),
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: [
+          'C:\\Program Files\\YT Config Tool\\YT Config Tool.exe,0',
+          'C:\\Program Files\\YT Config Tool\\YT Config Tool.exe',
+          'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\YT Config Tool.lnk',
+        ],
+        id: 'app.yt-config-tool',
+        score: 1,
+        source: 'app',
+        title: 'YT Config Tool',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,YT_CONFIG',
+    });
+
+    expect(iconDataUrlCache.read).toHaveBeenCalledWith(
+      expect.stringMatching(/^app-result-v3:app\.yt-config-tool:/),
+    );
+    expect(iconDataUrlCache.write).toHaveBeenCalledWith(
+      expect.stringMatching(/^app-result-v3:app\.yt-config-tool:/),
+      'data:image/png;base64,YT_CONFIG',
     );
     expect(getFileIcon).not.toHaveBeenCalled();
   });

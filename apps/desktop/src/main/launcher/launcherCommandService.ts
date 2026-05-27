@@ -248,15 +248,11 @@ function isScreenshotSystemCommand(command: string): boolean {
 }
 
 const PINNED_APP_EXTENSIONS = new Set(['.exe', '.lnk']);
+const SEARCH_RESULT_LIMIT = 10;
+const MAX_INDEXED_CLIPBOARD_HISTORY_RESULTS = 200;
 const MAX_GENERAL_SEARCH_CLIPBOARD_HISTORY_RESULTS = 2;
-const EXPLICIT_CLIPBOARD_HISTORY_QUERY_TOKENS = [
-  'clip',
-  'clipboard',
-  'history',
-  '剪贴板',
-  '粘贴板',
-  '剪切板',
-] as const;
+const EXPLICIT_CLIPBOARD_HISTORY_QUERY_WORDS = ['clip', 'clipboard', 'history'] as const;
+const EXPLICIT_CLIPBOARD_HISTORY_QUERY_PHRASES = ['剪贴板', '粘贴板', '剪切板'] as const;
 
 interface NormalizedPinnedAppInput {
   appPath: string;
@@ -366,7 +362,13 @@ function isExplicitClipboardHistoryQuery(query: string): boolean {
     return false;
   }
 
-  return EXPLICIT_CLIPBOARD_HISTORY_QUERY_TOKENS.some((token) => normalizedQuery.includes(token));
+  if (EXPLICIT_CLIPBOARD_HISTORY_QUERY_PHRASES.some((phrase) => normalizedQuery.includes(phrase))) {
+    return true;
+  }
+
+  const queryWords: string[] = normalizedQuery.match(/[a-z0-9]+/g) ?? [];
+
+  return EXPLICIT_CLIPBOARD_HISTORY_QUERY_WORDS.some((word) => queryWords.includes(word));
 }
 
 function demoteClipboardHistorySearchResults(
@@ -615,7 +617,7 @@ export function createLauncherCommandService(
     }
 
     for (const command of createClipboardHistoryCommands(
-      options.clipboardHistoryRepository.listRecent(200),
+      options.clipboardHistoryRepository.listRecent(MAX_INDEXED_CLIPBOARD_HISTORY_RESULTS),
     )) {
       registry.register(command);
       clipboardHistoryCommandIds.add(command.id);
@@ -886,17 +888,19 @@ export function createLauncherCommandService(
       refreshAppCommands();
 
       if (isBlankQuery(query)) {
-        return listHomeAppSearchResults(10);
+        return listHomeAppSearchResults(SEARCH_RESULT_LIMIT);
       }
 
       refreshCalculatorCommand(query);
       await refreshQuickConverterCommand(query);
       refreshClipboardHistoryCommands();
 
-      const limit = 10;
+      const limit = SEARCH_RESULT_LIMIT;
       const searchOptions: SearchOptions = {
         includeAllOnEmptyQuery: false,
-        limit,
+        limit: isExplicitClipboardHistoryQuery(query)
+          ? limit
+          : limit + MAX_INDEXED_CLIPBOARD_HISTORY_RESULTS,
       };
       const ranking = createHistoryRankingContext();
 

@@ -47,6 +47,32 @@ describe('launcher command service', () => {
     });
   });
 
+  it('keeps system command results above matching clipboard history entries', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+      clipboardHistoryRepository.saveText('settings backup text');
+      clipboardHistoryRepository.saveText('settings notes');
+      const service = createLauncherCommandService({
+        clipboardHistoryRepository,
+      });
+
+      const results = await service.searchCommands('settings');
+
+      expect(results[0]).toMatchObject({
+        id: 'system.open-settings',
+        source: 'system',
+      });
+      expect(results.filter((result) => result.id.startsWith('clipboard-history.entry.'))).toHaveLength(
+        2,
+      );
+    } finally {
+      database.close();
+    }
+  });
+
   it('searches screenshot commands by default', async () => {
     const service = createLauncherCommandService();
 
@@ -437,6 +463,41 @@ describe('launcher command service', () => {
           openedPath: 'C:\\WorkingFolder\\command-cabin',
         },
       });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('keeps favorite results above matching clipboard history entries', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+      const favoritesRepository = createFavoritesRepository(database);
+      clipboardHistoryRepository.saveText('manual draft');
+      clipboardHistoryRepository.saveText('manual notes');
+      favoritesRepository.addFavorite({
+        kind: 'url',
+        title: 'Manual Portal',
+        url: 'https://example.com/manual',
+        keywords: ['manual'],
+      });
+      const service = createLauncherCommandService({
+        clipboardHistoryRepository,
+        commands: [],
+        favoritesRepository,
+      });
+
+      const results = await service.searchCommands('manual');
+
+      expect(results[0]).toMatchObject({
+        source: 'url',
+        title: 'Manual Portal',
+      });
+      expect(results.filter((result) => result.id.startsWith('clipboard-history.entry.'))).toHaveLength(
+        2,
+      );
     } finally {
       database.close();
     }

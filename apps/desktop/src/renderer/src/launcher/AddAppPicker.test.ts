@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AddAppPickerView } from './AddAppPicker.js';
+import { AddAppPickerView, getRenderableAppCandidateIcon } from './AddAppPicker.js';
 import type { AppCandidate } from '../../../shared/appCandidatesApi.js';
 
 function createCandidate(overrides: Partial<AppCandidate> = {}): AppCandidate {
@@ -65,6 +65,35 @@ describe('AddAppPickerView', () => {
     expect(markup).toContain('快捷方式信息不完整');
     expect(markup).toContain('已添加');
     expect(markup).toContain('浏览本地文件');
+  });
+
+  it('uses glyph fallback for raw Windows icon paths', () => {
+    const markup = renderPicker([
+      createCandidate({
+        icon: 'C:\\Program Files\\Codex\\Codex.exe,0',
+        id: 'desktop.codex',
+        title: 'Codex',
+      }),
+    ]);
+
+    expect(markup).toContain('class="add-app-candidate__icon"');
+    expect(markup).toContain('>C</span>');
+    expect(markup).not.toContain('Codex.exe,0');
+  });
+
+  it('falls back to the glyph after candidate image load failure', () => {
+    const candidate = createCandidate({
+      icon: 'data:image/png;base64,WPS',
+    });
+
+    expect(getRenderableAppCandidateIcon(candidate)).toEqual({
+      kind: 'image',
+      src: 'data:image/png;base64,WPS',
+    });
+    expect(getRenderableAppCandidateIcon(candidate, 'data:image/png;base64,WPS')).toEqual({
+      kind: 'glyph',
+      value: 'W',
+    });
   });
 
   it('renders a localized empty state', () => {

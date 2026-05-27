@@ -3,6 +3,7 @@ export const HOTKEY_INPUT_CAPTURE_CHANNEL = 'command-cabin:hotkey-input-capture'
 export const OPEN_SETTINGS_CHANNEL = 'command-cabin:open-settings';
 export const OPEN_REPOSITORY_CHANNEL = 'command-cabin:open-repository';
 export const SEARCH_COMMANDS_CHANNEL = 'command-cabin:search-commands';
+export const SEARCH_RESULT_ICONS_UPDATED_CHANNEL = 'command-cabin:search-result-icons-updated';
 export const EXECUTE_COMMAND_CHANNEL = 'command-cabin:execute-command';
 export const HIDE_LAUNCHER_CHANNEL = 'command-cabin:hide-launcher';
 export const START_HOTKEY_INPUT_CAPTURE_CHANNEL = 'command-cabin:start-hotkey-input-capture';

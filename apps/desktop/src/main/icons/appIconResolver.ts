@@ -70,9 +70,13 @@ const PACKAGED_APP_ASSET_PATHS = [
 ];
 
 interface ExpandedIconCandidates {
-  candidates: string[];
+  candidates: ExpandedIconCandidate[];
   hasInvalidIconLocationCandidate: boolean;
-  hasWeakShortcutExpansion: boolean;
+}
+
+interface ExpandedIconCandidate {
+  cacheable: boolean;
+  icon: string;
 }
 
 interface ResolvedIconDataUrl {
@@ -201,7 +205,9 @@ export function createAppIconResolver({
   ): Promise<ResolvedIconDataUrl | undefined> {
     const expandedCandidates = await expandShortcutCandidates(candidates);
 
-    for (const icon of expandedCandidates.candidates) {
+    for (const expandedCandidate of expandedCandidates.candidates) {
+      const { cacheable } = expandedCandidate;
+      const icon = expandedCandidate.icon;
       const candidate = getIconFilePathCandidate(icon);
 
       if (!candidate) {
@@ -210,7 +216,7 @@ export function createAppIconResolver({
 
       if (isImageDataUrl(candidate)) {
         return {
-          cacheable: !expandedCandidates.hasWeakShortcutExpansion,
+          cacheable,
           dataUrl: candidate,
         };
       }
@@ -222,7 +228,7 @@ export function createAppIconResolver({
 
         if (appUserModelIcon !== undefined) {
           return {
-            cacheable: !expandedCandidates.hasWeakShortcutExpansion,
+            cacheable,
             dataUrl: appUserModelIcon,
           };
         }
@@ -235,8 +241,7 @@ export function createAppIconResolver({
 
       if (cachedIcon) {
         return {
-          cacheable:
-            !expandedCandidates.hasWeakShortcutExpansion && !isWeakResultIconPath(iconPath),
+          cacheable: cacheable && !isWeakResultIconPath(iconPath),
           dataUrl: cachedIcon,
         };
       }
@@ -257,8 +262,7 @@ export function createAppIconResolver({
         if (dataUrl !== undefined) {
           iconCache.set(iconPath, dataUrl);
           return {
-            cacheable:
-              !expandedCandidates.hasWeakShortcutExpansion && !isWeakResultIconPath(iconPath),
+            cacheable: cacheable && !isWeakResultIconPath(iconPath),
             dataUrl,
           };
         }
@@ -493,12 +497,11 @@ export function createAppIconResolver({
   async function expandShortcutCandidates(
     candidates: readonly (string | undefined)[],
   ): Promise<ExpandedIconCandidates> {
-    const expandedCandidates: string[] = [];
+    const expandedCandidates: ExpandedIconCandidate[] = [];
     const dataUrlCandidates: string[] = [];
     const directCandidates: string[] = [];
     const shortcutCandidates: string[] = [];
     let hasInvalidIconLocationCandidate = false;
-    let hasWeakShortcutExpansion = false;
 
     for (const icon of candidates) {
       if (isInvalidIconLocationCandidate(icon)) {
@@ -526,7 +529,7 @@ export function createAppIconResolver({
       }
     }
 
-    pushUniqueCandidates(expandedCandidates, dataUrlCandidates);
+    pushUniqueCandidates(expandedCandidates, dataUrlCandidates, true);
 
     if (resolveShortcut !== undefined) {
       const weakShortcutFallbackCandidates: string[] = [];
@@ -537,27 +540,25 @@ export function createAppIconResolver({
           hasInvalidIconLocationCandidate || nextCandidates.some(isInvalidIconLocationCandidate);
 
         if (isWeakShortcutExpansion(shortcutPath, nextCandidates)) {
-          hasWeakShortcutExpansion = true;
-          pushUniqueCandidates(weakShortcutFallbackCandidates, nextCandidates);
+          pushUniqueStrings(weakShortcutFallbackCandidates, nextCandidates);
           continue;
         }
 
-        pushUniqueCandidates(expandedCandidates, nextCandidates);
+        pushUniqueCandidates(expandedCandidates, nextCandidates, true);
       }
 
-      pushUniqueCandidates(expandedCandidates, directCandidates);
+      pushUniqueCandidates(expandedCandidates, directCandidates, true);
       if (directCandidates.length === 0) {
-        pushUniqueCandidates(expandedCandidates, weakShortcutFallbackCandidates);
+        pushUniqueCandidates(expandedCandidates, weakShortcutFallbackCandidates, false);
       }
     } else {
-      pushUniqueCandidates(expandedCandidates, directCandidates);
-      pushUniqueCandidates(expandedCandidates, shortcutCandidates);
+      pushUniqueCandidates(expandedCandidates, directCandidates, true);
+      pushUniqueCandidates(expandedCandidates, shortcutCandidates, false);
     }
 
     return {
       candidates: expandedCandidates,
       hasInvalidIconLocationCandidate,
-      hasWeakShortcutExpansion,
     };
   }
 
@@ -589,7 +590,27 @@ export function createAppIconResolver({
     return expandEnvironmentVariables(candidate).trim().toLowerCase();
   }
 
-  function pushUniqueCandidates(target: string[], candidates: readonly string[]): void {
+  function pushUniqueCandidates(
+    target: ExpandedIconCandidate[],
+    candidates: readonly string[],
+    cacheable: boolean,
+  ): void {
+    for (const candidate of candidates) {
+      const existingCandidate = target.find((entry) => entry.icon === candidate);
+
+      if (existingCandidate !== undefined) {
+        existingCandidate.cacheable = existingCandidate.cacheable || cacheable;
+        continue;
+      }
+
+      target.push({
+        cacheable,
+        icon: candidate,
+      });
+    }
+  }
+
+  function pushUniqueStrings(target: string[], candidates: readonly string[]): void {
     for (const candidate of candidates) {
       if (!target.includes(candidate)) {
         target.push(candidate);

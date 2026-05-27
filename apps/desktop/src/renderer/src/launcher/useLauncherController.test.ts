@@ -137,6 +137,63 @@ describe('launcher controller state', () => {
     expect(staleSuccess).toBe(loading);
   });
 
+  it('merges image icon updates into matching visible results only', () => {
+    const ready: LauncherState = {
+      ...baseState,
+      requestId: 1,
+      results: [
+        createAppResult('app.wps'),
+        createAppResult('app.codex'),
+        createResult('system.settings'),
+      ],
+      selectedIndex: 1,
+      status: 'ready',
+    };
+
+    const updated = launcherReducer(ready, {
+      results: [
+        {
+          ...createAppResult('app.wps'),
+          icon: 'data:image/png;base64,WPS',
+        },
+        {
+          ...createAppResult('app.codex'),
+          icon: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+        },
+        {
+          ...createAppResult('app.missing'),
+          icon: 'data:image/png;base64,MISSING',
+        },
+      ],
+      type: 'search-result-icons-updated',
+    });
+
+    expect(updated).toMatchObject({
+      selectedIndex: 1,
+      status: 'ready',
+    });
+    expect(updated.results).toEqual([
+      {
+        ...ready.results[0]!,
+        icon: 'data:image/png;base64,WPS',
+      },
+      ready.results[1]!,
+      ready.results[2]!,
+    ]);
+
+    const ignored = launcherReducer(ready, {
+      results: [
+        {
+          ...createAppResult('app.codex'),
+          icon: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+        },
+      ],
+      type: 'search-result-icons-updated',
+    });
+
+    expect(ignored).toBe(ready);
+  });
+
   it('selects the first result after a successful search and wraps arrow navigation', () => {
     const loading = launcherReducer(baseState, {
       requestId: 1,

@@ -14,6 +14,7 @@ import {
   createPluginRuntime,
   createPluginRepository,
   createSettingsRepository,
+  createWindowsStartMenuScanner,
   createWindowsShortcutResolver,
   openCommandCabinDatabase,
   runMigrations,
@@ -53,7 +54,6 @@ import { createWindowsAssociatedIconResolver } from './icons/windowsAssociatedIc
 import { createWindowsAppUserModelIconResolver } from './icons/windowsAppUserModelIconResolver.js';
 import { startAppIndexing } from './launcher/appIndexStartup.js';
 import { createExplorerAppsFolderAppLauncher } from './launcher/appsFolderAppLauncher.js';
-import { listDesktopShortcutCommands } from './launcher/desktopShortcutCommands.js';
 import { createExchangeRateCache } from './launcher/exchangeRateCache.js';
 import { createOpenAppCommand } from './launcher/openAppCommand.js';
 import {
@@ -127,6 +127,7 @@ import {
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
+  SEARCH_RESULT_ICONS_UPDATED_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
   STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
@@ -318,12 +319,7 @@ function getDesktopShortcutDirectories(): string[] {
 }
 
 function getLauncherAppCommands() {
-  return [
-    ...(appIndexer?.getCommands() ?? []),
-    ...listDesktopShortcutCommands({
-      directories: getDesktopShortcutDirectories(),
-    }),
-  ];
+  return appIndexer?.getCommands() ?? [];
 }
 
 async function runScreenshotSystemCommand(command: string) {
@@ -378,6 +374,11 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
       console.error('App index refresh failed.', error);
     },
     refreshIntervalMs: 30 * 60 * 1000,
+    scanner: createWindowsStartMenuScanner({
+      desktopDirectories: getDesktopShortcutDirectories(),
+      desktopShortcutResolver: shortcutResolver,
+      shortcutResolver,
+    }),
   });
 
   void startAppIndexing({
@@ -701,13 +702,18 @@ const hasSingleInstanceLock = configureSingleInstance({
   showExistingWindow: showExistingApplicationInstance,
 });
 
-ipcMain.handle(SEARCH_COMMANDS_CHANNEL, async (_event, query: unknown) => {
+ipcMain.handle(SEARCH_COMMANDS_CHANNEL, async (event, query: unknown) => {
   const results = await launcherCommandService.searchCommands(
     typeof query === 'string' ? query : '',
   );
 
   return hydrateSearchResultsWithCachedIcons(results, {
     appIconResolver,
+    onIconsResolved: (resolvedResults) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(SEARCH_RESULT_ICONS_UPDATED_CHANNEL, resolvedResults);
+      }
+    },
   });
 });
 

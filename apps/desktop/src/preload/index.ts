@@ -38,6 +38,7 @@ import {
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
+  SEARCH_RESULT_ICONS_UPDATED_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
   STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
@@ -198,6 +199,9 @@ export interface DesktopApi {
   onFocusSearchInput: (listener: () => void) => () => void;
   onHotkeyInputCapture: (listener: (payload: HotkeyInputCapturePayload) => void) => () => void;
   onOpenSettings: (listener: () => void) => () => void;
+  onSearchResultIconsUpdated: (
+    listener: (results: LauncherCommandSearchResult[]) => void,
+  ) => () => void;
   onUpdateStatusChanged: (listener: (status: UpdateStatus) => void) => () => void;
   openDataDirectory: () => Promise<DataDirectoryResponse>;
   openRepository: () => Promise<boolean>;
@@ -370,6 +374,20 @@ const desktopApi = {
 
     return () => {
       ipcRenderer.removeListener(OPEN_SETTINGS_CHANNEL, handleOpenSettings);
+    };
+  },
+  onSearchResultIconsUpdated: (listener) => {
+    const handleSearchResultIconsUpdated = (_event: unknown, payload: unknown) => {
+      listener(parseLauncherCommandSearchResults(payload));
+    };
+
+    ipcRenderer.on(SEARCH_RESULT_ICONS_UPDATED_CHANNEL, handleSearchResultIconsUpdated);
+
+    return () => {
+      ipcRenderer.removeListener(
+        SEARCH_RESULT_ICONS_UPDATED_CHANNEL,
+        handleSearchResultIconsUpdated,
+      );
     };
   },
   onUpdateStatusChanged: (listener) => {

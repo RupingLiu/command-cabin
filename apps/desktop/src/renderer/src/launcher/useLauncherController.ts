@@ -56,6 +56,10 @@ type LauncherAction =
       type: 'search-succeeded';
     }
   | {
+      results: LauncherResultItem[];
+      type: 'search-result-icons-updated';
+    }
+  | {
       errorMessage: string;
       requestId: number;
       type: 'search-failed';
@@ -220,6 +224,7 @@ const fallbackDesktopApi: DesktopApi = {
   onFocusSearchInput: () => () => undefined,
   onHotkeyInputCapture: () => () => undefined,
   onOpenSettings: () => () => undefined,
+  onSearchResultIconsUpdated: () => () => undefined,
   onUpdateStatusChanged: () => () => undefined,
   openDataDirectory: async () => ({
     path: '',
@@ -368,6 +373,44 @@ function clampSelectedIndex(index: number, itemCount: number): number {
 
 function statusForResults(results: readonly LauncherResultItem[]): LauncherStatus {
   return results.length > 0 ? 'ready' : 'empty';
+}
+
+function isImageDataUrl(icon: string | undefined): icon is string {
+  return typeof icon === 'string' && icon.startsWith('data:image/');
+}
+
+function mergeSearchResultIconUpdates(
+  results: readonly LauncherResultItem[],
+  updates: readonly LauncherResultItem[],
+): LauncherResultItem[] | undefined {
+  const updatedIconsById = new Map<string, string>();
+
+  for (const update of updates) {
+    if (isImageDataUrl(update.icon)) {
+      updatedIconsById.set(update.id, update.icon);
+    }
+  }
+
+  if (updatedIconsById.size === 0) {
+    return undefined;
+  }
+
+  let didChange = false;
+  const nextResults = results.map((result) => {
+    const updatedIcon = updatedIconsById.get(result.id);
+
+    if (updatedIcon === undefined || result.icon === updatedIcon) {
+      return result;
+    }
+
+    didChange = true;
+    return {
+      ...result,
+      icon: updatedIcon,
+    };
+  });
+
+  return didChange ? nextResults : undefined;
 }
 
 export function getLauncherOptionId(commandId: string): string {
@@ -568,6 +611,16 @@ export function launcherReducer(state: LauncherState, action: LauncherAction): L
         selectedIndex: getSelectedIndexForResults(action.results),
         status: statusForResults(action.results),
       };
+    case 'search-result-icons-updated': {
+      const nextResults = mergeSearchResultIconUpdates(state.results, action.results);
+
+      return nextResults === undefined
+        ? state
+        : {
+            ...state,
+            results: nextResults,
+          };
+    }
     case 'search-failed':
       if (action.requestId !== state.requestId) {
         return state;
@@ -883,6 +936,17 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     focusSearchInput();
     return desktopApi.onFocusSearchInput(focusSearchInput);
   }, [desktopApi, focusSearchInput]);
+
+  useEffect(
+    () =>
+      desktopApi.onSearchResultIconsUpdated((results) => {
+        dispatch({
+          results,
+          type: 'search-result-icons-updated',
+        });
+      }),
+    [desktopApi],
+  );
 
   useEffect(() => {
     const requestId =

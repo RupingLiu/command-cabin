@@ -1,4 +1,5 @@
 import type { CommandCabinLanguage } from '@command-cabin/core';
+import { useState } from 'react';
 
 import type { LauncherResultItem } from './useLauncherController.js';
 import { getUiStrings, localizeLauncherResult } from '../i18n.js';
@@ -31,6 +32,54 @@ export function getResultIconGlyph(result: LauncherResultItem): string {
 
 function isImageDataUrl(icon: string | undefined): icon is string {
   return typeof icon === 'string' && icon.startsWith('data:image/');
+}
+
+export type RenderableResultIcon =
+  | {
+      kind: 'glyph';
+      value: string;
+    }
+  | {
+      kind: 'image';
+      src: string;
+    };
+
+export function getRenderableResultIcon(
+  result: LauncherResultItem,
+  failedImageIcon?: string | undefined,
+): RenderableResultIcon {
+  if (isImageDataUrl(result.icon) && result.icon !== failedImageIcon) {
+    return {
+      kind: 'image',
+      src: result.icon,
+    };
+  }
+
+  return {
+    kind: 'glyph',
+    value: getResultIconGlyph(result),
+  };
+}
+
+function ResultIcon({ result }: { result: LauncherResultItem }) {
+  const [failedImageIcon, setFailedImageIcon] = useState<string | undefined>(undefined);
+  const renderableIcon = getRenderableResultIcon(result, failedImageIcon);
+
+  return (
+    <span className="result-icon" aria-hidden="true">
+      {renderableIcon.kind === 'image' ? (
+        <img
+          alt=""
+          src={renderableIcon.src}
+          onError={() => {
+            setFailedImageIcon(renderableIcon.src);
+          }}
+        />
+      ) : (
+        renderableIcon.value
+      )}
+    </span>
+  );
 }
 
 export function ResultItem({
@@ -88,13 +137,7 @@ export function ResultItem({
       }}
       role="option"
     >
-      <span className="result-icon" aria-hidden="true">
-        {isImageDataUrl(result.icon) ? (
-          <img alt="" src={result.icon} />
-        ) : (
-          getResultIconGlyph(result)
-        )}
-      </span>
+      <ResultIcon result={result} />
       <span className="result-copy">
         <span className="result-title">{result.title}</span>
         {!isCompact && result.subtitle ? (

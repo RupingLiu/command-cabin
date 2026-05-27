@@ -61,6 +61,58 @@ function getInitialGlyph(title: string): string {
   return title.trim().charAt(0).toUpperCase() || '?';
 }
 
+function isImageDataUrl(icon: string | undefined): icon is string {
+  return typeof icon === 'string' && icon.startsWith('data:image/');
+}
+
+export type RenderableAppCandidateIcon =
+  | {
+      kind: 'glyph';
+      value: string;
+    }
+  | {
+      kind: 'image';
+      src: string;
+    };
+
+export function getRenderableAppCandidateIcon(
+  candidate: AppCandidate,
+  failedImageIcon?: string | undefined,
+): RenderableAppCandidateIcon {
+  if (isImageDataUrl(candidate.icon) && candidate.icon !== failedImageIcon) {
+    return {
+      kind: 'image',
+      src: candidate.icon,
+    };
+  }
+
+  return {
+    kind: 'glyph',
+    value: getInitialGlyph(candidate.title),
+  };
+}
+
+function AddAppCandidateIcon({ candidate }: { candidate: AppCandidate }) {
+  const [failedImageIcon, setFailedImageIcon] = useState<string | undefined>(undefined);
+  const renderableIcon = getRenderableAppCandidateIcon(candidate, failedImageIcon);
+
+  return (
+    <span className="add-app-candidate__icon" aria-hidden="true">
+      {renderableIcon.kind === 'image' ? (
+        <img
+          alt=""
+          src={renderableIcon.src}
+          onError={() => {
+            setFailedImageIcon(renderableIcon.src);
+          }}
+        />
+      ) : (
+        renderableIcon.value
+      )}
+    </span>
+  );
+}
+
 function formatUnknownError(error: unknown, fallbackMessage: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -170,13 +222,7 @@ export function AddAppPickerView({
                   data-selected={index === selectedIndex}
                   key={candidate.id}
                 >
-                  <span className="add-app-candidate__icon" aria-hidden="true">
-                    {candidate.icon ? (
-                      <img alt="" src={candidate.icon} />
-                    ) : (
-                      getInitialGlyph(candidate.title)
-                    )}
-                  </span>
+                  <AddAppCandidateIcon candidate={candidate} />
                   <span className="add-app-candidate__copy">
                     <span className="add-app-candidate__title">{candidate.title}</span>
                     <span className="add-app-candidate__detail">

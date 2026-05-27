@@ -203,7 +203,7 @@ describe('createAppIconResolver', () => {
     );
   });
 
-  it('does not store icons resolved while shortcut expansion is using weak fallbacks', async () => {
+  it('stores direct executable icons when a separate shortcut candidate is weak', async () => {
     vi.useFakeTimers();
     const getFileIcon = vi.fn(async (iconPath: string) => ({
       toDataURL: () => `data:image/png;base64,${iconPath.endsWith('.exe') ? 'EXE' : 'LNK'}`,
@@ -236,6 +236,43 @@ describe('createAppIconResolver', () => {
 
     await expect(resultPromise).resolves.toMatchObject({
       icon: 'data:image/png;base64,EXE',
+    });
+    expect(iconDataUrlCache.write).toHaveBeenCalledWith(
+      expect.stringMatching(/^app-result-v3:app\.slow:/),
+      'data:image/png;base64,EXE',
+    );
+  });
+
+  it('does not store shortcut-only icons resolved from weak fallback candidates', async () => {
+    vi.useFakeTimers();
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,LNK',
+    }));
+    const iconDataUrlCache = {
+      read: vi.fn(async () => undefined),
+      write: vi.fn(async () => undefined),
+    };
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      iconDataUrlCache,
+      logger: {
+        warn: vi.fn(),
+      },
+      resolveShortcut: vi.fn(() => new Promise(() => undefined)),
+      shortcutTimeoutMs: 25,
+    });
+    const resultPromise = resolver.resolveSearchResultIcon({
+      iconCandidates: ['C:\\Users\\Ada\\Desktop\\Slow.lnk'],
+      id: 'app.slow',
+      score: 1,
+      source: 'app',
+      title: 'Slow',
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      icon: 'data:image/png;base64,LNK',
     });
     expect(iconDataUrlCache.write).not.toHaveBeenCalled();
   });

@@ -29,6 +29,7 @@ import {
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
   STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
+  SEARCH_RESULT_ICONS_UPDATED_CHANNEL,
   UPDATE_STATUS_CHANGED_CHANNEL,
   UPDATE_SETTINGS_CHANNEL,
 } from '../shared/ipcChannels.js';
@@ -309,6 +310,42 @@ describe('preload desktopApi settings bridge', () => {
     });
     expect(electronMock.removeListener).toHaveBeenCalledWith(
       HOTKEY_INPUT_CAPTURE_CHANNEL,
+      registeredListener,
+    );
+  });
+
+  it('exposes parsed search result icon updates with cleanup', async () => {
+    const api = await loadDesktopApi();
+    const listener = vi.fn();
+
+    const removeListener = api.onSearchResultIconsUpdated(listener);
+    const registeredListener = electronMock.on.mock.calls.find(
+      ([channel]) => channel === SEARCH_RESULT_ICONS_UPDATED_CHANNEL,
+    )?.[1] as ((_event: unknown, payload: unknown) => void) | undefined;
+
+    registeredListener?.(undefined, [
+      {
+        icon: 'data:image/png;base64,WPS',
+        iconCandidates: ['C:\\Program Files\\WPS Office\\ksolaunch.exe'],
+        id: 'app.wps',
+        score: 1,
+        source: 'app',
+        title: 'WPS Office',
+      },
+    ]);
+    removeListener();
+
+    expect(listener).toHaveBeenCalledWith([
+      {
+        icon: 'data:image/png;base64,WPS',
+        id: 'app.wps',
+        score: 1,
+        source: 'app',
+        title: 'WPS Office',
+      },
+    ]);
+    expect(electronMock.removeListener).toHaveBeenCalledWith(
+      SEARCH_RESULT_ICONS_UPDATED_CHANNEL,
       registeredListener,
     );
   });

@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ResultItem, getResultIconGlyph } from './ResultItem.js';
+import { ResultItem, getRenderableResultIcon, getResultIconGlyph } from './ResultItem.js';
 import type { LauncherResultItem } from './useLauncherController.js';
 
 function createResult(overrides: Partial<LauncherResultItem> = {}): LauncherResultItem {
@@ -54,6 +54,21 @@ describe('ResultItem', () => {
 
     expect(markup).toContain('src="data:image/png;base64,WPS"');
     expect(markup).toContain('alt=""');
+  });
+
+  it('falls back to the glyph after an image icon reports a load failure', () => {
+    const result = createResult({
+      icon: 'data:image/png;base64,WPS',
+    });
+
+    expect(getRenderableResultIcon(result)).toEqual({
+      kind: 'image',
+      src: 'data:image/png;base64,WPS',
+    });
+    expect(getRenderableResultIcon(result, 'data:image/png;base64,WPS')).toEqual({
+      kind: 'glyph',
+      value: 'W',
+    });
   });
 
   it('localizes the source label for detailed results', () => {

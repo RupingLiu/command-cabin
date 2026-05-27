@@ -656,6 +656,47 @@ describe('createAppIconResolver', () => {
     expect(getFileIcon).not.toHaveBeenCalled();
   });
 
+  it('uses Electron resources logo icons before generic executable icons', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,GENERIC_EXE',
+    }));
+    const fileExists = vi.fn(async (iconPath: string) =>
+      iconPath.endsWith('\\resources\\logo.ico'),
+    );
+    const readImageDataUrl = vi.fn(async () => 'data:image/png;base64,YT_CONFIG');
+    const resolver = createAppIconResolver({
+      fileExists,
+      getFileIcon,
+      readImageDataUrl,
+      resolveShortcut: vi.fn(async () => ({
+        iconPath: 'C:\\Program Files\\YT Config Tool\\YT Config Tool.exe,0',
+        targetPath: 'C:\\Program Files\\YT Config Tool\\YT Config Tool.exe',
+        workingDirectory: 'C:\\Program Files\\YT Config Tool',
+      })),
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: [
+          'C:\\Program Files\\YT Config Tool\\YT Config Tool.exe,0',
+          'C:\\Program Files\\YT Config Tool\\YT Config Tool.exe',
+          'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\YT Config Tool.lnk',
+        ],
+        id: 'app.yt-config-tool',
+        score: 1,
+        source: 'app',
+        title: 'YT Config Tool',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,YT_CONFIG',
+    });
+
+    expect(readImageDataUrl).toHaveBeenCalledWith(
+      'C:\\Program Files\\YT Config Tool\\resources\\logo.ico',
+    );
+    expect(getFileIcon).not.toHaveBeenCalled();
+  });
+
   it('uses associated executable icons when shortcut icon locations are invalid', async () => {
     const getFileIcon = vi.fn(async () => ({
       toDataURL: () => 'data:image/png;base64,GENERIC_EXE',

@@ -1,5 +1,9 @@
 # CommandCabin Beta Release Checklist
 
+For repeatable local packaging commands, follow
+[`docs/product/windows-packaging-workflow.md`](./windows-packaging-workflow.md). Use this checklist
+for release readiness; use the workflow document for the exact fastest command path.
+
 ## Packaging Configuration
 
 - [x] Windows installer target is configured as NSIS x64 in `electron-builder.yml`.

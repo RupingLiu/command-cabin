@@ -1,7 +1,41 @@
 <svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect x="22" y="22" width="212" height="212" rx="48" fill="#F7F3EA"/>
-  <rect x="22" y="22" width="212" height="212" rx="48" stroke="#303A39" stroke-width="12"/>
-  <path d="M157 84H93C75.3 84 61 98.3 61 116v24c0 17.7 14.3 32 32 32h64" stroke="#303A39" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M88 112L114 128L88 144" stroke="#8EA18C" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M157 146V176" stroke="#9DB7BC" stroke-width="22" stroke-linecap="round"/>
+  <defs>
+    <linearGradient
+      id="commandCabinMarkBg"
+      x1="38"
+      x2="218"
+      y1="38"
+      y2="218"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop offset="0" stop-color="#FF2D55" />
+      <stop offset="0.52" stop-color="#FF9F0A" />
+      <stop offset="1" stop-color="#007AFF" />
+    </linearGradient>
+  </defs>
+  <rect x="22" y="22" width="212" height="212" rx="48" fill="url(#commandCabinMarkBg)" />
+  <rect
+    x="22"
+    y="22"
+    width="212"
+    height="212"
+    rx="48"
+    stroke="rgba(255,255,255,0.7)"
+    stroke-width="10"
+  />
+  <path
+    d="M157 84H93C75.3 84 61 98.3 61 116v24c0 17.7 14.3 32 32 32h64"
+    stroke="rgba(255,255,255,0.9)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="26"
+  />
+  <path
+    d="M88 112L114 128L88 144"
+    stroke="#FF9F0A"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="12"
+  />
+  <path d="M157 146V176" stroke="#007AFF" stroke-linecap="round" stroke-width="22" />
 </svg>

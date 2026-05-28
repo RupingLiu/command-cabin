@@ -1,0 +1,69 @@
+name: Manual Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and publish, for example v0.8.10.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: corepack pnpm typecheck
+
+      - name: Lint
+        run: corepack pnpm lint
+
+      - name: Test
+        run: corepack pnpm test
+
+      - name: Build Windows installer
+        run: corepack pnpm --filter @command-cabin/desktop dist:win
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = '${{ inputs.tag }}'
+          $version = $tag -replace '^v', ''
+          $setup = "release/CommandCabin-$version-x64-Setup.exe"
+          $blockmap = "$setup.blockmap"
+
+          if (-not (Test-Path $setup)) {
+            throw "Missing installer: $setup"
+          }
+          if (-not (Test-Path $blockmap)) {
+            throw "Missing blockmap: $blockmap"
+          }
+          if (-not (Test-Path 'release/latest.yml')) {
+            throw 'Missing update metadata: release/latest.yml'
+          }
+
+          gh release upload $tag $setup $blockmap release/latest.yml --clobber
+          gh release edit $tag --draft=false --latest

@@ -141,17 +141,14 @@ describe('launcher ARIA markup', () => {
             canInstall: false,
             downloadedVersion: '1.0.1',
             latestVersion: '1.0.2',
-            phase: 'error',
-            version: '1.0.2',
-            error: 'Network timeout',
+            phase: 'downloaded',
+            version: '1.0.1',
           },
         },
       }),
     );
 
-    expect(html).toContain('无法连接 GitHub 检查更新');
-    expect(html).toContain('Network timeout');
-    expect(html).toContain('查看设置');
+    expect(html).toContain('新版本 1.0.1 已下载');
     expect(html).not.toContain('立即安装');
   });
 

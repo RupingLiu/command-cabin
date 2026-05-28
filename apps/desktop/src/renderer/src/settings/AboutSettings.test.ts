@@ -94,15 +94,14 @@ describe('AboutSettings', () => {
             canInstall: false,
             downloadedVersion: '1.0.1',
             latestVersion: '1.0.2',
-            phase: 'error',
-            version: '1.0.2',
-            error: 'Network timeout',
+            phase: 'downloaded',
+            version: '1.0.1',
           },
         },
       }),
     );
 
-    expect(markup).toContain('Network timeout');
+    expect(markup).toContain('版本 1.0.1 已下载');
     expect(markup).not.toContain('重启安装');
   });
 

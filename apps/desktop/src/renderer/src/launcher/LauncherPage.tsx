@@ -206,7 +206,7 @@ export function LauncherPage({
 
     if (currentUpdateState.status.phase === 'downloaded') {
       return {
-        action: 'install' as const,
+        action: currentUpdateState.status.canInstall ? ('install' as const) : ('none' as const),
         detail: undefined,
         text: formatTemplate(strings.launcher.updateBanner.ready, { version }),
       };
@@ -226,6 +226,7 @@ export function LauncherPage({
     return undefined;
   }, [
     currentUpdateState.errorMessage,
+    currentUpdateState.status.canInstall,
     currentUpdateState.status.error,
     currentUpdateState.status.percent,
     currentUpdateState.status.phase,

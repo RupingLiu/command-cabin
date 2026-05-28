@@ -13,6 +13,15 @@ interface ProgressInfoLike {
   percent?: number | undefined;
 }
 
+interface UpdateVersionKnowledge {
+  activeDownloadVersion?: string;
+  downloadedVersion?: string;
+  latestVersion?: string;
+}
+
+type UpdateStatusPatch = Pick<UpdateStatus, 'phase'> &
+  Partial<Pick<UpdateStatus, 'error' | 'percent' | 'version'>>;
+
 type UpdaterEvent =
   | 'checking-for-update'
   | 'update-available'
@@ -108,6 +117,7 @@ export function createUpdateController({
   let checkInFlight: Promise<UpdateCheckResult> | undefined;
   let automaticCheckStarted = false;
   let automaticCheckTimer: ReturnType<typeof setInterval> | undefined;
+  let versionKnowledge: UpdateVersionKnowledge = {};
 
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.autoDownload = false;
@@ -122,20 +132,39 @@ export function createUpdateController({
     return status;
   }
 
-  function mergeStatus(patch: Partial<UpdateStatus> & Pick<UpdateStatus, 'phase'>): UpdateStatus {
-    const isBusyOrReady =
-      patch.phase === 'checking' ||
-      patch.phase === 'available' ||
-      patch.phase === 'downloading' ||
-      patch.phase === 'downloaded';
+  function getVersionKnowledgeStatus(): Partial<UpdateStatus> {
+    return {
+      ...(versionKnowledge.activeDownloadVersion !== undefined
+        ? { activeDownloadVersion: versionKnowledge.activeDownloadVersion }
+        : {}),
+      ...(versionKnowledge.downloadedVersion !== undefined
+        ? { downloadedVersion: versionKnowledge.downloadedVersion }
+        : {}),
+      ...(versionKnowledge.latestVersion !== undefined
+        ? { latestVersion: versionKnowledge.latestVersion }
+        : {}),
+    };
+  }
+
+  function mergeStatus(patch: UpdateStatusPatch): UpdateStatus {
+    const canInstall =
+      patch.phase === 'downloaded' &&
+      versionKnowledge.downloadedVersion !== undefined &&
+      versionKnowledge.latestVersion !== undefined &&
+      versionKnowledge.downloadedVersion === versionKnowledge.latestVersion;
+    const isBusy =
+      patch.phase === 'checking' || patch.phase === 'available' || patch.phase === 'downloading';
+    const canCheck = isPackaged && !isBusy && !(patch.phase === 'downloaded' && canInstall);
+    const version = patch.version ?? status.version;
 
     return publish({
-      canCheck: !isBusyOrReady && isPackaged,
-      canInstall: patch.phase === 'downloaded',
-      error: patch.error,
-      percent: patch.percent,
+      ...getVersionKnowledgeStatus(),
+      canCheck,
+      canInstall,
+      ...(patch.error !== undefined ? { error: patch.error } : {}),
+      ...(patch.percent !== undefined ? { percent: patch.percent } : {}),
       phase: patch.phase,
-      version: patch.version ?? status.version,
+      ...(version !== undefined ? { version } : {}),
     });
   }
 
@@ -144,31 +173,86 @@ export function createUpdateController({
   });
 
   autoUpdater.on('update-available', (info: unknown) => {
-    mergeStatus({ phase: 'available', version: getVersion(info) });
+    const latestVersion = getVersion(info);
+
+    if (latestVersion !== undefined) {
+      versionKnowledge = {
+        ...versionKnowledge,
+        activeDownloadVersion: latestVersion,
+        latestVersion,
+      };
+    }
+
+    mergeStatus({ phase: 'available', version: latestVersion });
     void autoUpdater.downloadUpdate().catch((error: unknown) => {
       logger.error('Update download failed.', error);
-      mergeStatus({ error: getErrorMessage(error), phase: 'error' });
+      mergeStatus({
+        error: getErrorMessage(error),
+        phase: 'error',
+        version: versionKnowledge.latestVersion,
+      });
     });
   });
 
   autoUpdater.on('update-not-available', (info: unknown) => {
-    mergeStatus({ phase: 'up-to-date', version: getVersion(info) });
+    const latestVersion = getVersion(info);
+
+    if (latestVersion !== undefined) {
+      versionKnowledge = {
+        ...versionKnowledge,
+        latestVersion,
+      };
+    }
+
+    mergeStatus({ phase: 'up-to-date', version: latestVersion });
   });
 
   autoUpdater.on('download-progress', (progress: unknown) => {
     mergeStatus({
       percent: getPercent(progress),
       phase: 'downloading',
+      version: versionKnowledge.activeDownloadVersion ?? versionKnowledge.latestVersion,
     });
   });
 
   autoUpdater.on('update-downloaded', (info: unknown) => {
-    mergeStatus({ phase: 'downloaded', version: getVersion(info) });
+    const downloadedVersion = getVersion(info);
+
+    if (downloadedVersion !== undefined) {
+      versionKnowledge = {
+        ...versionKnowledge,
+        downloadedVersion,
+        ...(versionKnowledge.latestVersion === undefined
+          ? { latestVersion: downloadedVersion }
+          : {}),
+      };
+    }
+
+    if (
+      downloadedVersion !== undefined &&
+      versionKnowledge.latestVersion !== undefined &&
+      downloadedVersion === versionKnowledge.latestVersion
+    ) {
+      delete versionKnowledge.activeDownloadVersion;
+      mergeStatus({ phase: 'downloaded', version: downloadedVersion });
+      return;
+    }
+
+    if (versionKnowledge.activeDownloadVersion !== undefined) {
+      mergeStatus({ phase: 'downloading', version: versionKnowledge.activeDownloadVersion });
+      return;
+    }
+
+    mergeStatus({ phase: 'downloaded', version: downloadedVersion });
   });
 
   autoUpdater.on('error', (error: unknown) => {
     logger.error('Updater failed.', error);
-    mergeStatus({ error: getErrorMessage(error), phase: 'error' });
+    mergeStatus({
+      error: getErrorMessage(error),
+      phase: 'error',
+      version: versionKnowledge.latestVersion,
+    });
   });
 
   async function checkForUpdates(): Promise<UpdateCheckResult> {
@@ -180,7 +264,7 @@ export function createUpdateController({
       status.phase === 'checking' ||
       status.phase === 'available' ||
       status.phase === 'downloading' ||
-      status.phase === 'downloaded'
+      (status.phase === 'downloaded' && status.canInstall)
     ) {
       return status;
     }
@@ -215,7 +299,7 @@ export function createUpdateController({
     checkForUpdates,
     getStatus: () => status,
     installUpdate: () => {
-      if (status.phase !== 'downloaded') {
+      if (status.phase !== 'downloaded' || !status.canInstall) {
         return {
           error: 'Update is not ready to install.',
           ok: false,

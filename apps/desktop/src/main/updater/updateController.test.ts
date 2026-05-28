@@ -143,7 +143,7 @@ describe('createUpdateController', () => {
     expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
   });
 
-  it('does not re-check once an update package is downloaded', async () => {
+  it('does not re-check once the latest update package is downloaded', async () => {
     const controller = createUpdateController({
       autoUpdater: updater,
       getWindows: () => [sender],
@@ -151,14 +151,117 @@ describe('createUpdateController', () => {
       logger: console,
     });
 
+    updater.emit('update-available', { version: '0.3.0' });
     updater.emit('update-downloaded', { version: '0.3.0' });
 
     await expect(controller.checkForUpdates()).resolves.toMatchObject({
       canInstall: true,
+      downloadedVersion: '0.3.0',
+      latestVersion: '0.3.0',
       phase: 'downloaded',
       version: '0.3.0',
     });
     expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it('hides a downloaded package after a newer remote version is discovered', async () => {
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    updater.emit('update-available', { version: '1.0.1' });
+    updater.emit('update-downloaded', { version: '1.0.1' });
+    expect(controller.getStatus()).toMatchObject({
+      canInstall: true,
+      downloadedVersion: '1.0.1',
+      latestVersion: '1.0.1',
+      phase: 'downloaded',
+    });
+
+    updater.emit('update-available', { version: '1.0.2' });
+
+    expect(controller.getStatus()).toMatchObject({
+      activeDownloadVersion: '1.0.2',
+      canInstall: false,
+      downloadedVersion: '1.0.1',
+      latestVersion: '1.0.2',
+      phase: 'available',
+      version: '1.0.2',
+    });
+  });
+
+  it('does not mark a stale downloaded event as installable while a newer version is active', () => {
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    updater.emit('update-available', { version: '1.0.1' });
+    updater.emit('update-available', { version: '1.0.2' });
+    updater.emit('update-downloaded', { version: '1.0.1' });
+
+    expect(controller.getStatus()).toMatchObject({
+      activeDownloadVersion: '1.0.2',
+      canInstall: false,
+      downloadedVersion: '1.0.1',
+      latestVersion: '1.0.2',
+      phase: 'downloading',
+      version: '1.0.2',
+    });
+    expect(updater.quitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to an older downloaded package after a newer download fails', async () => {
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    updater.emit('update-available', { version: '1.0.1' });
+    updater.emit('update-downloaded', { version: '1.0.1' });
+
+    updater.downloadUpdate = vi.fn(async () => {
+      throw new Error('Network timeout');
+    });
+    updater.emit('update-available', { version: '1.0.2' });
+    await Promise.resolve();
+
+    expect(controller.getStatus()).toMatchObject({
+      canInstall: false,
+      downloadedVersion: '1.0.1',
+      error: 'Network timeout',
+      latestVersion: '1.0.2',
+      phase: 'error',
+      version: '1.0.2',
+    });
+  });
+
+  it('keeps install disabled when downloaded version metadata is missing', () => {
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    updater.emit('update-downloaded', {});
+
+    expect(controller.getStatus()).toMatchObject({
+      canCheck: true,
+      canInstall: false,
+      phase: 'downloaded',
+    });
+    expect(controller.installUpdate()).toEqual({
+      error: 'Update is not ready to install.',
+      ok: false,
+    });
   });
 
   it('publishes download progress and downloaded state', () => {

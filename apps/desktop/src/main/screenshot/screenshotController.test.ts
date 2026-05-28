@@ -143,6 +143,65 @@ describe('createScreenshotController', () => {
     });
   });
 
+  it('waits for the capture surface to settle after hiding a launcher window', async () => {
+    const events: string[] = [];
+    const overlayWindow = createOverlayWindow({ id: 51 });
+    const notifyOverlayLaunchState = createAutoReadyNotify(() => controller);
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => {
+        events.push('capture');
+        return launchState;
+      }),
+      createOverlayWindow: vi.fn(async () => {
+        events.push('overlay');
+        return overlayWindow;
+      }),
+      getOverlayBounds: vi.fn(() => overlayBounds),
+      hideLauncher: vi.fn(async () => {
+        events.push('hide');
+        return true;
+      }),
+      notifyOverlayLaunchState,
+      waitForCaptureSurface: vi.fn(async () => {
+        events.push('settle');
+      }),
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    await controller.start('capture');
+
+    expect(events).toEqual(['overlay', 'hide', 'settle', 'capture']);
+  });
+
+  it('does not wait for the capture surface when no launcher window was hidden', async () => {
+    const overlayWindow = createOverlayWindow({ id: 50 });
+    const waitForCaptureSurface = vi.fn();
+    const notifyOverlayLaunchState = createAutoReadyNotify(() => controller);
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      getOverlayBounds: vi.fn(() => overlayBounds),
+      hideLauncher: vi.fn(async () => false),
+      notifyOverlayLaunchState,
+      waitForCaptureSurface,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    await controller.start('capture');
+
+    expect(waitForCaptureSurface).not.toHaveBeenCalled();
+  });
+
   it('rejects overlay launch state requests until capture state is concrete', async () => {
     const capture = createDeferred<typeof launchState>();
     const overlayWindow = createOverlayWindow({ id: 52 });
@@ -214,6 +273,42 @@ describe('createScreenshotController', () => {
     expect(createOverlayWindow).toHaveBeenCalledWith(overlayBounds, expect.any(Function));
 
     capture.resolve(launchState);
+    await start;
+  });
+
+  it('captures after launcher hiding without waiting for slow overlay creation', async () => {
+    const overlay = createDeferred<ScreenshotOverlayWindow>();
+    const overlayWindow = createOverlayWindow({ id: 153 });
+    const captureDisplays = vi.fn(async () => launchState);
+    const notifyOverlayLaunchState = vi.fn();
+    const controller = createScreenshotController({
+      captureDisplays,
+      createOverlayWindow: vi.fn(() => overlay.promise),
+      getOverlayBounds: vi.fn(() => overlayBounds),
+      hideLauncher: vi.fn(() => false),
+      notifyOverlayLaunchState,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    const start = controller.start('capture');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(captureDisplays).toHaveBeenCalledOnce();
+    expect((await observePromise(start)).status).toBe('pending');
+
+    overlay.resolve(overlayWindow);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(notifyOverlayLaunchState).toHaveBeenCalledWith(overlayWindow, {
+      ...launchState,
+      mode: 'capture',
+    });
+    expect(controller.markOverlayReady(overlayWindow.webContents)).toBe(true);
     await start;
   });
 

@@ -53,7 +53,7 @@ export interface CreateScreenshotControllerOptions {
   ) => Promise<ScreenshotOverlayWindow>;
   createPinnedImageToken: () => string;
   getOverlayBounds: () => ScreenshotBounds;
-  hideLauncher: () => Promise<void> | void;
+  hideLauncher: () => Promise<boolean | void> | boolean | void;
   logger?: Pick<Console, 'info'> | undefined;
   notifyOverlayLaunchState: (
     window: ScreenshotOverlayWindow,
@@ -70,6 +70,7 @@ export interface CreateScreenshotControllerOptions {
   ) => Promise<ScreenshotSaveImageResult> | ScreenshotSaveImageResult;
   writeClipboardImage: (imageDataUrl: string) => Promise<void> | void;
   writeImageFile: (filePath: string, request: ScreenshotSaveImageRequest) => Promise<void> | void;
+  waitForCaptureSurface?: (() => Promise<void> | void) | undefined;
 }
 
 export interface ScreenshotController {
@@ -118,6 +119,7 @@ const delayByMode = new Map<ScreenshotLaunchMode, number>([
 ]);
 
 const defaultRendererReadyTimeoutMs = 1500;
+const defaultCaptureSurfaceSettleMs = 50;
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
@@ -208,6 +210,7 @@ export function createScreenshotController({
   showSaveDialog,
   writeClipboardImage,
   writeImageFile,
+  waitForCaptureSurface = () => delay(defaultCaptureSurfaceSettleMs),
 }: CreateScreenshotControllerOptions): ScreenshotController {
   const states = new Map<number, ScreenshotOverlayState>();
   const pinnedImages = new Map<string, ScreenshotPinnedImageEntry>();
@@ -454,19 +457,23 @@ export function createScreenshotController({
       let activeWindow: ScreenshotOverlayWindow | undefined;
 
       try {
-        await hideLauncher();
+        const overlayWindowPromise = ensureOverlayWindow();
+        const launcherWasHidden = (await hideLauncher()) === true;
 
         const delayMilliseconds = delayByMode.get(launchMode);
 
         if (delayMilliseconds !== undefined) {
           await delay(delayMilliseconds);
+        } else if (launcherWasHidden) {
+          await waitForCaptureSurface();
         }
 
-        activeWindow = await ensureOverlayWindow();
-        const readyWindow = activeWindow;
-
         const captureStartedAt = performance.now();
-        const capture = await captureDisplays();
+        const capturePromise = captureDisplays();
+        void capturePromise.catch(() => undefined);
+        activeWindow = await overlayWindowPromise;
+        const readyWindow = activeWindow;
+        const capture = await capturePromise;
         const captureMs = performance.now() - captureStartedAt;
         const launchState: ScreenshotLaunchState = {
           ...capture,

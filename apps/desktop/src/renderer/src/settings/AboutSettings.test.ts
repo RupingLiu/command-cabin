@@ -81,6 +81,31 @@ describe('AboutSettings', () => {
     expect(downloadedMarkup).toContain('重启安装');
   });
 
+  it('does not render an install action for a stale downloaded update', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AboutSettings, {
+        appInfo,
+        state: {
+          errorMessage: undefined,
+          isChecking: false,
+          isInstalling: false,
+          status: {
+            canCheck: true,
+            canInstall: false,
+            downloadedVersion: '1.0.1',
+            latestVersion: '1.0.2',
+            phase: 'error',
+            version: '1.0.2',
+            error: 'Network timeout',
+          },
+        },
+      }),
+    );
+
+    expect(markup).toContain('Network timeout');
+    expect(markup).not.toContain('重启安装');
+  });
+
   it('renders explicit GitHub connection feedback while checking', () => {
     const markup = renderToStaticMarkup(
       createElement(AboutSettings, {

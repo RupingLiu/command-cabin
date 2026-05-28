@@ -471,6 +471,7 @@ git commit -m "fix: install only latest downloaded update"
 ### Task 3: Add Renderer Guard Tests For Stale Downloaded Updates
 
 **Files:**
+- Modify: `apps/desktop/src/renderer/src/launcher/LauncherPage.tsx`
 - Modify: `apps/desktop/src/renderer/src/launcher/launcherAria.test.ts`
 - Modify: `apps/desktop/src/renderer/src/settings/AboutSettings.test.ts`
 
@@ -493,22 +494,34 @@ In `apps/desktop/src/renderer/src/launcher/launcherAria.test.ts`, add this test 
             canInstall: false,
             downloadedVersion: '1.0.1',
             latestVersion: '1.0.2',
-            phase: 'error',
-            version: '1.0.2',
-            error: 'Network timeout',
+            phase: 'downloaded',
+            version: '1.0.1',
           },
         },
       }),
     );
 
-    expect(html).toContain('无法连接 GitHub 检查更新');
-    expect(html).toContain('Network timeout');
-    expect(html).toContain('查看设置');
+    expect(html).toContain('新版本 1.0.1 已下载');
     expect(html).not.toContain('立即安装');
   });
 ```
 
-- [ ] **Step 2: Add a settings test for stale downloaded status**
+- [ ] **Step 2: Make the launcher install action depend on `canInstall`**
+
+In `apps/desktop/src/renderer/src/launcher/LauncherPage.tsx`, update the downloaded branch in
+`updateBanner` so stale downloaded states keep the status text but do not expose an install action:
+
+```ts
+    if (currentUpdateState.status.phase === 'downloaded') {
+      return {
+        action: currentUpdateState.status.canInstall ? ('install' as const) : ('none' as const),
+        detail: undefined,
+        text: formatTemplate(strings.launcher.updateBanner.ready, { version }),
+      };
+    }
+```
+
+- [ ] **Step 3: Add a settings test for stale downloaded status**
 
 In `apps/desktop/src/renderer/src/settings/AboutSettings.test.ts`, add this test after `renders download progress and install action`:
 
@@ -526,20 +539,19 @@ In `apps/desktop/src/renderer/src/settings/AboutSettings.test.ts`, add this test
             canInstall: false,
             downloadedVersion: '1.0.1',
             latestVersion: '1.0.2',
-            phase: 'error',
-            version: '1.0.2',
-            error: 'Network timeout',
+            phase: 'downloaded',
+            version: '1.0.1',
           },
         },
       }),
     );
 
-    expect(markup).toContain('Network timeout');
+    expect(markup).toContain('版本 1.0.1 已下载');
     expect(markup).not.toContain('重启安装');
   });
 ```
 
-- [ ] **Step 3: Run renderer tests and commit**
+- [ ] **Step 4: Run renderer tests and commit**
 
 Run:
 
@@ -552,8 +564,8 @@ Expected: PASS.
 Commit:
 
 ```powershell
-git add apps/desktop/src/renderer/src/launcher/launcherAria.test.ts apps/desktop/src/renderer/src/settings/AboutSettings.test.ts
-git commit -m "test: cover stale update install prompts"
+git add apps/desktop/src/renderer/src/launcher/LauncherPage.tsx apps/desktop/src/renderer/src/launcher/launcherAria.test.ts apps/desktop/src/renderer/src/settings/AboutSettings.test.ts
+git commit -m "fix: hide stale downloaded update install action"
 ```
 
 ### Task 4: Final Verification

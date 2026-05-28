@@ -9,9 +9,12 @@ export type UpdateStatusPhase =
   | 'unavailable';
 
 export interface UpdateStatus {
+  activeDownloadVersion?: string | undefined;
   canCheck: boolean;
   canInstall: boolean;
+  downloadedVersion?: string | undefined;
   error?: string | undefined;
+  latestVersion?: string | undefined;
   percent?: number | undefined;
   phase: UpdateStatusPhase;
   version?: string | undefined;
@@ -90,9 +93,18 @@ export function parseUpdateStatus(value: unknown): UpdateStatus {
   }
 
   return {
+    activeDownloadVersion: parseOptionalString(
+      value.activeDownloadVersion,
+      'Invalid update status activeDownloadVersion',
+    ),
     canCheck: parseBoolean(value.canCheck, 'Invalid update status canCheck'),
     canInstall: parseBoolean(value.canInstall, 'Invalid update status canInstall'),
+    downloadedVersion: parseOptionalString(
+      value.downloadedVersion,
+      'Invalid update status downloadedVersion',
+    ),
     error: parseOptionalString(value.error, 'Invalid update status error'),
+    latestVersion: parseOptionalString(value.latestVersion, 'Invalid update status latestVersion'),
     percent: parseOptionalPercent(value.percent),
     phase: value.phase as UpdateStatusPhase,
     version: parseOptionalString(value.version, 'Invalid update status version'),

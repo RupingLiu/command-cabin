@@ -21,6 +21,30 @@ describe('update API parsers', () => {
     });
   });
 
+  it('accepts latest, active download, and downloaded version metadata', () => {
+    expect(
+      parseUpdateStatus({
+        activeDownloadVersion: '0.8.8',
+        canCheck: false,
+        canInstall: false,
+        downloadedVersion: '0.8.7',
+        latestVersion: '0.8.8',
+        phase: 'downloading',
+        version: '0.8.8',
+      }),
+    ).toEqual({
+      activeDownloadVersion: '0.8.8',
+      canCheck: false,
+      canInstall: false,
+      downloadedVersion: '0.8.7',
+      error: undefined,
+      latestVersion: '0.8.8',
+      percent: undefined,
+      phase: 'downloading',
+      version: '0.8.8',
+    });
+  });
+
   it('accepts download progress', () => {
     expect(
       parseUpdateStatus({

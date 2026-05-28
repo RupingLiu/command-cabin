@@ -1,8 +1,11 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { setBoundedMapEntry } from './boundedMemoryCache.js';
+
 const execFileAsync = promisify(execFile);
 const DEFAULT_ASSOCIATED_ICON_TIMEOUT_MS = 1_000;
+const DEFAULT_MEMORY_CACHE_MAX_ENTRIES = 96;
 const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
 export interface WindowsAssociatedIconResolverExecFileOptions {
@@ -24,6 +27,7 @@ export type WindowsAssociatedIconResolverExecFile = (
 export interface WindowsAssociatedIconResolverOptions {
   execFile?: WindowsAssociatedIconResolverExecFile;
   logger?: Pick<Console, 'warn'>;
+  memoryCacheMaxEntries?: number;
   platform?: NodeJS.Platform;
   timeoutMs?: number;
 }
@@ -71,6 +75,7 @@ const defaultExecFile: WindowsAssociatedIconResolverExecFile = async (file, args
 export function createWindowsAssociatedIconResolver({
   execFile = defaultExecFile,
   logger = console,
+  memoryCacheMaxEntries = DEFAULT_MEMORY_CACHE_MAX_ENTRIES,
   platform = process.platform,
   timeoutMs = DEFAULT_ASSOCIATED_ICON_TIMEOUT_MS,
 }: WindowsAssociatedIconResolverOptions = {}): WindowsAssociatedIconResolver {
@@ -110,11 +115,11 @@ export function createWindowsAssociatedIconResolver({
         const dataUrl = stdout.trim();
         const resolvedIcon = IMAGE_DATA_URL_PATTERN.test(dataUrl) ? dataUrl : undefined;
 
-        iconCache.set(cacheKey, resolvedIcon);
+        setBoundedMapEntry(iconCache, cacheKey, resolvedIcon, memoryCacheMaxEntries);
         return resolvedIcon;
       } catch (error) {
         logger.warn('Failed to extract associated Windows file icon.', error);
-        iconCache.set(cacheKey, undefined);
+        setBoundedMapEntry(iconCache, cacheKey, undefined, memoryCacheMaxEntries);
         return undefined;
       }
     },

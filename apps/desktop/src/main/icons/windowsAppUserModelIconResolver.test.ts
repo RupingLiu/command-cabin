@@ -67,6 +67,23 @@ describe('createWindowsAppUserModelIconResolver', () => {
     expect(execFile).toHaveBeenCalledOnce();
   });
 
+  it('caps in-memory AppUserModelID icon caching for long-running sessions', async () => {
+    const execFile = vi.fn(async () => ({
+      stdout: 'data:image/png;base64,CODEX',
+    }));
+    const resolver = createWindowsAppUserModelIconResolver({
+      execFile,
+      memoryCacheMaxEntries: 2,
+    });
+
+    await resolver.resolve('Vendor.App1_family!App');
+    await resolver.resolve('Vendor.App2_family!App');
+    await resolver.resolve('Vendor.App3_family!App');
+    await resolver.resolve('Vendor.App1_family!App');
+
+    expect(execFile).toHaveBeenCalledTimes(4);
+  });
+
   it('uses enough time for packaged app icon resolution by default', async () => {
     const execFile = vi.fn(async () => ({
       stdout: '',

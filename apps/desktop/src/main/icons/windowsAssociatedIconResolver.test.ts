@@ -43,4 +43,22 @@ describe('createWindowsAssociatedIconResolver', () => {
 
     expect(execFile).toHaveBeenCalledOnce();
   });
+
+  it('caps in-memory associated icon caching for long-running sessions', async () => {
+    const execFile = vi.fn(async (filePath: string) => ({
+      stdout: `data:image/png;base64,${filePath.includes('App1') ? 'ONE' : 'OTHER'}\n`,
+    }));
+    const resolver = createWindowsAssociatedIconResolver({
+      execFile,
+      memoryCacheMaxEntries: 2,
+      platform: 'win32',
+    });
+
+    await resolver.resolve('C:\\Program Files\\App1\\App1.exe');
+    await resolver.resolve('C:\\Program Files\\App2\\App2.exe');
+    await resolver.resolve('C:\\Program Files\\App3\\App3.exe');
+    await resolver.resolve('C:\\Program Files\\App1\\App1.exe');
+
+    expect(execFile).toHaveBeenCalledTimes(4);
+  });
 });

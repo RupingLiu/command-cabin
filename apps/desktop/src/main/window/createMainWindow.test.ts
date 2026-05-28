@@ -67,7 +67,7 @@ describe('createMainWindow', () => {
       resizable: false,
       maximizable: false,
       webPreferences: {
-        backgroundThrottling: false,
+        backgroundThrottling: true,
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: false,

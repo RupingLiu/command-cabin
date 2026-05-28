@@ -173,9 +173,9 @@ function isOverlayWindowLive(window: ScreenshotOverlayWindow): boolean {
   return window.isDestroyed?.() !== true;
 }
 
-function hideOverlayWindow(window: ScreenshotOverlayWindow): void {
+function closeOverlayWindow(window: ScreenshotOverlayWindow): void {
   if (isOverlayWindowLive(window)) {
-    window.hide?.();
+    window.close();
   }
 }
 
@@ -355,7 +355,11 @@ export function createScreenshotController({
       forgetState(state.window);
       clearRendererReadyWaiter(sender.id, new Error('Screenshot capture was canceled.'));
 
-      hideOverlayWindow(state.window);
+      if (overlayWindow === state.window) {
+        overlayWindow = undefined;
+        overlayWindowPromise = undefined;
+      }
+      closeOverlayWindow(state.window);
 
       return true;
     },
@@ -516,9 +520,16 @@ export function createScreenshotController({
         return launchState;
       } catch (error) {
         if (activeWindow) {
-          forgetState(activeWindow);
-          clearRendererReadyWaiter(activeWindow.webContents.id, error as Error);
-          hideOverlayWindow(activeWindow);
+          if (isOverlayWindowLive(activeWindow)) {
+            forgetState(activeWindow);
+            clearRendererReadyWaiter(activeWindow.webContents.id, error as Error);
+          }
+
+          if (overlayWindow === activeWindow) {
+            overlayWindow = undefined;
+            overlayWindowPromise = undefined;
+          }
+          closeOverlayWindow(activeWindow);
         }
 
         throw error;

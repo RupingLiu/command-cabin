@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { win32 as path } from 'node:path';
 
 import type { LauncherCommandSearchResult } from '../../shared/launcherApi.js';
+import { addBoundedSetEntry, setBoundedMapEntry } from './boundedMemoryCache.js';
 
 export interface AppIconNativeImage {
   toDataURL: () => string;
@@ -23,6 +24,7 @@ export interface AppIconResolverOptions {
   fileExists?: ((path: string) => Promise<boolean>) | undefined;
   getFileIcon: (path: string) => Promise<AppIconNativeImage>;
   iconDataUrlCache?: AppIconDataUrlCache | undefined;
+  memoryCacheMaxEntries?: number | undefined;
   iconTimeoutMs?: number;
   logger?: Pick<Console, 'warn'>;
   readImageDataUrl?: ((path: string) => Promise<string | undefined>) | undefined;
@@ -53,6 +55,7 @@ const ICON_INDEX_ONLY_PATTERN = /^,\d+$/;
 const RESULT_ICON_CACHE_HASH_LENGTH = 16;
 const RESULT_ICON_CACHE_VERSION = 'app-result-v3';
 const WINDOWS_APPS_FOLDER_CANDIDATE_PATTERN = /^shell:AppsFolder[\\/](.+)$/i;
+const DEFAULT_MEMORY_CACHE_MAX_ENTRIES = 96;
 const PACKAGED_APP_ASSET_PATHS = [
   ['resources', 'logo.ico'],
   ['resources', 'logo.png'],
@@ -155,6 +158,7 @@ export function createAppIconResolver({
   fileExists,
   getFileIcon,
   iconDataUrlCache,
+  memoryCacheMaxEntries = DEFAULT_MEMORY_CACHE_MAX_ENTRIES,
   iconTimeoutMs = DEFAULT_ICON_TIMEOUT_MS,
   logger = console,
   readImageDataUrl,
@@ -260,14 +264,14 @@ export function createAppIconResolver({
         const dataUrl = associatedDataUrl ?? nativeDataUrl;
 
         if (dataUrl !== undefined) {
-          iconCache.set(iconPath, dataUrl);
+          setBoundedMapEntry(iconCache, iconPath, dataUrl, memoryCacheMaxEntries);
           return {
             cacheable: cacheable && !isWeakResultIconPath(iconPath),
             dataUrl,
           };
         }
       } catch (error) {
-        failedIconPaths.add(iconPath);
+        addBoundedSetEntry(failedIconPaths, iconPath, memoryCacheMaxEntries);
         logger.warn('Failed to resolve app icon.', error);
       }
     }
@@ -395,13 +399,18 @@ export function createAppIconResolver({
         }
       }
 
-      shortcutCandidateCache.set(shortcutPath, candidates);
+      setBoundedMapEntry(shortcutCandidateCache, shortcutPath, candidates, memoryCacheMaxEntries);
       return candidates;
     } catch (error) {
-      failedShortcutPaths.add(shortcutPath);
+      addBoundedSetEntry(failedShortcutPaths, shortcutPath, memoryCacheMaxEntries);
       logger.warn('Failed to resolve app shortcut icon candidates.', error);
       const fallbackCandidates = createShortcutFallbackCandidates(shortcutPath);
-      shortcutCandidateCache.set(shortcutPath, fallbackCandidates);
+      setBoundedMapEntry(
+        shortcutCandidateCache,
+        shortcutPath,
+        fallbackCandidates,
+        memoryCacheMaxEntries,
+      );
       return fallbackCandidates;
     }
   }

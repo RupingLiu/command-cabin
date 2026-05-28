@@ -69,6 +69,7 @@ describe('createPinnedImageWindow', () => {
       skipTaskbar: true,
       transparent: false,
       webPreferences: {
+        backgroundThrottling: true,
         contextIsolation: true,
         nodeIntegration: false,
         preload: 'C:\\CommandCabin\\dist\\preload\\index.js',

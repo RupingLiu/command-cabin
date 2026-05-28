@@ -50,7 +50,7 @@ export async function createMainWindow({
     backgroundColor: '#11151c',
     title: 'CommandCabin',
     webPreferences: {
-      backgroundThrottling: false,
+      backgroundThrottling: true,
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,

@@ -72,6 +72,36 @@ describe('createAppIconResolver', () => {
     expect(getFileIcon).toHaveBeenCalledOnce();
   });
 
+  it('caps in-memory icon data URL caching to limit long-running main process memory', async () => {
+    const getFileIcon = vi.fn(async (iconPath: string) => ({
+      toDataURL: () => `data:image/png;base64,${iconPath.match(/App(\d+)/)?.[1] ?? 'X'}`,
+    }));
+    const resolver = createAppIconResolver({
+      getFileIcon,
+      memoryCacheMaxEntries: 2,
+    });
+
+    for (const appNumber of [1, 2, 3]) {
+      await resolver.resolveSearchResultIcon({
+        id: `app.${appNumber}`,
+        icon: `C:\\Program Files\\App${appNumber}\\App${appNumber}.exe`,
+        score: 1,
+        source: 'app',
+        title: `App ${appNumber}`,
+      });
+    }
+
+    await resolver.resolveSearchResultIcon({
+      id: 'app.1-again',
+      icon: 'C:\\Program Files\\App1\\App1.exe',
+      score: 1,
+      source: 'app',
+      title: 'App 1 Again',
+    });
+
+    expect(getFileIcon).toHaveBeenCalledTimes(4);
+  });
+
   it('uses stored app result icons before resolving native icons', async () => {
     const getFileIcon = vi.fn(async () => ({
       toDataURL: () => 'data:image/png;base64,CODEX',

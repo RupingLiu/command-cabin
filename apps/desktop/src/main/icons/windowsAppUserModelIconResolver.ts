@@ -1,8 +1,11 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { setBoundedMapEntry } from './boundedMemoryCache.js';
+
 const execFileAsync = promisify(execFile);
 const DEFAULT_APP_USER_MODEL_ICON_TIMEOUT_MS = 3_000;
+const DEFAULT_MEMORY_CACHE_MAX_ENTRIES = 96;
 const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
 export interface WindowsAppUserModelIconResolverExecFileOptions {
@@ -24,6 +27,7 @@ export type WindowsAppUserModelIconResolverExecFile = (
 export interface WindowsAppUserModelIconResolverOptions {
   execFile?: WindowsAppUserModelIconResolverExecFile;
   logger?: Pick<Console, 'warn'>;
+  memoryCacheMaxEntries?: number;
   timeoutMs?: number;
 }
 
@@ -132,6 +136,7 @@ const defaultExecFile: WindowsAppUserModelIconResolverExecFile = async (file, ar
 export function createWindowsAppUserModelIconResolver({
   execFile = defaultExecFile,
   logger = console,
+  memoryCacheMaxEntries = DEFAULT_MEMORY_CACHE_MAX_ENTRIES,
   timeoutMs = DEFAULT_APP_USER_MODEL_ICON_TIMEOUT_MS,
 }: WindowsAppUserModelIconResolverOptions = {}): WindowsAppUserModelIconResolver {
   const iconCache = new Map<string, string | undefined>();
@@ -168,11 +173,11 @@ export function createWindowsAppUserModelIconResolver({
         const dataUrl = stdout.trim();
         const resolvedIcon = IMAGE_DATA_URL_PATTERN.test(dataUrl) ? dataUrl : undefined;
 
-        iconCache.set(trimmedAppUserModelId, resolvedIcon);
+        setBoundedMapEntry(iconCache, trimmedAppUserModelId, resolvedIcon, memoryCacheMaxEntries);
         return resolvedIcon;
       } catch (error) {
         logger.warn('Failed to load AppUserModelID icon.', error);
-        iconCache.set(trimmedAppUserModelId, undefined);
+        setBoundedMapEntry(iconCache, trimmedAppUserModelId, undefined, memoryCacheMaxEntries);
         return undefined;
       }
     },

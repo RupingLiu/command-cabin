@@ -83,7 +83,7 @@ export async function createPinnedImageWindow({
     backgroundColor: '#10110f',
     title: 'Pinned screenshot',
     webPreferences: {
-      backgroundThrottling: false,
+      backgroundThrottling: true,
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,

@@ -32,9 +32,20 @@ function createDeferred<T>() {
 function createOverlayWindow(webContents: { id: number }) {
   let destroyed = false;
   const closedListeners = new Set<() => void>();
+  const emitClosed = () => {
+    if (destroyed) {
+      return;
+    }
+
+    destroyed = true;
+
+    for (const listener of closedListeners) {
+      listener();
+    }
+  };
 
   return {
-    close: vi.fn(),
+    close: vi.fn(emitClosed),
     hide: vi.fn(),
     isDestroyed: () => destroyed,
     off: vi.fn((_eventName: 'closed', listener: () => void) => {
@@ -52,13 +63,7 @@ function createOverlayWindow(webContents: { id: number }) {
 
       return webContents;
     },
-    emitClosed: () => {
-      destroyed = true;
-
-      for (const listener of closedListeners) {
-        listener();
-      }
-    },
+    emitClosed,
   };
 }
 
@@ -501,11 +506,16 @@ describe('createScreenshotController', () => {
   });
 
   it('times out waiting for overlay readiness and allows a later capture to start', async () => {
-    const overlayWindow = createOverlayWindow({ id: 157 });
+    const firstOverlayWindow = createOverlayWindow({ id: 157 });
+    const retryOverlayWindow = createOverlayWindow({ id: 158 });
+    const createOverlayWindowSpy = vi
+      .fn()
+      .mockResolvedValueOnce(firstOverlayWindow)
+      .mockResolvedValueOnce(retryOverlayWindow);
     const notifyOverlayLaunchState = vi.fn();
     const controller = createScreenshotController({
       captureDisplays: vi.fn(async () => launchState),
-      createOverlayWindow: vi.fn(async () => overlayWindow),
+      createOverlayWindow: createOverlayWindowSpy,
       getOverlayBounds: vi.fn(() => overlayBounds),
       hideLauncher: vi.fn(),
       notifyOverlayLaunchState,
@@ -530,18 +540,20 @@ describe('createScreenshotController', () => {
     expect(timeoutResult).toMatchObject({
       reason: expect.objectContaining({ message: expect.stringMatching(/timed out/i) }),
     });
-    expect(overlayWindow.hide).toHaveBeenCalledOnce();
-    await expect(controller.getLaunchState(overlayWindow.webContents)).rejects.toThrow(
+    expect(firstOverlayWindow.close).toHaveBeenCalledOnce();
+    expect(firstOverlayWindow.hide).not.toHaveBeenCalled();
+    await expect(controller.getLaunchState({ id: 157 })).rejects.toThrow(
       /unknown screenshot sender/i,
     );
 
     const retryStart = controller.start('capture');
     await vi.advanceTimersByTimeAsync(0);
-    expect(controller.markOverlayReady(overlayWindow.webContents)).toBe(true);
+    expect(controller.markOverlayReady(retryOverlayWindow.webContents)).toBe(true);
     await expect(retryStart).resolves.toEqual({
       ...launchState,
       mode: 'capture',
     });
+    expect(createOverlayWindowSpy).toHaveBeenCalledTimes(2);
   });
 
   it('returns false when overlay ready arrives from wrong, stale, or missing waiters', async () => {
@@ -582,7 +594,7 @@ describe('createScreenshotController', () => {
     await expect(start).rejects.toThrow(/canceled/i);
   });
 
-  it('hides the persistent overlay on cancel instead of closing it', async () => {
+  it('closes the overlay on cancel so the hidden renderer can release memory', async () => {
     const overlayWindow = createOverlayWindow({ id: 57 });
     const controller = createScreenshotController({
       captureDisplays: vi.fn(async () => launchState),
@@ -605,8 +617,8 @@ describe('createScreenshotController', () => {
 
     expect(controller.cancel(overlayWindow.webContents)).toBe(true);
 
-    expect(overlayWindow.hide).toHaveBeenCalledOnce();
-    expect(overlayWindow.close).not.toHaveBeenCalled();
+    expect(overlayWindow.close).toHaveBeenCalledOnce();
+    expect(overlayWindow.hide).not.toHaveBeenCalled();
   });
 
   it('recreates the overlay after the persistent window closes', async () => {
@@ -790,8 +802,8 @@ describe('createScreenshotController', () => {
       },
       expect.any(Function),
     );
-    expect(overlayWindow.hide).toHaveBeenCalledOnce();
-    expect(overlayWindow.close).not.toHaveBeenCalled();
+    expect(overlayWindow.close).toHaveBeenCalledOnce();
+    expect(overlayWindow.hide).not.toHaveBeenCalled();
   });
 
   it('rejects unknown pinned image tokens and senders', async () => {

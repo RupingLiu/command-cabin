@@ -139,7 +139,9 @@ export function ResultItem({
     >
       <ResultIcon result={result} />
       <span className="result-copy">
-        <span className="result-title">{result.title}</span>
+        <span className="result-title" title={result.title}>
+          {result.title}
+        </span>
         {!isCompact && result.subtitle ? (
           <span className="result-subtitle">{result.subtitle}</span>
         ) : null}

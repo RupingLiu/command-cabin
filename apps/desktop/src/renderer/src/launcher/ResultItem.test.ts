@@ -89,6 +89,25 @@ describe('ResultItem', () => {
     expect(markup).not.toContain('>App</span>');
   });
 
+  it('exposes the full result title for hover tooltips', () => {
+    const markup = renderToStaticMarkup(
+      createElement(ResultItem, {
+        id: 'launcher-option-app-gbcharge',
+        index: 0,
+        isDisabled: false,
+        isSelected: true,
+        onExecute: vi.fn(),
+        onSelect: vi.fn(),
+        result: createResult({
+          title: 'GBChargeDoctor',
+        }),
+        variant: 'compact',
+      }),
+    );
+
+    expect(markup).toContain('title="GBChargeDoctor"');
+  });
+
   it('marks pinned app results as context-menu manageable', () => {
     const markup = renderToStaticMarkup(
       createElement(ResultItem, {

@@ -222,9 +222,6 @@ export function createUpdateController({
       versionKnowledge = {
         ...versionKnowledge,
         downloadedVersion,
-        ...(versionKnowledge.latestVersion === undefined
-          ? { latestVersion: downloadedVersion }
-          : {}),
       };
     }
 

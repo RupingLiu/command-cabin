@@ -264,8 +264,8 @@ describe('createUpdateController', () => {
     });
   });
 
-  it('publishes download progress and downloaded state', () => {
-    createUpdateController({
+  it('publishes download progress and keeps unconfirmed downloads unavailable to install', async () => {
+    const controller = createUpdateController({
       autoUpdater: updater,
       getWindows: () => [sender],
       isPackaged: true,
@@ -285,7 +285,35 @@ describe('createUpdateController', () => {
     expect(sender.send).toHaveBeenLastCalledWith(
       UPDATE_STATUS_CHANGED_CHANNEL,
       expect.objectContaining({
+        canCheck: true,
+        canInstall: false,
+        downloadedVersion: '0.3.0',
+        phase: 'downloaded',
+        version: '0.3.0',
+      }),
+    );
+    expect(sender.send.mock.lastCall?.[1]).not.toHaveProperty('latestVersion');
+
+    await controller.checkForUpdates();
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+  });
+
+  it('only installs after the latest update is downloaded', () => {
+    createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    updater.emit('update-available', { version: '0.3.0' });
+    updater.emit('update-downloaded', { version: '0.3.0' });
+
+    expect(sender.send).toHaveBeenLastCalledWith(
+      UPDATE_STATUS_CHANGED_CHANNEL,
+      expect.objectContaining({
         canInstall: true,
+        latestVersion: '0.3.0',
         phase: 'downloaded',
         version: '0.3.0',
       }),
@@ -305,6 +333,15 @@ describe('createUpdateController', () => {
       ok: false,
     });
 
+    updater.emit('update-downloaded', { version: '0.3.0' });
+
+    expect(controller.installUpdate()).toEqual({
+      error: 'Update is not ready to install.',
+      ok: false,
+    });
+    expect(updater.quitAndInstall).not.toHaveBeenCalled();
+
+    updater.emit('update-available', { version: '0.3.0' });
     updater.emit('update-downloaded', { version: '0.3.0' });
 
     expect(controller.installUpdate()).toEqual({ ok: true });

@@ -81,6 +81,25 @@ describe('composeScreenshotSelection', () => {
     expect(mock.canvas.toDataURL).toHaveBeenCalledWith('image/jpeg', 0.82);
   });
 
+  it('exports high-DPI selections at the display scale factor', async () => {
+    const mock = createMockCanvas();
+
+    await composeScreenshotSelection({
+      createCanvas: () => mock.canvas,
+      format: 'png',
+      launchState: {
+        ...launchState,
+        displays: [{ ...launchState.displays[0]!, scaleFactor: 2 }],
+      },
+      loadImage: async (source) => ({ source }),
+      selection: { height: 50, width: 80, x: -20, y: 30 },
+    });
+
+    expect(mock.canvas.width).toBe(160);
+    expect(mock.canvas.height).toBe(100);
+    expect(mock.drawImageCalls[0]?.args.slice(1)).toEqual([-160, -60, 600, 400]);
+  });
+
   it('draws shape, text, pen, arrow, and mosaic annotations after the background', async () => {
     const mock = createMockCanvas();
     const annotations: ScreenshotAnnotation[] = [

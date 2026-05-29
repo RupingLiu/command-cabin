@@ -50,8 +50,13 @@ describe('ScreenshotOverlay', () => {
 
 describe('ScreenshotOverlayView', () => {
   it('renders display backgrounds, tools, output actions, and style controls', () => {
+    const selectedState = screenshotReducer(createInitialScreenshotState(), {
+      rect: { height: 80, width: 120, x: 20, y: 30 },
+      type: 'selection-set',
+    });
     const markup = renderToStaticMarkup(
       createElement(ScreenshotOverlayView, {
+        initialState: selectedState,
         launchState,
         strings: getUiStrings('en-US').screenshot,
       }),
@@ -75,14 +80,20 @@ describe('ScreenshotOverlayView', () => {
   });
 
   it('renders screenshot toolbar strings in Simplified and Traditional Chinese', () => {
+    const selectedState = screenshotReducer(createInitialScreenshotState(), {
+      rect: { height: 80, width: 120, x: 20, y: 30 },
+      type: 'selection-set',
+    });
     const simplified = renderToStaticMarkup(
       createElement(ScreenshotOverlayView, {
+        initialState: selectedState,
         launchState,
         strings: getUiStrings('zh-CN').screenshot,
       }),
     );
     const traditional = renderToStaticMarkup(
       createElement(ScreenshotOverlayView, {
+        initialState: selectedState,
         launchState,
         strings: getUiStrings('zh-TW').screenshot,
       }),

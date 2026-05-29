@@ -266,6 +266,9 @@ async function createApplicationWindow({ showWindow }: { showWindow: boolean }):
     launchAtLoginController.sync(settingsStore.getSettings().launchAtLogin);
     await screenshotShortcutController.start();
     await desktopApplication.start({ showWindow });
+    void screenshotController.prepare().catch((error: unknown) => {
+      console.warn('Failed to preload screenshot overlay.', error);
+    });
   } finally {
     nextWindowShowOnReady = true;
   }

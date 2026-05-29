@@ -119,7 +119,7 @@ const delayByMode = new Map<ScreenshotLaunchMode, number>([
 ]);
 
 const defaultRendererReadyTimeoutMs = 1500;
-const defaultCaptureSurfaceSettleMs = 50;
+const defaultCaptureSurfaceSettleMs = 16;
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
@@ -360,6 +360,7 @@ export function createScreenshotController({
         overlayWindowPromise = undefined;
       }
       closeOverlayWindow(state.window);
+      void ensureOverlayWindow().catch(() => undefined);
 
       return true;
     },
@@ -450,8 +451,8 @@ export function createScreenshotController({
       return saveResult;
     },
     start: async (mode) => {
-      if (startInProgress) {
-        throw new Error('Screenshot capture is already starting.');
+      if (startInProgress || states.size > 0) {
+        throw new Error('Screenshot capture is already active or starting.');
       }
 
       const launchMode = parseScreenshotLaunchMode(mode);
@@ -499,20 +500,23 @@ export function createScreenshotController({
           timeoutId,
         };
 
-        notifyOverlayLaunchState(activeWindow, launchState);
-
-        const rendererReadyStartedAt = performance.now();
-        await readyWaiter.promise;
-        const rendererReadyMs = performance.now() - rendererReadyStartedAt;
-
         const showStartedAt = performance.now();
         activeWindow.setBounds?.(launchState.virtualBounds);
+        notifyOverlayLaunchState(activeWindow, launchState);
         activeWindow.show?.();
         const showMs = performance.now() - showStartedAt;
+        const rendererReadyStartedAt = performance.now();
+        void readyWaiter.promise
+          .then(() => {
+            logger.info('CommandCabin screenshot renderer ready', {
+              rendererReadyMs: performance.now() - rendererReadyStartedAt,
+            });
+          })
+          .catch(() => undefined);
 
         logger.info('CommandCabin screenshot timing', {
           captureMs,
-          rendererReadyMs,
+          rendererReadyMs: 0,
           showMs,
           totalMs: performance.now() - totalStartedAt,
         });

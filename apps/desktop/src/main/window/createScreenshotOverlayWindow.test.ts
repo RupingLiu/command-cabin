@@ -56,7 +56,7 @@ describe('createScreenshotOverlayWindow', () => {
       show: false,
       transparent: true,
       webPreferences: {
-        backgroundThrottling: true,
+        backgroundThrottling: false,
         contextIsolation: true,
         nodeIntegration: false,
         preload: 'C:\\CommandCabin\\dist\\preload\\index.js',

@@ -47,7 +47,7 @@ export async function createScreenshotOverlayWindow({
     fullscreenable: false,
     autoHideMenuBar: true,
     webPreferences: {
-      backgroundThrottling: true,
+      backgroundThrottling: false,
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,

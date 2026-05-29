@@ -73,8 +73,9 @@ export async function composeScreenshotSelection({
   selection,
 }: ComposeScreenshotSelectionOptions): Promise<string> {
   const canvas = createCanvas();
-  canvas.width = Math.max(1, Math.round(selection.width));
-  canvas.height = Math.max(1, Math.round(selection.height));
+  const outputScale = getSelectionOutputScale(launchState, selection);
+  canvas.width = Math.max(1, Math.round(selection.width * outputScale));
+  canvas.height = Math.max(1, Math.round(selection.height * outputScale));
   const context = canvas.getContext('2d');
 
   if (!context) {
@@ -87,11 +88,11 @@ export async function composeScreenshotSelection({
     }
 
     const image = await loadImage(display.imageDataUrl);
-    drawDisplayImage(context, image, display, selection);
+    drawDisplayImage(context, image, display, selection, outputScale);
   }
 
   for (const annotation of annotations) {
-    drawAnnotation(context, annotation);
+    drawAnnotation(context, annotation, outputScale);
   }
 
   if (format === 'jpg') {
@@ -106,42 +107,96 @@ function drawDisplayImage(
   image: CanvasImageSourceLike,
   display: ScreenshotDisplaySnapshot,
   selection: ScreenshotRect,
+  outputScale: number,
 ): void {
   context.drawImage(
     image,
-    display.bounds.x - selection.x,
-    display.bounds.y - selection.y,
-    display.bounds.width,
-    display.bounds.height,
+    (display.bounds.x - selection.x) * outputScale,
+    (display.bounds.y - selection.y) * outputScale,
+    display.bounds.width * outputScale,
+    display.bounds.height * outputScale,
   );
 }
 
 export function drawAnnotation(
   context: ScreenshotCanvasContextLike,
   annotation: ScreenshotAnnotation,
+  outputScale = 1,
 ): void {
-  applyStyle(context, annotation.style);
+  const scaledStyle = scaleStyle(annotation.style, outputScale);
+
+  applyStyle(context, scaledStyle);
 
   switch (annotation.type) {
     case 'rectangle':
-      drawRectangle(context, annotation.rect);
+      drawRectangle(context, scaleRect(annotation.rect, outputScale));
       break;
     case 'ellipse':
-      drawEllipse(context, annotation.rect);
+      drawEllipse(context, scaleRect(annotation.rect, outputScale));
       break;
     case 'arrow':
-      drawArrow(context, annotation.from, annotation.to, annotation.style.lineWidth);
+      drawArrow(
+        context,
+        scalePoint(annotation.from, outputScale),
+        scalePoint(annotation.to, outputScale),
+        scaledStyle.lineWidth,
+      );
       break;
     case 'pen':
-      drawPen(context, annotation.points);
+      drawPen(
+        context,
+        annotation.points.map((point) => scalePoint(point, outputScale)),
+      );
       break;
     case 'text':
-      drawText(context, annotation.text, annotation.point, annotation.style);
+      drawText(context, annotation.text, scalePoint(annotation.point, outputScale), scaledStyle);
       break;
     case 'mosaic':
-      drawMosaic(context, annotation.rect);
+      drawMosaic(context, scaleRect(annotation.rect, outputScale), outputScale);
       break;
   }
+}
+
+function getSelectionOutputScale(
+  launchState: ScreenshotLaunchState,
+  selection: ScreenshotRect,
+): number {
+  const scaleFactor = Math.max(
+    1,
+    ...launchState.displays
+      .filter((display) => rectsIntersect(display.bounds, selection))
+      .map((display) => display.scaleFactor)
+      .filter((scaleFactor) => Number.isFinite(scaleFactor) && scaleFactor > 0),
+  );
+
+  return scaleFactor;
+}
+
+function scalePoint(point: ScreenshotPoint, scale: number): ScreenshotPoint {
+  return {
+    x: point.x * scale,
+    y: point.y * scale,
+  };
+}
+
+function scaleRect(rect: ScreenshotRect, scale: number): ScreenshotRect {
+  return {
+    height: rect.height * scale,
+    width: rect.width * scale,
+    x: rect.x * scale,
+    y: rect.y * scale,
+  };
+}
+
+function scaleStyle(
+  style: ScreenshotAnnotationStyle,
+  scale: number,
+): ScreenshotAnnotationStyle {
+  return {
+    ...style,
+    fontSize: style.fontSize * scale,
+    lineWidth: style.lineWidth * scale,
+  };
 }
 
 function applyStyle(context: ScreenshotCanvasContextLike, style: ScreenshotAnnotationStyle): void {
@@ -229,7 +284,11 @@ function drawText(
   }
 }
 
-function drawMosaic(context: ScreenshotCanvasContextLike, rect: ScreenshotRect): void {
+function drawMosaic(
+  context: ScreenshotCanvasContextLike,
+  rect: ScreenshotRect,
+  outputScale: number,
+): void {
   if (!context.getImageData || !context.putImageData) {
     drawRectangle(context, rect);
     return;
@@ -239,7 +298,7 @@ function drawMosaic(context: ScreenshotCanvasContextLike, rect: ScreenshotRect):
   const height = Math.max(1, Math.round(rect.height));
   const imageData = context.getImageData(Math.round(rect.x), Math.round(rect.y), width, height);
 
-  pixelate(imageData, 8);
+  pixelate(imageData, Math.max(4, Math.round(8 * outputScale)));
   context.putImageData(imageData, Math.round(rect.x), Math.round(rect.y));
 }
 

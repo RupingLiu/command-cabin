@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { MouseEvent, Ref } from 'react';
+import type { MouseEvent, ReactNode, Ref } from 'react';
 
 import type {
   ScreenshotLaunchState,
@@ -25,7 +25,7 @@ const fontSizes = [16, 22, 30];
 const toolOrder: ScreenshotTool[] = ['rectangle', 'ellipse', 'arrow', 'pen', 'text', 'mosaic'];
 const defaultScreenshotStrings = getUiStrings(DEFAULT_UI_LANGUAGE).screenshot;
 const screenshotToolbarGap = 12;
-const defaultScreenshotToolbarSize = { height: 56, width: 640 };
+const defaultScreenshotToolbarSize = { height: 48, width: 520 };
 
 interface ScreenshotOverlayStatus {
   tone: 'info' | 'error';
@@ -723,180 +723,194 @@ export function ScreenshotOverlayView({
         </div>
       </div>
 
-      <div
-        className="screenshot-controls"
-        data-floating={toolbarPlacement ? 'true' : undefined}
-        style={
-          toolbarPlacement
-            ? {
-                left: toolbarPlacement.x,
-                top: toolbarPlacement.y,
-              }
-            : undefined
-        }
-      >
-        {ocrPanel ? (
-          <OcrPanel state={ocrPanel} strings={strings} onCopyAll={copyOcrText} />
-        ) : undefined}
-        {status ? (
-          <div className="screenshot-status" data-tone={status.tone}>
-            {status.value}
-          </div>
-        ) : undefined}
-        <div className="screenshot-toolbar" ref={toolbarRef} role="toolbar">
-          <div className="screenshot-tool-group">
-            {toolOrder.map((tool) => (
+      {offsetSelection && ready ? (
+        <div
+          className="screenshot-controls"
+          data-floating={toolbarPlacement ? 'true' : undefined}
+          style={
+            toolbarPlacement
+              ? {
+                  left: toolbarPlacement.x,
+                  top: toolbarPlacement.y,
+                }
+              : undefined
+          }
+        >
+          {ocrPanel ? (
+            <OcrPanel state={ocrPanel} strings={strings} onCopyAll={copyOcrText} />
+          ) : undefined}
+          {status ? (
+            <div className="screenshot-status" data-tone={status.tone}>
+              {status.value}
+            </div>
+          ) : undefined}
+          <div className="screenshot-toolbar" ref={toolbarRef} role="toolbar">
+            <div className="screenshot-tool-group">
+              {toolOrder.map((tool) => (
+                <button
+                  aria-label={strings.tools[tool]}
+                  data-active={state.tool === tool}
+                  key={tool}
+                  onClick={() => {
+                    cancelPendingTextAnnotation();
+                    dispatch({ tool, type: 'tool-selected' });
+                  }}
+                  title={strings.tools[tool]}
+                  type="button"
+                >
+                  <span className="screenshot-icon">{toolIcon(tool)}</span>
+                  <span className="screenshot-button-label">{strings.tools[tool]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="screenshot-tool-group">
               <button
-                aria-label={strings.tools[tool]}
-                data-active={state.tool === tool}
-                key={tool}
-                onClick={() => {
-                  cancelPendingTextAnnotation();
-                  dispatch({ tool, type: 'tool-selected' });
-                }}
-                title={strings.tools[tool]}
+                aria-label={strings.toolbar.undo}
+                onClick={() => dispatch({ type: 'undo' })}
+                title={strings.toolbar.undo}
                 type="button"
               >
-                <span>{toolIcon(tool)}</span>
-                <span className="screenshot-button-label">{strings.tools[tool]}</span>
+                <span className="screenshot-icon">{toolbarIcon('undo')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.undo}</span>
               </button>
-            ))}
-          </div>
-          <div className="screenshot-tool-group">
-            <button
-              aria-label={strings.toolbar.undo}
-              onClick={() => dispatch({ type: 'undo' })}
-              title={strings.toolbar.undo}
-              type="button"
-            >
-              <span>&lt;</span>
-              <span className="screenshot-button-label">{strings.toolbar.undo}</span>
-            </button>
-            <button
-              aria-label={strings.toolbar.redo}
-              onClick={() => dispatch({ type: 'redo' })}
-              title={strings.toolbar.redo}
-              type="button"
-            >
-              <span>&gt;</span>
-              <span className="screenshot-button-label">{strings.toolbar.redo}</span>
-            </button>
-          </div>
-          <fieldset className="screenshot-tool-group">
-            <legend>{strings.groups.color}</legend>
-            {colors.map((color) => (
               <button
-                aria-label={`${strings.groups.color} ${color}`}
-                className="screenshot-color-swatch"
-                data-active={state.style.color === color}
-                key={color}
-                onClick={() => dispatch({ color, type: 'color-selected' })}
-                style={{ backgroundColor: color }}
-                title={`${strings.groups.color} ${color}`}
-                type="button"
-              />
-            ))}
-          </fieldset>
-          <fieldset className="screenshot-tool-group">
-            <legend>{strings.groups.line}</legend>
-            {lineWidths.map((lineWidth) => (
-              <button
-                aria-label={`${strings.groups.line} ${lineWidth}`}
-                data-active={state.style.lineWidth === lineWidth}
-                key={lineWidth}
-                onClick={() => dispatch({ lineWidth, type: 'line-width-selected' })}
-                title={`${strings.groups.line} ${lineWidth}`}
+                aria-label={strings.toolbar.redo}
+                onClick={() => dispatch({ type: 'redo' })}
+                title={strings.toolbar.redo}
                 type="button"
               >
-                {lineWidth}
+                <span className="screenshot-icon">{toolbarIcon('redo')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.redo}</span>
               </button>
-            ))}
-          </fieldset>
-          <fieldset className="screenshot-tool-group">
-            <legend>{strings.groups.font}</legend>
-            {fontSizes.map((fontSize) => (
+            </div>
+            <details className="screenshot-style-menu">
+              <summary
+                aria-label={`${strings.groups.color} / ${strings.groups.line}`}
+                title={`${strings.groups.color} / ${strings.groups.line}`}
+              >
+                <span className="screenshot-icon">{toolbarIcon('style')}</span>
+              </summary>
+              <div className="screenshot-style-menu__panel">
+                <fieldset className="screenshot-style-group">
+                  <legend>{strings.groups.color}</legend>
+                  {colors.map((color) => (
+                    <button
+                      aria-label={`${strings.groups.color} ${color}`}
+                      className="screenshot-color-swatch"
+                      data-active={state.style.color === color}
+                      key={color}
+                      onClick={() => dispatch({ color, type: 'color-selected' })}
+                      style={{ backgroundColor: color }}
+                      title={`${strings.groups.color} ${color}`}
+                      type="button"
+                    />
+                  ))}
+                </fieldset>
+                {state.tool === 'text' ? (
+                  <fieldset className="screenshot-style-group">
+                    <legend>{strings.groups.font}</legend>
+                    {fontSizes.map((fontSize) => (
+                      <button
+                        aria-label={`${strings.groups.font} ${fontSize}`}
+                        data-active={state.style.fontSize === fontSize}
+                        key={fontSize}
+                        onClick={() => dispatch({ fontSize, type: 'font-size-selected' })}
+                        title={`${strings.groups.font} ${fontSize}`}
+                        type="button"
+                      >
+                        {fontSize}
+                      </button>
+                    ))}
+                  </fieldset>
+                ) : (
+                  <fieldset className="screenshot-style-group">
+                    <legend>{strings.groups.line}</legend>
+                    {lineWidths.map((lineWidth) => (
+                      <button
+                        aria-label={`${strings.groups.line} ${lineWidth}`}
+                        data-active={state.style.lineWidth === lineWidth}
+                        key={lineWidth}
+                        onClick={() => dispatch({ lineWidth, type: 'line-width-selected' })}
+                        title={`${strings.groups.line} ${lineWidth}`}
+                        type="button"
+                      >
+                        <span
+                          className="screenshot-line-preview"
+                          style={{ height: Math.max(2, lineWidth) }}
+                        />
+                      </button>
+                    ))}
+                  </fieldset>
+                )}
+                <fieldset className="screenshot-style-group">
+                  <legend>{strings.groups.format}</legend>
+                  {(['png', 'jpg'] as ScreenshotSaveFormat[]).map((format) => (
+                    <button
+                      aria-label={`${strings.groups.format} ${format.toUpperCase()}`}
+                      data-active={saveFormat === format}
+                      key={format}
+                      onClick={() => setSaveFormat(format)}
+                      title={`${strings.groups.format} ${format.toUpperCase()}`}
+                      type="button"
+                    >
+                      {format.toUpperCase()}
+                    </button>
+                  ))}
+                </fieldset>
+              </div>
+            </details>
+            <div className="screenshot-tool-group screenshot-tool-group--actions">
               <button
-                aria-label={`${strings.groups.font} ${fontSize}`}
-                data-active={state.style.fontSize === fontSize}
-                key={fontSize}
-                onClick={() => dispatch({ fontSize, type: 'font-size-selected' })}
-                title={`${strings.groups.font} ${fontSize}`}
+                aria-label={strings.toolbar.ocr}
+                onClick={() => void runOutputAction('ocr')}
+                title={strings.toolbar.ocr}
                 type="button"
               >
-                {fontSize}
+                <span className="screenshot-icon">{toolbarIcon('ocr')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.ocr}</span>
               </button>
-            ))}
-          </fieldset>
-          <fieldset className="screenshot-tool-group">
-            <legend>{strings.groups.format}</legend>
-            {(['png', 'jpg'] as ScreenshotSaveFormat[]).map((format) => (
               <button
-                aria-label={`${strings.groups.format} ${format.toUpperCase()}`}
-                data-active={saveFormat === format}
-                key={format}
-                onClick={() => setSaveFormat(format)}
-                title={`${strings.groups.format} ${format.toUpperCase()}`}
+                aria-label={strings.toolbar.pin}
+                onClick={() => void runOutputAction('pin')}
+                title={strings.toolbar.pin}
                 type="button"
               >
-                {format.toUpperCase()}
+                <span className="screenshot-icon">{toolbarIcon('pin')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.pin}</span>
               </button>
-            ))}
-          </fieldset>
-          <div className="screenshot-tool-group screenshot-tool-group--actions">
-            <button
-              aria-label={strings.toolbar.ocr}
-              disabled={!ready}
-              onClick={() => void runOutputAction('ocr')}
-              title={strings.toolbar.ocr}
-              type="button"
-            >
-              <span>Tx</span>
-              <span className="screenshot-button-label">{strings.toolbar.ocr}</span>
-            </button>
-            <button
-              aria-label={strings.toolbar.pin}
-              disabled={!ready}
-              onClick={() => void runOutputAction('pin')}
-              title={strings.toolbar.pin}
-              type="button"
-            >
-              <span>^</span>
-              <span className="screenshot-button-label">{strings.toolbar.pin}</span>
-            </button>
-            <button
-              aria-label={strings.toolbar.save}
-              disabled={!ready}
-              onClick={() => void runOutputAction('save')}
-              title={strings.toolbar.save}
-              type="button"
-            >
-              <span>v</span>
-              <span className="screenshot-button-label">{strings.toolbar.save}</span>
-            </button>
-            <button
-              aria-label={strings.toolbar.done}
-              className="screenshot-action-button screenshot-action-button--done"
-              disabled={!ready}
-              onClick={() => void finish()}
-              title={strings.toolbar.done}
-              type="button"
-            >
-              <span>OK</span>
-              <span className="screenshot-button-label">{strings.toolbar.done}</span>
-            </button>
-            <button
-              aria-label={strings.toolbar.cancel}
-              className="screenshot-action-button screenshot-action-button--cancel"
-              onClick={cancel}
-              title={strings.toolbar.cancel}
-              type="button"
-            >
-              <span>X</span>
-              <span className="screenshot-button-label">{strings.toolbar.cancel}</span>
-            </button>
+              <button
+                aria-label={strings.toolbar.save}
+                onClick={() => void runOutputAction('save')}
+                title={strings.toolbar.save}
+                type="button"
+              >
+                <span className="screenshot-icon">{toolbarIcon('save')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.save}</span>
+              </button>
+              <button
+                aria-label={strings.toolbar.done}
+                className="screenshot-action-button screenshot-action-button--done"
+                onClick={() => void finish()}
+                title={strings.toolbar.done}
+                type="button"
+              >
+                <span className="screenshot-icon">{toolbarIcon('done')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.done}</span>
+              </button>
+              <button
+                aria-label={strings.toolbar.cancel}
+                className="screenshot-action-button screenshot-action-button--cancel"
+                onClick={cancel}
+                title={strings.toolbar.cancel}
+                type="button"
+              >
+                <span className="screenshot-icon">{toolbarIcon('cancel')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.cancel}</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : undefined}
     </div>
   );
 }
@@ -1082,20 +1096,131 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max));
 }
 
-function toolIcon(tool: ScreenshotTool): string {
+type ToolbarIconName = 'cancel' | 'done' | 'ocr' | 'pin' | 'redo' | 'save' | 'style' | 'undo';
+
+function ScreenshotIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+      {children}
+    </svg>
+  );
+}
+
+function toolIcon(tool: ScreenshotTool) {
   switch (tool) {
     case 'rectangle':
-      return '[]';
+      return (
+        <ScreenshotIcon>
+          <rect height="12" rx="1.5" width="14" x="5" y="6" />
+        </ScreenshotIcon>
+      );
     case 'ellipse':
-      return '()';
+      return (
+        <ScreenshotIcon>
+          <ellipse cx="12" cy="12" rx="7" ry="5" />
+        </ScreenshotIcon>
+      );
     case 'arrow':
-      return '->';
+      return (
+        <ScreenshotIcon>
+          <path d="M5 18 18 5" />
+          <path d="M11 5h7v7" />
+        </ScreenshotIcon>
+      );
     case 'pen':
-      return '/';
+      return (
+        <ScreenshotIcon>
+          <path d="M5 18.5 7 14l8.8-8.8a2.1 2.1 0 0 1 3 3L10 17l-5 1.5Z" />
+          <path d="m14.5 6.5 3 3" />
+        </ScreenshotIcon>
+      );
     case 'text':
-      return 'T';
+      return (
+        <ScreenshotIcon>
+          <path d="M5 6h14" />
+          <path d="M12 6v12" />
+          <path d="M9 18h6" />
+        </ScreenshotIcon>
+      );
     case 'mosaic':
-      return '#';
+      return (
+        <ScreenshotIcon>
+          <rect height="4" width="4" x="5" y="5" />
+          <rect height="4" width="4" x="10" y="5" />
+          <rect height="4" width="4" x="15" y="5" />
+          <rect height="4" width="4" x="5" y="10" />
+          <rect height="4" width="4" x="10" y="10" />
+          <rect height="4" width="4" x="15" y="10" />
+          <rect height="4" width="4" x="5" y="15" />
+          <rect height="4" width="4" x="10" y="15" />
+          <rect height="4" width="4" x="15" y="15" />
+        </ScreenshotIcon>
+      );
+  }
+}
+
+function toolbarIcon(icon: ToolbarIconName) {
+  switch (icon) {
+    case 'undo':
+      return (
+        <ScreenshotIcon>
+          <path d="M9 7 5 11l4 4" />
+          <path d="M6 11h8a5 5 0 0 1 5 5v1" />
+        </ScreenshotIcon>
+      );
+    case 'redo':
+      return (
+        <ScreenshotIcon>
+          <path d="m15 7 4 4-4 4" />
+          <path d="M18 11h-8a5 5 0 0 0-5 5v1" />
+        </ScreenshotIcon>
+      );
+    case 'style':
+      return (
+        <ScreenshotIcon>
+          <circle cx="7" cy="7" r="2" />
+          <circle cx="13" cy="6" r="2" />
+          <circle cx="17" cy="11" r="2" />
+          <path d="M12 21a8 8 0 1 1 7.6-10.5c.5 1.5-.5 3-2.1 3H15a2 2 0 0 0-2 2v1.5a2.5 2.5 0 0 1-1 4Z" />
+        </ScreenshotIcon>
+      );
+    case 'ocr':
+      return (
+        <ScreenshotIcon>
+          <path d="M5 7V5h14v2" />
+          <path d="M12 5v14" />
+          <path d="M8 19h8" />
+          <path d="M5 12h4" />
+          <path d="M15 12h4" />
+        </ScreenshotIcon>
+      );
+    case 'pin':
+      return (
+        <ScreenshotIcon>
+          <path d="m14 4 6 6-3 1-4 4v5l-4-4-5 5 5-5-4-4h5l4-4 1-4Z" />
+        </ScreenshotIcon>
+      );
+    case 'save':
+      return (
+        <ScreenshotIcon>
+          <path d="M6 4h10l2 2v14H6Z" />
+          <path d="M9 4v6h6V4" />
+          <path d="M9 17h6" />
+        </ScreenshotIcon>
+      );
+    case 'done':
+      return (
+        <ScreenshotIcon>
+          <path d="m5 12 4 4L19 6" />
+        </ScreenshotIcon>
+      );
+    case 'cancel':
+      return (
+        <ScreenshotIcon>
+          <path d="M6 6 18 18" />
+          <path d="M18 6 6 18" />
+        </ScreenshotIcon>
+      );
   }
 }
 

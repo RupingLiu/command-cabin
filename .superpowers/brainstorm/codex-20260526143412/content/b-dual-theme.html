@@ -1,0 +1,431 @@
+<style>
+  .dual-theme {
+    display: grid;
+    gap: 18px;
+  }
+
+  .theme-pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .theme-card {
+    display: grid;
+    gap: 12px;
+  }
+
+  .theme-preview {
+    min-height: 390px;
+    padding: 18px;
+    overflow: hidden;
+    border-radius: 28px;
+    font-family:
+      Inter,
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+  }
+
+  .theme-preview * {
+    box-sizing: border-box;
+  }
+
+  .theme-window {
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 12px;
+    height: 100%;
+  }
+
+  .theme-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .theme-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+
+  .theme-mark {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 12px;
+    color: white;
+    font-size: 15px;
+    font-weight: 800;
+  }
+
+  .theme-brand-copy {
+    display: grid;
+    gap: 3px;
+  }
+
+  .theme-kicker {
+    font-size: 10px;
+    font-weight: 760;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  .theme-title {
+    font-size: 15px;
+    font-weight: 760;
+    line-height: 1.1;
+  }
+
+  .theme-settings {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 50%;
+    font-size: 16px;
+  }
+
+  .theme-search {
+    display: flex;
+    align-items: center;
+    min-height: 56px;
+    gap: 10px;
+    padding: 0 16px;
+    border-radius: 19px;
+    font-size: 17px;
+    font-weight: 640;
+  }
+
+  .theme-search-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 7px;
+  }
+
+  .theme-results {
+    display: grid;
+    align-content: start;
+    gap: 9px;
+    min-height: 0;
+  }
+
+  .theme-result {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 11px;
+    min-height: 62px;
+    padding: 10px 12px;
+    border-radius: 20px;
+  }
+
+  .theme-result.selected {
+    transform: translateY(-1px);
+  }
+
+  .theme-app-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 13px;
+  }
+
+  .theme-lines {
+    display: grid;
+    gap: 6px;
+  }
+
+  .theme-line {
+    height: 9px;
+    border-radius: 999px;
+  }
+
+  .theme-line.long {
+    width: 78%;
+  }
+
+  .theme-line.short {
+    width: 47%;
+  }
+
+  .theme-source {
+    min-width: 46px;
+    height: 25px;
+    border-radius: 999px;
+  }
+
+  .theme-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .theme-action {
+    height: 34px;
+    padding: 0 13px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 760;
+    line-height: 34px;
+  }
+
+  .light-preview {
+    background:
+      radial-gradient(circle at 15% 10%, rgba(255, 45, 85, 0.14), transparent 34%),
+      radial-gradient(circle at 76% 6%, rgba(0, 122, 255, 0.12), transparent 33%),
+      linear-gradient(180deg, #fbfbfd 0%, #f2f4f8 100%);
+    color: #111827;
+  }
+
+  .light-preview .theme-mark {
+    background: linear-gradient(135deg, #ff2d55, #ff9f0a);
+    box-shadow: 0 14px 28px rgba(255, 45, 85, 0.23);
+  }
+
+  .light-preview .theme-kicker {
+    color: #8a94a6;
+  }
+
+  .light-preview .theme-search,
+  .light-preview .theme-result,
+  .light-preview .theme-settings,
+  .light-preview .theme-action {
+    border: 1px solid rgba(255, 255, 255, 0.74);
+    background: rgba(255, 255, 255, 0.68);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.74),
+      0 16px 34px rgba(31, 41, 55, 0.1);
+  }
+
+  .light-preview .theme-search {
+    color: #6b7280;
+  }
+
+  .light-preview .theme-search-dot {
+    background: #ff2d55;
+  }
+
+  .light-preview .theme-result.selected {
+    border-color: rgba(255, 45, 85, 0.28);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow:
+      inset 4px 0 0 #ff2d55,
+      0 18px 38px rgba(255, 45, 85, 0.14);
+  }
+
+  .light-preview .theme-app-icon {
+    background: #ff2d55;
+  }
+
+  .light-preview .theme-result:nth-child(2) .theme-app-icon {
+    background: #34c759;
+  }
+
+  .light-preview .theme-result:nth-child(3) .theme-app-icon {
+    background: #007aff;
+  }
+
+  .light-preview .theme-line {
+    background: #1f2937;
+  }
+
+  .light-preview .theme-line.short,
+  .light-preview .theme-source {
+    background: #d8dee8;
+  }
+
+  .light-preview .theme-action:first-child {
+    color: #ff2d55;
+  }
+
+  .light-preview .theme-action:last-child {
+    color: #007aff;
+  }
+
+  .dark-preview {
+    background:
+      radial-gradient(circle at 18% 9%, rgba(255, 55, 95, 0.2), transparent 34%),
+      radial-gradient(circle at 82% 5%, rgba(10, 132, 255, 0.18), transparent 33%),
+      linear-gradient(180deg, #161821 0%, #0f1117 100%);
+    color: #f9fafb;
+  }
+
+  .dark-preview .theme-mark {
+    background: linear-gradient(135deg, #ff375f, #ff9f0a);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.24);
+  }
+
+  .dark-preview .theme-kicker {
+    color: #98a2b3;
+  }
+
+  .dark-preview .theme-search,
+  .dark-preview .theme-result,
+  .dark-preview .theme-settings,
+  .dark-preview .theme-action {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.085);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 18px 36px rgba(0, 0, 0, 0.24);
+  }
+
+  .dark-preview .theme-search {
+    color: #aeb8c8;
+  }
+
+  .dark-preview .theme-search-dot {
+    background: #ff375f;
+  }
+
+  .dark-preview .theme-result.selected {
+    border-color: rgba(255, 55, 95, 0.4);
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 4px 0 0 #ff375f,
+      0 20px 42px rgba(0, 0, 0, 0.3);
+  }
+
+  .dark-preview .theme-app-icon {
+    background: #ff375f;
+  }
+
+  .dark-preview .theme-result:nth-child(2) .theme-app-icon {
+    background: #30d158;
+  }
+
+  .dark-preview .theme-result:nth-child(3) .theme-app-icon {
+    background: #0a84ff;
+  }
+
+  .dark-preview .theme-line {
+    background: #f8fafc;
+  }
+
+  .dark-preview .theme-line.short,
+  .dark-preview .theme-source {
+    background: rgba(248, 250, 252, 0.22);
+  }
+
+  .dark-preview .theme-action:first-child {
+    color: #ff9f0a;
+  }
+
+  .dark-preview .theme-action:last-child {
+    color: #64d2ff;
+  }
+
+  .design-notes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .design-note {
+    padding: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.58);
+  }
+
+  .design-note h3 {
+    margin: 0 0 6px;
+    font-size: 14px;
+  }
+
+  .design-note p {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 980px) {
+    .theme-pair,
+    .design-notes {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="dual-theme">
+  <h2>B 方向：浅色和深色双主题</h2>
+  <p class="subtitle">
+    这里把同一套 iOS 磨砂视觉语言映射到 light/dark。设置里的主题选项会继续生效，只是底层 CSS token 和组件状态一起换皮。
+  </p>
+
+  <div class="theme-pair">
+    <div class="theme-card">
+      <div class="label">Light Mode</div>
+      <div class="theme-preview light-preview">
+        <div class="theme-window">
+          <div class="theme-top">
+            <div class="theme-brand">
+              <span class="theme-mark">C</span>
+              <span class="theme-brand-copy">
+                <span class="theme-kicker">Launcher</span>
+                <span class="theme-title">CommandCabin</span>
+              </span>
+            </div>
+            <span class="theme-settings">⚙</span>
+          </div>
+          <div class="theme-search"><span class="theme-search-dot"></span>Search commands, apps, tools</div>
+          <div class="theme-results">
+            <div class="theme-result selected"><span class="theme-app-icon"></span><span class="theme-lines"><span class="theme-line long"></span><span class="theme-line short"></span></span><span class="theme-source"></span></div>
+            <div class="theme-result"><span class="theme-app-icon"></span><span class="theme-lines"><span class="theme-line long"></span><span class="theme-line short"></span></span><span class="theme-source"></span></div>
+            <div class="theme-result"><span class="theme-app-icon"></span><span class="theme-lines"><span class="theme-line long"></span><span class="theme-line short"></span></span><span class="theme-source"></span></div>
+          </div>
+          <div class="theme-actions"><span class="theme-action">Converter</span><span class="theme-action">Screenshot</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="theme-card">
+      <div class="label">Dark Mode</div>
+      <div class="theme-preview dark-preview">
+        <div class="theme-window">
+          <div class="theme-top">
+            <div class="theme-brand">
+              <span class="theme-mark">C</span>
+              <span class="theme-brand-copy">
+                <span class="theme-kicker">Launcher</span>
+                <span class="theme-title">CommandCabin</span>
+              </span>
+            </div>
+            <span class="theme-settings">⚙</span>
+          </div>
+          <div class="theme-search"><span class="theme-search-dot"></span>Search commands, apps, tools</div>
+          <div class="theme-results">
+            <div class="theme-result selected"><span class="theme-app-icon"></span><span class="theme-lines"><span class="theme-line long"></span><span class="theme-line short"></span></span><span class="theme-source"></span></div>
+            <div class="theme-result"><span class="theme-app-icon"></span><span class="theme-lines"><span class="theme-line long"></span><span class="theme-line short"></span></span><span class="theme-source"></span></div>
+            <div class="theme-result"><span class="theme-app-icon"></span><span class="theme-lines"><span class="theme-line long"></span><span class="theme-line short"></span></span><span class="theme-source"></span></div>
+          </div>
+          <div class="theme-actions"><span class="theme-action">Converter</span><span class="theme-action">Screenshot</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="design-notes">
+    <div class="design-note">
+      <h3>主题 token</h3>
+      <p>替换现有工业色变量：背景、面板、边框、强调色、阴影都按 light/dark 两套定义。</p>
+    </div>
+    <div class="design-note">
+      <h3>组件形态</h3>
+      <p>搜索框、结果项、设置分组、弹窗和转换器统一为半透明圆润分组，减少硬线和网格纹理。</p>
+    </div>
+    <div class="design-note">
+      <h3>交付范围</h3>
+      <p>优先改 renderer CSS 和少量品牌图标色值，不改 IPC、搜索、设置持久化或业务逻辑。</p>
+    </div>
+  </div>
+</div>

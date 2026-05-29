@@ -1,0 +1,313 @@
+<style>
+  .scope {
+    display: grid;
+    gap: 18px;
+  }
+
+  .scope-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
+    gap: 18px;
+  }
+
+  .shot-preview {
+    position: relative;
+    min-height: 460px;
+    overflow: hidden;
+    border-radius: 28px;
+    background:
+      linear-gradient(120deg, rgba(16, 24, 40, 0.54), rgba(16, 24, 40, 0.12)),
+      linear-gradient(135deg, #e6edf5, #f9fafb 46%, #dbeafe);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+  }
+
+  .shot-preview::before {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg, rgba(255, 255, 255, 0.44) 0 1px, transparent 1px 80px),
+      linear-gradient(0deg, rgba(255, 255, 255, 0.44) 0 1px, transparent 1px 80px);
+    content: "";
+    opacity: 0.4;
+  }
+
+  .fake-app {
+    position: absolute;
+    top: 42px;
+    left: 44px;
+    display: grid;
+    width: 520px;
+    gap: 14px;
+    padding: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.68);
+    border-radius: 26px;
+    background: rgba(255, 255, 255, 0.58);
+    box-shadow: 0 20px 44px rgba(15, 23, 42, 0.12);
+  }
+
+  .fake-row {
+    height: 40px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.64);
+  }
+
+  .fake-row.short {
+    width: 58%;
+  }
+
+  .selection {
+    position: absolute;
+    top: 122px;
+    left: 92px;
+    width: 410px;
+    height: 210px;
+    border: 1px solid rgba(255, 45, 85, 0.9);
+    border-radius: 14px;
+    background: rgba(255, 45, 85, 0.065);
+    box-shadow:
+      0 0 0 9999px rgba(15, 23, 42, 0.36),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  }
+
+  .badge {
+    position: absolute;
+    top: -36px;
+    left: 0;
+    padding: 7px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    color: #f9fafb;
+    background: rgba(17, 24, 39, 0.66);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+    font-size: 12px;
+    font-weight: 720;
+  }
+
+  .toolbar {
+    position: absolute;
+    right: 26px;
+    bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: calc(100% - 52px);
+    padding: 9px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 24px;
+    background: rgba(18, 24, 38, 0.72);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 24px 60px rgba(15, 23, 42, 0.32);
+    backdrop-filter: blur(22px) saturate(1.35);
+  }
+
+  .tool-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding-right: 9px;
+    border-right: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .tool-group:last-child {
+    padding-right: 0;
+    border-right: 0;
+  }
+
+  .tool {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    color: #f9fafb;
+    background: rgba(255, 255, 255, 0.08);
+    font-size: 12px;
+    font-weight: 760;
+  }
+
+  .tool.active {
+    border-color: rgba(255, 55, 95, 0.62);
+    color: #fff;
+    background: linear-gradient(135deg, rgba(255, 55, 95, 0.92), rgba(255, 159, 10, 0.88));
+    box-shadow: 0 12px 26px rgba(255, 55, 95, 0.24);
+  }
+
+  .swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.54);
+  }
+
+  .format {
+    width: auto;
+    min-width: 44px;
+    padding: 0 10px;
+    border-radius: 999px;
+  }
+
+  .done {
+    width: auto;
+    min-width: 50px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(52, 199, 89, 0.94);
+  }
+
+  .cancel {
+    width: auto;
+    min-width: 38px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .status {
+    position: absolute;
+    right: 26px;
+    bottom: 94px;
+    max-width: 360px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 18px;
+    color: #f9fafb;
+    background: rgba(18, 24, 38, 0.66);
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.24);
+    font-size: 12px;
+    line-height: 1.4;
+    backdrop-filter: blur(20px) saturate(1.25);
+  }
+
+  .text-editor {
+    position: absolute;
+    top: 188px;
+    left: 250px;
+    display: flex;
+    gap: 7px;
+  }
+
+  .text-input {
+    width: 180px;
+    min-height: 58px;
+    padding: 9px 10px;
+    border: 1px solid rgba(255, 45, 85, 0.58);
+    border-radius: 16px;
+    color: #111827;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 18px 36px rgba(15, 23, 42, 0.18);
+    font-size: 13px;
+  }
+
+  .mini-actions {
+    display: grid;
+    align-content: start;
+    gap: 6px;
+  }
+
+  .mini-actions span {
+    display: grid;
+    min-width: 34px;
+    height: 30px;
+    place-items: center;
+    border-radius: 12px;
+    color: white;
+    background: rgba(18, 24, 38, 0.7);
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.18);
+    font-size: 11px;
+    font-weight: 760;
+  }
+
+  .scope-notes {
+    display: grid;
+    align-content: start;
+    gap: 12px;
+  }
+
+  .scope-note {
+    padding: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.62);
+  }
+
+  .scope-note h3 {
+    margin: 0 0 7px;
+    color: #111827;
+    font-size: 15px;
+  }
+
+  .scope-note p {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 980px) {
+    .scope-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="scope">
+  <h2>B 方向补充：截图工具栏也统一换新</h2>
+  <p class="subtitle">
+    不只改 launcher。截图 overlay 会使用同一套 iOS 磨砂语言：工具栏、尺寸标记、状态提示、OCR 面板和文字输入浮层都一起适配。
+  </p>
+
+  <div class="scope-grid">
+    <div class="shot-preview">
+      <div class="fake-app">
+        <div class="fake-row short"></div>
+        <div class="fake-row"></div>
+        <div class="fake-row"></div>
+        <div class="fake-row short"></div>
+      </div>
+      <div class="selection">
+        <span class="badge">410 x 210</span>
+      </div>
+      <div class="text-editor">
+        <div class="text-input">Add note...</div>
+        <div class="mini-actions"><span>OK</span><span>X</span></div>
+      </div>
+      <div class="status">Image copied. OCR and save feedback use this same floating surface.</div>
+      <div class="toolbar">
+        <span class="tool-group">
+          <span class="tool active">□</span><span class="tool">○</span><span class="tool">↗</span><span class="tool">T</span><span class="tool">#</span>
+        </span>
+        <span class="tool-group">
+          <span class="swatch" style="background:#ff375f"></span><span class="swatch" style="background:#ffd60a"></span><span class="swatch" style="background:#30d158"></span><span class="swatch" style="background:#0a84ff"></span>
+        </span>
+        <span class="tool-group">
+          <span class="tool format">PNG</span><span class="tool format">JPG</span>
+        </span>
+        <span class="tool-group">
+          <span class="tool">Tx</span><span class="tool">Pin</span><span class="tool">Save</span><span class="tool done">Done</span><span class="tool cancel">Esc</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="scope-notes">
+      <div class="scope-note">
+        <h3>截图层保持透明功能，不做花哨背景</h3>
+        <p>截图画面仍然是用户屏幕本身，选区外遮罩保持清晰；视觉升级集中在浮层和控件，不影响截图判断。</p>
+      </div>
+      <div class="scope-note">
+        <h3>工具栏变成磨砂胶囊</h3>
+        <p>分组保留原有操作顺序，按钮更圆润，激活状态使用健康 App 风格红橙强调，确认动作使用绿色。</p>
+      </div>
+      <div class="scope-note">
+        <h3>状态、OCR、文字输入一致化</h3>
+        <p>提示面板、OCR 结果框、文字标注编辑框改为同一套浮层半透明样式，错误态用柔和红色而不是厚重告警框。</p>
+      </div>
+      <div class="scope-note">
+        <h3>暗色为截图默认基调</h3>
+        <p>截图 overlay 通常覆盖任意桌面内容，因此工具栏以深色磨砂为主；主应用 light/dark 仍完整支持。</p>
+      </div>
+    </div>
+  </div>
+</div>

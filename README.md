@@ -1,96 +1,104 @@
 # CommandCabin
 
 <p align="center">
-  <img src="./apps/desktop/build/brand/command-cabin-icon-256.png" width="92" alt="CommandCabin logo" />
+  <img src="./apps/desktop/build/brand/command-cabin-icon-256.png" width="112" alt="CommandCabin logo" />
 </p>
 
 <h1 align="center">CommandCabin</h1>
 
 <p align="center">
-  <strong>Windows 优先的本地桌面快捷命令台。</strong>
+  <strong>Windows 优先的本地桌面命令中枢。</strong>
   <br />
-  用一个输入框快速唤起应用、执行命令、处理文本、访问插件能力。
+  用一个快速入口连接应用、截图、换算、剪贴板、文本工具和本地插件。
+</p>
+
+<p align="center">
+  <a href="https://github.com/RupingLiu/command-cabin/releases">
+    <img alt="GitHub release" src="https://img.shields.io/github/v/release/RupingLiu/command-cabin?label=release&color=ff6b35" />
+  </a>
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-first-2f8cff?color=2f8cff" />
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-39-111827?color=111827" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6?color=3178c6" />
+  <img alt="License" src="https://img.shields.io/github/license/RupingLiu/command-cabin?color=22c55e" />
 </p>
 
 <p align="center">
   <a href="./README.en.md">English README</a>
   ·
-  <a href="#功能亮点">功能亮点</a>
+  <a href="#界面预览">界面预览</a>
   ·
-  <a href="#快速开始">快速开始</a>
+  <a href="#核心能力">核心能力</a>
+  ·
+  <a href="#安装使用">安装使用</a>
   ·
   <a href="#开发">开发</a>
   ·
   <a href="#版本策略">版本策略</a>
 </p>
 
+## 界面预览
+
 <p align="center">
-  <img src="./docs/assets/screenshots/launcher-home.png" alt="CommandCabin launcher home screenshot" width="920" />
+  <img src="./docs/assets/screenshots/launcher-home.png" alt="CommandCabin 新版主页截图" width="960" />
 </p>
 
-## 项目定位
+新版主页采用暖色到蓝色的轻量渐变视觉，常用应用优先展示在搜索框下方，单位换算和截图入口固定在右下角，保持启动器的核心路径足够直接。
 
-CommandCabin 是一款轻量化桌面效率工具，目标是把常用应用、文件、文件夹、网址、剪贴板、文本处理和插件命令集中到一个快速唤起的入口里。它更像一个安静、可靠、反应灵敏的桌面控制台，而不是一个复杂的工作流平台。
+## 产品定位
 
-设计原则：
+CommandCabin 是一款轻量、快速、本地优先的桌面效率工具。它把常用应用、系统命令、文件入口、截图工具、单位换算、剪贴板历史、文本处理和插件命令集中到一个键盘友好的入口里。
 
-- 本地优先：设置、历史、收藏和索引数据优先保存在本机。
-- 键盘友好：全局快捷键唤起，输入、方向键选择、回车执行。
-- Windows 优先：当前阶段集中打磨 Windows 桌面体验、快捷方式解析、系统托盘和安装流程。
-- 插件扩展：核心保持克制，更多场景通过内置命令和本地插件扩展。
-- 体验优先：启动、搜索、图标展示、语言、主题和窗口行为都按真实桌面使用场景打磨。
+它的目标不是变成复杂工作流平台，而是做一个反应灵敏、安静可靠、随时可唤起的桌面控制台。
 
-## 功能亮点
+| 原则         | 说明                                                                     |
+| ------------ | ------------------------------------------------------------------------ |
+| 本地优先     | 设置、历史、收藏、索引和插件数据优先保存在本机。                         |
+| 键盘友好     | 全局快捷键唤起，输入搜索，方向键选择，回车执行。                         |
+| Windows 优先 | 聚焦 Windows 桌面体验、快捷方式解析、托盘、安装和自动更新。              |
+| 插件扩展     | 核心保持克制，更多场景通过内置命令和本地插件补齐。                       |
+| 体验优先     | 搜索速度、图标解析、截图手感、语言、主题和窗口行为都按真实使用场景打磨。 |
 
-| 能力         | 说明                                                                            |
-| ------------ | ------------------------------------------------------------------------------- |
-| 快速唤起     | 默认 `Alt+Space` 呼出启动器，快捷键可在设置中修改。                             |
-| 应用搜索     | 扫描 Windows 开始菜单、桌面快捷方式和常见安装位置，支持模糊搜索与排序。         |
-| 首页入口     | 首页优先展示常用应用，并提供单位换算、截图等常用工具入口。                      |
-| 固定应用管理 | 支持手动添加应用，固定项可右键编辑或移除。                                      |
-| 图标解析     | 优先解析真实可执行文件图标，并对快捷方式、AppUserModelID 和图标缓存做兜底处理。 |
-| 快捷换算     | 输入长度、重量、货币等表达式时显示结果；单位换算页支持重量和长度双向换算。      |
-| 系统托盘     | 关闭窗口后可隐藏到系统托盘继续运行，托盘菜单跟随界面语言。                      |
-| 开机自启动   | 可在设置中开启或关闭登录后自动启动，并支持启动时收纳到托盘。                    |
-| 截图工具     | 支持全局快捷键截图、延时截图、矩形选区、标注、马赛克、文字、OCR、贴图和保存。   |
-| 版本与更新   | 可在设置中查看当前版本，基于 GitHub Releases 检查、下载并手动确认安装更新。     |
-| 多语言       | 支持简体中文、繁体中文、英文，默认简体中文。                                    |
-| 主题         | 支持浅色、深色和跟随系统主题。                                                  |
-| 插件运行时   | 内置插件能力与本地插件安装入口，插件命令统一进入搜索和执行流程。                |
+## 核心能力
 
-## 快速开始
+| 能力           | 说明                                                                             |
+| -------------- | -------------------------------------------------------------------------------- |
+| 快速唤起       | 默认 `Alt+Space` 打开启动器，快捷键可在设置中修改。                              |
+| 应用搜索       | 扫描 Windows 开始菜单、桌面快捷方式和常见安装位置，支持模糊搜索与排序。          |
+| 首页常用入口   | 首页优先展示最近使用和固定应用，并提供单位换算、截图等高频工具按钮。             |
+| 图标解析       | 优先解析真实可执行文件图标，并对快捷方式、AppUserModelID、关联文件和缓存做兜底。 |
+| 截图工具       | 默认 `Ctrl+Alt+A`，支持快速截图、延时截图、标注、马赛克、文字、OCR、贴图和保存。 |
+| 单位换算       | 独立换算页面支持重量和长度，单位下拉显示本地化名称和标准单位符号。               |
+| 剪贴板历史     | 保存常用剪贴板内容，并通过搜索结果统一调用。                                     |
+| 系统托盘       | 关闭窗口后可隐藏到托盘继续运行，托盘菜单跟随界面语言。                           |
+| 开机自启动     | 可在设置中开启登录后自动启动，并支持启动时收纳到托盘。                           |
+| 版本与更新     | 基于 GitHub Releases 检查、后台下载，并在主页提示用户确认安装。                  |
+| 多语言与主题   | 支持简体中文、繁体中文、英文，以及浅色、深色、跟随系统主题。                     |
+| 本地插件运行时 | 内置插件和本地插件统一进入搜索、排序、执行和插件页托管流程。                     |
 
-### 安装使用
+## 安装使用
 
-当前 Windows 安装包由 `electron-builder` 生成，默认面向 64 位系统：
+最新 Windows x64 安装包可在 [GitHub Releases](https://github.com/RupingLiu/command-cabin/releases) 下载。
 
-- 最新安装包可在 [GitHub Releases](https://github.com/RupingLiu/command-cabin/releases) 下载。
+安装信息：
+
 - 默认安装目录：`C:\Program Files\command-cabin`
 - 安装时可选择安装路径。
-- 如果检测到旧版本，安装流程会先处理旧版本再继续安装。
-- 安装后可通过桌面图标、开始菜单或全局快捷键打开 CommandCabin。
+- 安装后会创建桌面快捷方式和开始菜单入口。
+- 已安装版本可通过设置页检查更新，也会在主页自动检查后台更新。
 
-启动后可以：
-
-1. 按 `Alt+Space` 呼出启动器。
-2. 输入应用、命令、换算内容或插件命令。
-3. 用方向键移动选中项，按 `Enter` 执行。
-4. 点击右上角齿轮进入设置，配置主题、语言、快捷键、开机自启动和版本更新。
-
-### 常用操作
+常用操作：
 
 | 操作         | 方式                             |
 | ------------ | -------------------------------- |
 | 打开启动器   | 默认 `Alt+Space`                 |
 | 执行选中命令 | `Enter`                          |
 | 移动选中项   | `Up` / `Down` / `Left` / `Right` |
-| 清空搜索     | 输入框右侧清空按钮               |
 | 添加固定应用 | 首页“添加应用”入口               |
 | 管理固定应用 | 右键固定应用卡片                 |
-| 单位换算     | 首页“单位换算”入口               |
-| 截图         | 默认 `Ctrl+Alt+A`                |
-| 延时截图     | 可在设置中自定义                 |
-| 隐藏到托盘   | 关闭窗口或通过托盘菜单控制       |
+| 打开单位换算 | 首页“单位换算”按钮               |
+| 快速截图     | 默认 `Ctrl+Alt+A`                |
+| 延时截图     | 设置页可自定义快捷键             |
+| 隐藏到托盘   | 关闭窗口或使用托盘菜单           |
 
 ## 项目结构
 
@@ -151,19 +159,18 @@ corepack pnpm build
 corepack pnpm test
 corepack pnpm typecheck
 corepack pnpm lint
-corepack pnpm format
+```
+
+生成本地免安装测试目录：
+
+```powershell
+corepack pnpm --filter @command-cabin/desktop package:dir
 ```
 
 生成 Windows 安装包：
 
 ```powershell
 corepack pnpm --filter @command-cabin/desktop dist:win
-```
-
-只打包桌面应用目录：
-
-```powershell
-corepack pnpm --filter @command-cabin/desktop package:dir
 ```
 
 ## 开发约定
@@ -183,7 +190,7 @@ CommandCabin 使用严格的 `x.y.z` 版本号：
 | 段位 | 含义                                                                 |
 | ---- | -------------------------------------------------------------------- |
 | `x`  | 重大架构变更，或产品方向上的破坏性调整。                             |
-| `y`  | 用户可见的功能新增，例如新的导入方式、分析能力、报告能力或界面功能。 |
+| `y`  | 用户可见的功能新增，例如新工具、新入口、新分析能力或界面功能。       |
 | `z`  | Bug 修复、协议规则修正、文案或体验优化、测试补强等不新增功能的改动。 |
 
 详细规则见 [docs/product/versioning-policy.md](./docs/product/versioning-policy.md)。
@@ -192,15 +199,16 @@ CommandCabin 使用严格的 `x.y.z` 版本号：
 
 项目处于 Windows 桌面 MVP 持续完善阶段。当前重点包括：
 
-- 应用索引和图标解析的稳定性。
+- 应用索引和图标解析稳定性。
 - 启动器交互速度和键盘导航体验。
-- 设置项、语言、主题和托盘行为的一致性。
+- 截图工具响应速度、标注体验和多显示器行为。
+- 设置项、语言、主题、托盘和自动更新一致性。
 - 插件运行时、安全边界和插件管理体验。
-- 安装、升级、卸载、自动更新和发布流程。
 
 更多设计和验证记录可查看：
 
 - [docs/product/beta-release-checklist.md](./docs/product/beta-release-checklist.md)
+- [docs/product/windows-packaging-workflow.md](./docs/product/windows-packaging-workflow.md)
 - [docs/superpowers/specs](./docs/superpowers/specs)
 
 ## 许可证

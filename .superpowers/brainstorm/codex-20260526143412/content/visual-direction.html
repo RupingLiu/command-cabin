@@ -1,0 +1,424 @@
+<style>
+  .cc-direction {
+    display: grid;
+    gap: 18px;
+  }
+
+  .cc-direction .cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .cc-card {
+    min-height: 430px;
+  }
+
+  .cc-preview {
+    height: 290px;
+    padding: 14px;
+    overflow: hidden;
+    border-radius: 24px;
+    font-family:
+      Inter,
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+  }
+
+  .cc-preview * {
+    box-sizing: border-box;
+  }
+
+  .cc-window {
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 10px;
+    height: 100%;
+  }
+
+  .cc-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .cc-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 760;
+  }
+
+  .cc-mark {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 9px;
+    color: white;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .cc-icon-button {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 50%;
+  }
+
+  .cc-search {
+    display: flex;
+    align-items: center;
+    height: 48px;
+    gap: 9px;
+    padding: 0 14px;
+    border-radius: 18px;
+    font-size: 15px;
+    font-weight: 650;
+  }
+
+  .cc-results {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .cc-result {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    min-height: 54px;
+    padding: 8px 10px;
+    border-radius: 17px;
+  }
+
+  .cc-app-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+  }
+
+  .cc-copy {
+    display: grid;
+    gap: 4px;
+  }
+
+  .cc-line {
+    height: 8px;
+    border-radius: 999px;
+  }
+
+  .cc-line.short {
+    width: 44%;
+  }
+
+  .cc-line.long {
+    width: 74%;
+  }
+
+  .cc-pill {
+    width: 42px;
+    height: 22px;
+    border-radius: 999px;
+  }
+
+  .cc-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .cc-chip {
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 740;
+    line-height: 30px;
+  }
+
+  .health-soft {
+    background:
+      radial-gradient(circle at 15% 18%, rgba(255, 45, 85, 0.12), transparent 32%),
+      radial-gradient(circle at 82% 10%, rgba(0, 122, 255, 0.1), transparent 30%),
+      #f7f8fb;
+    color: #111827;
+  }
+
+  .health-soft .cc-mark {
+    background: linear-gradient(135deg, #ff2d55, #ff7a90);
+    box-shadow: 0 10px 24px rgba(255, 45, 85, 0.24);
+  }
+
+  .health-soft .cc-icon-button,
+  .health-soft .cc-search,
+  .health-soft .cc-result,
+  .health-soft .cc-chip {
+    background: rgba(255, 255, 255, 0.86);
+    box-shadow: 0 10px 28px rgba(31, 41, 55, 0.08);
+  }
+
+  .health-soft .cc-search {
+    color: #6b7280;
+  }
+
+  .health-soft .cc-app-icon {
+    background: linear-gradient(135deg, #ff2d55, #ffb2be);
+  }
+
+  .health-soft .cc-result:nth-child(2) .cc-app-icon {
+    background: linear-gradient(135deg, #34c759, #a8e6bd);
+  }
+
+  .health-soft .cc-result:nth-child(3) .cc-app-icon {
+    background: linear-gradient(135deg, #007aff, #9fd0ff);
+  }
+
+  .health-soft .cc-line {
+    background: #18202f;
+  }
+
+  .health-soft .cc-line.short,
+  .health-soft .cc-pill {
+    background: #d5dae3;
+  }
+
+  .health-soft .cc-chip:first-child {
+    color: #ff2d55;
+  }
+
+  .health-soft .cc-chip:last-child {
+    color: #007aff;
+  }
+
+  .frosted-compact {
+    background:
+      radial-gradient(circle at 20% 10%, rgba(255, 45, 85, 0.2), transparent 34%),
+      radial-gradient(circle at 70% 5%, rgba(52, 199, 89, 0.16), transparent 32%),
+      linear-gradient(180deg, #fbfbfd, #eef1f6);
+    color: #111827;
+  }
+
+  .frosted-compact .cc-window {
+    gap: 8px;
+  }
+
+  .frosted-compact .cc-mark {
+    background: linear-gradient(135deg, #ff3b30, #ffcc00);
+  }
+
+  .frosted-compact .cc-search,
+  .frosted-compact .cc-result,
+  .frosted-compact .cc-icon-button {
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    background: rgba(255, 255, 255, 0.58);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.65),
+      0 14px 30px rgba(31, 41, 55, 0.1);
+  }
+
+  .frosted-compact .cc-search {
+    height: 44px;
+    border-radius: 15px;
+    color: #6b7280;
+  }
+
+  .frosted-compact .cc-result {
+    min-height: 48px;
+    border-radius: 14px;
+  }
+
+  .frosted-compact .cc-app-icon {
+    background: #ff2d55;
+  }
+
+  .frosted-compact .cc-result:nth-child(2) .cc-app-icon {
+    background: #af52de;
+  }
+
+  .frosted-compact .cc-result:nth-child(3) .cc-app-icon {
+    background: #32ade6;
+  }
+
+  .frosted-compact .cc-line {
+    background: #1f2937;
+  }
+
+  .frosted-compact .cc-line.short,
+  .frosted-compact .cc-pill {
+    background: rgba(107, 114, 128, 0.22);
+  }
+
+  .frosted-compact .cc-chip {
+    color: #111827;
+    background: rgba(255, 255, 255, 0.6);
+  }
+
+  .calm-dark {
+    background:
+      radial-gradient(circle at 18% 8%, rgba(255, 45, 85, 0.2), transparent 34%),
+      radial-gradient(circle at 88% 6%, rgba(10, 132, 255, 0.18), transparent 34%),
+      #101217;
+    color: #f8fafc;
+  }
+
+  .calm-dark .cc-mark {
+    background: linear-gradient(135deg, #ff375f, #ff9f0a);
+  }
+
+  .calm-dark .cc-search,
+  .calm-dark .cc-result,
+  .calm-dark .cc-icon-button,
+  .calm-dark .cc-chip {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.2);
+  }
+
+  .calm-dark .cc-search {
+    color: #aeb8c8;
+  }
+
+  .calm-dark .cc-app-icon {
+    background: linear-gradient(135deg, #ff375f, #ff9f0a);
+  }
+
+  .calm-dark .cc-result:nth-child(2) .cc-app-icon {
+    background: linear-gradient(135deg, #30d158, #64d2ff);
+  }
+
+  .calm-dark .cc-result:nth-child(3) .cc-app-icon {
+    background: linear-gradient(135deg, #0a84ff, #bf5af2);
+  }
+
+  .calm-dark .cc-line {
+    background: #f8fafc;
+  }
+
+  .calm-dark .cc-line.short,
+  .calm-dark .cc-pill {
+    background: rgba(248, 250, 252, 0.24);
+  }
+
+  .calm-dark .cc-chip:first-child {
+    color: #ff9f0a;
+  }
+
+  .calm-dark .cc-chip:last-child {
+    color: #64d2ff;
+  }
+
+  @media (max-width: 920px) {
+    .cc-direction .cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="cc-direction">
+  <h2>CommandCabin UI 视觉方向</h2>
+  <p class="subtitle">
+    三个方向都借鉴 iOS 健康 App 的干净、柔和、圆润和高层级感；区别在于轻盈程度、效率密度和暗色保留程度。
+  </p>
+
+  <div class="cards">
+    <div class="card cc-card" data-choice="a" onclick="toggleSelect(this)">
+      <div class="card-image">
+        <div class="cc-preview health-soft">
+          <div class="cc-window">
+            <div class="cc-top">
+              <div class="cc-brand"><span class="cc-mark">C</span><span>CommandCabin</span></div>
+              <div class="cc-icon-button"></div>
+            </div>
+            <div class="cc-search">Search commands, apps, tools</div>
+            <div class="cc-results">
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+            </div>
+            <div class="cc-actions"><span class="cc-chip">Converter</span><span class="cc-chip">Screenshot</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <h3>A. 健康 App 浅色主调</h3>
+        <p>最像 iOS 健康：白底、柔和红粉强调、轻阴影、圆润分组。交付感最强，但暗色气质会明显减少。</p>
+      </div>
+    </div>
+
+    <div class="card cc-card" data-choice="b" onclick="toggleSelect(this)">
+      <div class="card-image">
+        <div class="cc-preview frosted-compact">
+          <div class="cc-window">
+            <div class="cc-top">
+              <div class="cc-brand"><span class="cc-mark">C</span><span>CommandCabin</span></div>
+              <div class="cc-icon-button"></div>
+            </div>
+            <div class="cc-search">Search commands, apps, tools</div>
+            <div class="cc-results">
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+            </div>
+            <div class="cc-actions"><span class="cc-chip">Converter</span><span class="cc-chip">Screenshot</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <h3>B. iOS 磨砂 + 更高效率</h3>
+        <p>保留 launcher 的紧凑效率，但用半透明分组、彩色状态点和更软的边界做成现代 Apple 风。推荐方向。</p>
+      </div>
+    </div>
+
+    <div class="card cc-card" data-choice="c" onclick="toggleSelect(this)">
+      <div class="card-image">
+        <div class="cc-preview calm-dark">
+          <div class="cc-window">
+            <div class="cc-top">
+              <div class="cc-brand"><span class="cc-mark">C</span><span>CommandCabin</span></div>
+              <div class="cc-icon-button"></div>
+            </div>
+            <div class="cc-search">Search commands, apps, tools</div>
+            <div class="cc-results">
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+              <div class="cc-result">
+                <div class="cc-app-icon"></div><div class="cc-copy"><div class="cc-line long"></div><div class="cc-line short"></div></div><div class="cc-pill"></div>
+              </div>
+            </div>
+            <div class="cc-actions"><span class="cc-chip">Converter</span><span class="cc-chip">Screenshot</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <h3>C. 保留暗色，但去工业化</h3>
+        <p>仍是深色生产力工具，但去掉网格和硬边，用 iOS 深色模式的彩色光感和通透层次。</p>
+      </div>
+    </div>
+  </div>
+</div>

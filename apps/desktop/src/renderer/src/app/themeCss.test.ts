@@ -49,7 +49,7 @@ describe('app theme CSS', () => {
     expect(css).toMatch(/--screenshot-success:\s*#30d158/i);
   });
 
-  it('styles screenshot overlay controls as dark frosted floating surfaces', () => {
+  it('styles screenshot overlay controls as dark frosted surfaces with contextual tool styles', () => {
     const css = readFileSync(cssPath, 'utf8');
 
     expect(css).toMatch(
@@ -64,9 +64,9 @@ describe('app theme CSS', () => {
     expect(css).toMatch(
       /\.screenshot-toolbar\s*{[^}]*backdrop-filter:\s*blur\(10px\) saturate\(1\.1\)/s,
     );
-    expect(css).toMatch(/\.screenshot-style-menu\s*{[^}]*position:\s*relative/s);
+    expect(css).toMatch(/\.screenshot-toolbar\s*{[^}]*position:\s*relative/s);
     expect(css).toMatch(
-      /\.screenshot-style-menu__panel\s*{[^}]*background:\s*rgba\(18,\s*24,\s*38,\s*0\.88\)/s,
+      /\.screenshot-tool-style-popover\s*{[^}]*position:\s*absolute[^}]*top:\s*calc\(100% \+ 8px\)[^}]*background:\s*rgba\(18,\s*24,\s*38,\s*0\.88\)/s,
     );
     expect(css).toMatch(
       /\.screenshot-tool-group\s+button:not\(:disabled\):not\(\.screenshot-color-swatch\):not\(\.screenshot-action-button--done\):not\(\s*\.screenshot-action-button--cancel\s*\):hover,\s*\.screenshot-tool-group\s+button:not\(:disabled\):not\(\.screenshot-color-swatch\):not\(\.screenshot-action-button--done\):not\(\s*\.screenshot-action-button--cancel\s*\)\[data-active='true'\]\s*{[^}]*var\(--screenshot-accent\)/s,
@@ -84,7 +84,7 @@ describe('app theme CSS', () => {
       /\.screenshot-color-swatch:not\(:disabled\)\[data-active='true'\]\s*{[^}]*0 0 0 2px var\(--screenshot-accent\)/s,
     );
     expect(css).toMatch(
-      /\.screenshot-tool-group\s+button\.screenshot-color-swatch:not\(:disabled\)\[data-active='true'\]:focus-visible\s*{[^}]*inset 0 0 0 3px rgba\(15,\s*17,\s*23,\s*0\.86\)[^}]*0 0 0 5px rgba\(255,\s*55,\s*95,\s*0\.26\)/s,
+      /\.screenshot-style-group\s+button\.screenshot-color-swatch:not\(:disabled\)\[data-active='true'\]:focus-visible\s*{[^}]*inset 0 0 0 3px rgba\(15,\s*17,\s*23,\s*0\.86\)[^}]*0 0 0 5px rgba\(255,\s*55,\s*95,\s*0\.26\)/s,
     );
     expect(css).toMatch(
       /\.screenshot-action-button--done:not\(:disabled\)\s*{[^}]*background:\s*rgba\(48,\s*209,\s*88,\s*0\.88\)/s,

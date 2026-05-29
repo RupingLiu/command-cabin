@@ -1,6 +1,6 @@
 {
   "name": "@command-cabin/built-in-plugin-clipboard-history",
-  "version": "0.8.13",
+  "version": "0.8.14",
   "private": true,
   "description": "Built-in clipboard history commands for CommandCabin.",
   "type": "module",

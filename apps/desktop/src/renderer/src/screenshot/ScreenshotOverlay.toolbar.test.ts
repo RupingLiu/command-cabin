@@ -83,4 +83,104 @@ describe('ScreenshotOverlayView toolbar', () => {
     expect(markup).toContain('class="screenshot-action-button screenshot-action-button--done"');
     expect(markup).toContain('class="screenshot-action-button screenshot-action-button--cancel"');
   });
+
+  it('keeps the toolbar button order close to the WeChat capture toolbar', () => {
+    const selectedState = screenshotReducer(createInitialScreenshotState(), {
+      rect: { height: 160, width: 220, x: 120, y: 120 },
+      type: 'selection-set',
+    });
+    const markup = renderToStaticMarkup(
+      createElement(ScreenshotOverlayView, {
+        initialState: selectedState,
+        launchState,
+        strings: getUiStrings('en-US').screenshot,
+      }),
+    );
+    const orderedLabels = [
+      'Rectangle',
+      'Ellipse',
+      'Arrow',
+      'Pen',
+      'Mosaic',
+      'Text',
+      'Undo',
+      'Redo',
+      'OCR',
+      'Pin',
+      'Save',
+      'Cancel',
+      'Done',
+    ];
+    const positions = orderedLabels.map((label) => markup.indexOf(`aria-label="${label}"`));
+
+    expect(positions).not.toContain(-1);
+    expect(positions).toEqual([...positions].sort((left, right) => left - right));
+  });
+
+  it('shows contextual color and line controls for the selected shape tool', () => {
+    const selectedState = screenshotReducer(createInitialScreenshotState(), {
+      rect: { height: 160, width: 220, x: 120, y: 120 },
+      type: 'selection-set',
+    });
+    const markup = renderToStaticMarkup(
+      createElement(ScreenshotOverlayView, {
+        initialState: selectedState,
+        launchState,
+        strings: getUiStrings('en-US').screenshot,
+      }),
+    );
+
+    expect(markup).toContain('class="screenshot-tool-style-popover"');
+    expect(markup).toContain('data-tool="rectangle"');
+    expect(markup).toContain('Color');
+    expect(markup).toContain('Line');
+    expect(markup).toContain('aria-label="Color #ff3355"');
+    expect(markup).toContain('class="screenshot-line-preview"');
+    expect(markup).not.toContain('class="screenshot-style-menu"');
+  });
+
+  it('switches the contextual style controls to font sizes for text annotations', () => {
+    const selectedState = screenshotReducer(
+      screenshotReducer(createInitialScreenshotState(), {
+        rect: { height: 160, width: 220, x: 120, y: 120 },
+        type: 'selection-set',
+      }),
+      { tool: 'text', type: 'tool-selected' },
+    );
+    const markup = renderToStaticMarkup(
+      createElement(ScreenshotOverlayView, {
+        initialState: selectedState,
+        launchState,
+        strings: getUiStrings('en-US').screenshot,
+      }),
+    );
+
+    expect(markup).toContain('class="screenshot-tool-style-popover"');
+    expect(markup).toContain('data-tool="text"');
+    expect(markup).toContain('Color');
+    expect(markup).toContain('Font');
+    expect(markup).toContain('aria-label="Font 22"');
+    expect(markup).not.toContain('class="screenshot-line-preview"');
+  });
+
+  it('keeps color controls visible when the mosaic tool is selected', () => {
+    const selectedState = screenshotReducer(
+      screenshotReducer(createInitialScreenshotState(), {
+        rect: { height: 160, width: 220, x: 120, y: 120 },
+        type: 'selection-set',
+      }),
+      { tool: 'mosaic', type: 'tool-selected' },
+    );
+    const markup = renderToStaticMarkup(
+      createElement(ScreenshotOverlayView, {
+        initialState: selectedState,
+        launchState,
+        strings: getUiStrings('en-US').screenshot,
+      }),
+    );
+
+    expect(markup).toContain('class="screenshot-tool-style-popover"');
+    expect(markup).toContain('data-tool="mosaic"');
+    expect(markup).toContain('aria-label="Color #4aa3ff"');
+  });
 });

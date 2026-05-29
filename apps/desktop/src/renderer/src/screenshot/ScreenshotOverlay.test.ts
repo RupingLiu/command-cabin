@@ -49,7 +49,7 @@ describe('ScreenshotOverlay', () => {
 });
 
 describe('ScreenshotOverlayView', () => {
-  it('renders display backgrounds, tools, output actions, and style controls', () => {
+  it('renders display backgrounds, tools, output actions, and contextual style controls', () => {
     const selectedState = screenshotReducer(createInitialScreenshotState(), {
       rect: { height: 80, width: 120, x: 20, y: 30 },
       type: 'selection-set',
@@ -74,8 +74,9 @@ describe('ScreenshotOverlayView', () => {
     expect(markup).toContain('Pin');
     expect(markup).toContain('Save');
     expect(markup).toContain('Done');
-    expect(markup).toContain('PNG');
-    expect(markup).toContain('JPG');
+    expect(markup).toContain('screenshot-tool-style-popover');
+    expect(markup).toContain('Color');
+    expect(markup).toContain('Line');
     expect(markup).toContain('screenshot-magnifier');
   });
 
@@ -256,9 +257,9 @@ describe('ScreenshotOverlayView', () => {
       ),
     ).toBe(true);
     expect(areDisplayImagesLoaded(new Set<string>(), { ...launchState, displays: [] })).toBe(true);
-    expect(
-      shouldNotifyScreenshotReady(new Set<string>(), { ...launchState, displays: [] }),
-    ).toBe(true);
+    expect(shouldNotifyScreenshotReady(new Set<string>(), { ...launchState, displays: [] })).toBe(
+      true,
+    );
   });
 
   it('cancels stale delayed text annotation commits', () => {

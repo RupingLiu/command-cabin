@@ -1,6 +1,6 @@
 {
   "name": "@command-cabin/desktop",
-  "version": "0.8.13",
+  "version": "0.8.14",
   "private": true,
   "productName": "CommandCabin",
   "description": "Electron desktop shell for CommandCabin.",

@@ -1971,6 +1971,7 @@ select {
 }
 
 .screenshot-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1979,7 +1980,7 @@ select {
   min-height: 44px;
   max-width: calc(100vw - 32px);
   padding: 5px;
-  overflow-x: auto;
+  overflow: visible;
   border: 1px solid var(--screenshot-border);
   border-radius: 14px;
   background: var(--screenshot-toolbar-bg);
@@ -2085,58 +2086,25 @@ select {
 }
 
 .screenshot-color-swatch {
-  width: 30px;
-  min-width: 30px;
+  width: 22px;
+  min-width: 22px;
+  min-height: 22px;
   padding: 0;
   border-radius: 999px;
 }
 
-.screenshot-style-menu {
-  position: relative;
+.screenshot-tool-style-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
-  margin-right: 5px;
-  padding-right: 5px;
-  border-right: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.screenshot-style-menu summary {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 9px;
-  color: var(--screenshot-text);
-  background: rgba(255, 255, 255, 0.08);
-  cursor: default;
-  list-style: none;
-}
-
-.screenshot-style-menu summary::-webkit-details-marker {
-  display: none;
-}
-
-.screenshot-style-menu summary:hover,
-.screenshot-style-menu summary:focus-visible,
-.screenshot-style-menu[open] summary {
-  border-color: rgba(255, 55, 95, 0.62);
-  outline: none;
-  background: linear-gradient(135deg, var(--screenshot-accent), var(--app-warm));
-  box-shadow: 0 12px 26px rgba(255, 55, 95, 0.24);
-}
-
-.screenshot-style-menu__panel {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  display: grid;
-  min-width: 188px;
-  gap: 8px;
-  padding: 9px;
+  gap: 7px;
+  min-height: 32px;
+  padding: 6px 8px;
   border: 1px solid var(--screenshot-border);
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(18, 24, 38, 0.88);
   box-shadow: var(--screenshot-toolbar-shadow);
   backdrop-filter: blur(10px) saturate(1.1);
@@ -2153,19 +2121,20 @@ select {
 }
 
 .screenshot-style-group legend {
-  width: 100%;
-  margin: 0 0 1px;
-  padding: 0;
-  color: rgba(249, 250, 251, 0.72);
-  font-size: 11px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .screenshot-style-group button {
   display: inline-grid;
-  min-width: 30px;
-  min-height: 30px;
+  min-width: 24px;
+  min-height: 24px;
   place-items: center;
-  padding: 0 7px;
+  padding: 0 6px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   color: var(--screenshot-text);
@@ -2184,9 +2153,14 @@ select {
 
 .screenshot-line-preview {
   display: block;
-  width: 18px;
   border-radius: 999px;
   background: currentColor;
+}
+
+.screenshot-style-group + .screenshot-style-group {
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .screenshot-color-swatch:not(:disabled):hover {
@@ -2235,14 +2209,14 @@ select {
     0 12px 26px rgba(255, 55, 95, 0.2);
 }
 
-.screenshot-tool-group button.screenshot-color-swatch:not(:disabled):focus-visible {
+.screenshot-style-group button.screenshot-color-swatch:not(:disabled):focus-visible {
   border-color: rgba(255, 255, 255, 0.72);
   box-shadow:
     0 0 0 3px rgba(255, 55, 95, 0.26),
     0 0 0 5px rgba(255, 255, 255, 0.16);
 }
 
-.screenshot-tool-group
+.screenshot-style-group
   button.screenshot-color-swatch:not(:disabled)[data-active='true']:focus-visible {
   box-shadow:
     inset 0 0 0 3px rgba(15, 17, 23, 0.86),

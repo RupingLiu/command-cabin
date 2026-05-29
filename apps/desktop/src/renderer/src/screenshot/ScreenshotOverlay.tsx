@@ -22,7 +22,8 @@ import {
 const colors = ['#ff3355', '#f5c542', '#60d394', '#4aa3ff', '#ffffff'];
 const lineWidths = [2, 4, 6];
 const fontSizes = [16, 22, 30];
-const toolOrder: ScreenshotTool[] = ['rectangle', 'ellipse', 'arrow', 'pen', 'text', 'mosaic'];
+const toolOrder: ScreenshotTool[] = ['rectangle', 'ellipse', 'arrow', 'pen', 'mosaic', 'text'];
+const lineStyleTools = new Set<ScreenshotTool>(['rectangle', 'ellipse', 'arrow', 'pen']);
 const defaultScreenshotStrings = getUiStrings(DEFAULT_UI_LANGUAGE).screenshot;
 const screenshotToolbarGap = 12;
 const defaultScreenshotToolbarSize = { height: 48, width: 520 };
@@ -272,7 +273,7 @@ export function ScreenshotOverlayView({
   >(undefined);
   const textPromptControllerRef = useRef<PendingTextAnnotationController | undefined>(undefined);
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const [saveFormat, setSaveFormat] = useState<ScreenshotSaveFormat>('png');
+  const saveFormat: ScreenshotSaveFormat = 'png';
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [ocrPanel, setOcrPanel] = useState<OcrPanelState | undefined>();
   const toolbarRef = useRef<HTMLDivElement | null>(null);
@@ -763,6 +764,18 @@ export function ScreenshotOverlayView({
                 </button>
               ))}
             </div>
+            <ToolStylePopover
+              activeTool={state.tool}
+              color={state.style.color}
+              fontSize={state.style.fontSize}
+              lineWidth={state.style.lineWidth}
+              strings={strings}
+              onColorSelect={(color) => dispatch({ color, type: 'color-selected' })}
+              onFontSizeSelect={(fontSize) => dispatch({ fontSize, type: 'font-size-selected' })}
+              onLineWidthSelect={(lineWidth) =>
+                dispatch({ lineWidth, type: 'line-width-selected' })
+              }
+            />
             <div className="screenshot-tool-group">
               <button
                 aria-label={strings.toolbar.undo}
@@ -783,82 +796,6 @@ export function ScreenshotOverlayView({
                 <span className="screenshot-button-label">{strings.toolbar.redo}</span>
               </button>
             </div>
-            <details className="screenshot-style-menu">
-              <summary
-                aria-label={`${strings.groups.color} / ${strings.groups.line}`}
-                title={`${strings.groups.color} / ${strings.groups.line}`}
-              >
-                <span className="screenshot-icon">{toolbarIcon('style')}</span>
-              </summary>
-              <div className="screenshot-style-menu__panel">
-                <fieldset className="screenshot-style-group">
-                  <legend>{strings.groups.color}</legend>
-                  {colors.map((color) => (
-                    <button
-                      aria-label={`${strings.groups.color} ${color}`}
-                      className="screenshot-color-swatch"
-                      data-active={state.style.color === color}
-                      key={color}
-                      onClick={() => dispatch({ color, type: 'color-selected' })}
-                      style={{ backgroundColor: color }}
-                      title={`${strings.groups.color} ${color}`}
-                      type="button"
-                    />
-                  ))}
-                </fieldset>
-                {state.tool === 'text' ? (
-                  <fieldset className="screenshot-style-group">
-                    <legend>{strings.groups.font}</legend>
-                    {fontSizes.map((fontSize) => (
-                      <button
-                        aria-label={`${strings.groups.font} ${fontSize}`}
-                        data-active={state.style.fontSize === fontSize}
-                        key={fontSize}
-                        onClick={() => dispatch({ fontSize, type: 'font-size-selected' })}
-                        title={`${strings.groups.font} ${fontSize}`}
-                        type="button"
-                      >
-                        {fontSize}
-                      </button>
-                    ))}
-                  </fieldset>
-                ) : (
-                  <fieldset className="screenshot-style-group">
-                    <legend>{strings.groups.line}</legend>
-                    {lineWidths.map((lineWidth) => (
-                      <button
-                        aria-label={`${strings.groups.line} ${lineWidth}`}
-                        data-active={state.style.lineWidth === lineWidth}
-                        key={lineWidth}
-                        onClick={() => dispatch({ lineWidth, type: 'line-width-selected' })}
-                        title={`${strings.groups.line} ${lineWidth}`}
-                        type="button"
-                      >
-                        <span
-                          className="screenshot-line-preview"
-                          style={{ height: Math.max(2, lineWidth) }}
-                        />
-                      </button>
-                    ))}
-                  </fieldset>
-                )}
-                <fieldset className="screenshot-style-group">
-                  <legend>{strings.groups.format}</legend>
-                  {(['png', 'jpg'] as ScreenshotSaveFormat[]).map((format) => (
-                    <button
-                      aria-label={`${strings.groups.format} ${format.toUpperCase()}`}
-                      data-active={saveFormat === format}
-                      key={format}
-                      onClick={() => setSaveFormat(format)}
-                      title={`${strings.groups.format} ${format.toUpperCase()}`}
-                      type="button"
-                    >
-                      {format.toUpperCase()}
-                    </button>
-                  ))}
-                </fieldset>
-              </div>
-            </details>
             <div className="screenshot-tool-group screenshot-tool-group--actions">
               <button
                 aria-label={strings.toolbar.ocr}
@@ -888,16 +825,6 @@ export function ScreenshotOverlayView({
                 <span className="screenshot-button-label">{strings.toolbar.save}</span>
               </button>
               <button
-                aria-label={strings.toolbar.done}
-                className="screenshot-action-button screenshot-action-button--done"
-                onClick={() => void finish()}
-                title={strings.toolbar.done}
-                type="button"
-              >
-                <span className="screenshot-icon">{toolbarIcon('done')}</span>
-                <span className="screenshot-button-label">{strings.toolbar.done}</span>
-              </button>
-              <button
                 aria-label={strings.toolbar.cancel}
                 className="screenshot-action-button screenshot-action-button--cancel"
                 onClick={cancel}
@@ -907,9 +834,101 @@ export function ScreenshotOverlayView({
                 <span className="screenshot-icon">{toolbarIcon('cancel')}</span>
                 <span className="screenshot-button-label">{strings.toolbar.cancel}</span>
               </button>
+              <button
+                aria-label={strings.toolbar.done}
+                className="screenshot-action-button screenshot-action-button--done"
+                onClick={() => void finish()}
+                title={strings.toolbar.done}
+                type="button"
+              >
+                <span className="screenshot-icon">{toolbarIcon('done')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.done}</span>
+              </button>
             </div>
           </div>
         </div>
+      ) : undefined}
+    </div>
+  );
+}
+
+interface ToolStylePopoverProps {
+  activeTool: ScreenshotTool;
+  color: string;
+  fontSize: number;
+  lineWidth: number;
+  onColorSelect: (color: string) => void;
+  onFontSizeSelect: (fontSize: number) => void;
+  onLineWidthSelect: (lineWidth: number) => void;
+  strings: ScreenshotStrings;
+}
+
+function ToolStylePopover({
+  activeTool,
+  color,
+  fontSize,
+  lineWidth,
+  onColorSelect,
+  onFontSizeSelect,
+  onLineWidthSelect,
+  strings,
+}: ToolStylePopoverProps) {
+  return (
+    <div className="screenshot-tool-style-popover" data-tool={activeTool}>
+      <fieldset className="screenshot-style-group screenshot-style-group--colors">
+        <legend>{strings.groups.color}</legend>
+        {colors.map((swatchColor) => (
+          <button
+            aria-label={`${strings.groups.color} ${swatchColor}`}
+            className="screenshot-color-swatch"
+            data-active={color === swatchColor}
+            key={swatchColor}
+            onClick={() => onColorSelect(swatchColor)}
+            style={{ backgroundColor: swatchColor }}
+            title={`${strings.groups.color} ${swatchColor}`}
+            type="button"
+          />
+        ))}
+      </fieldset>
+      {activeTool === 'text' ? (
+        <fieldset className="screenshot-style-group screenshot-style-group--sizes">
+          <legend>{strings.groups.font}</legend>
+          {fontSizes.map((nextFontSize) => (
+            <button
+              aria-label={`${strings.groups.font} ${nextFontSize}`}
+              data-active={fontSize === nextFontSize}
+              key={nextFontSize}
+              onClick={() => onFontSizeSelect(nextFontSize)}
+              title={`${strings.groups.font} ${nextFontSize}`}
+              type="button"
+            >
+              {nextFontSize}
+            </button>
+          ))}
+        </fieldset>
+      ) : undefined}
+      {lineStyleTools.has(activeTool) ? (
+        <fieldset className="screenshot-style-group screenshot-style-group--sizes">
+          <legend>{strings.groups.line}</legend>
+          {lineWidths.map((nextLineWidth) => (
+            <button
+              aria-label={`${strings.groups.line} ${nextLineWidth}`}
+              data-active={lineWidth === nextLineWidth}
+              key={nextLineWidth}
+              onClick={() => onLineWidthSelect(nextLineWidth)}
+              title={`${strings.groups.line} ${nextLineWidth}`}
+              type="button"
+            >
+              <span
+                className="screenshot-line-preview"
+                style={{
+                  height: Math.max(6, nextLineWidth + 4),
+                  width: Math.max(6, nextLineWidth + 4),
+                }}
+              />
+            </button>
+          ))}
+        </fieldset>
       ) : undefined}
     </div>
   );
@@ -1096,7 +1115,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max));
 }
 
-type ToolbarIconName = 'cancel' | 'done' | 'ocr' | 'pin' | 'redo' | 'save' | 'style' | 'undo';
+type ToolbarIconName = 'cancel' | 'done' | 'ocr' | 'pin' | 'redo' | 'save' | 'undo';
 
 function ScreenshotIcon({ children }: { children: ReactNode }) {
   return (
@@ -1173,15 +1192,6 @@ function toolbarIcon(icon: ToolbarIconName) {
         <ScreenshotIcon>
           <path d="m15 7 4 4-4 4" />
           <path d="M18 11h-8a5 5 0 0 0-5 5v1" />
-        </ScreenshotIcon>
-      );
-    case 'style':
-      return (
-        <ScreenshotIcon>
-          <circle cx="7" cy="7" r="2" />
-          <circle cx="13" cy="6" r="2" />
-          <circle cx="17" cy="11" r="2" />
-          <path d="M12 21a8 8 0 1 1 7.6-10.5c.5 1.5-.5 3-2.1 3H15a2 2 0 0 0-2 2v1.5a2.5 2.5 0 0 1-1 4Z" />
         </ScreenshotIcon>
       );
     case 'ocr':

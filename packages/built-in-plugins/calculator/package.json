@@ -1,6 +1,6 @@
 {
   "name": "@command-cabin/built-in-plugin-calculator",
-  "version": "0.8.13",
+  "version": "0.8.14",
   "private": true,
   "description": "Built-in calculator command for CommandCabin.",
   "type": "module",

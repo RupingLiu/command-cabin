@@ -38,10 +38,10 @@ describe('SettingsPage', () => {
     expect(markup).toContain('简体中文');
     expect(markup).toContain('繁體中文');
     expect(markup).toContain('English');
-    expect(markup).toContain('插件管理');
-    expect(markup).toContain('数据目录');
-    expect(markup).toContain('收藏');
     expect(markup).toContain('剪贴板历史');
+    expect(markup).not.toContain('插件管理');
+    expect(markup).not.toContain('数据目录');
+    expect(markup).not.toContain('收藏');
     expect(markup).not.toContain('Hotkey');
     expect(markup).not.toContain('Launch at login');
   });
@@ -66,8 +66,8 @@ describe('SettingsPage', () => {
     expect(markup).toContain('啟動器');
     expect(markup).toContain('保留上次搜尋內容');
     expect(markup).toContain('開機自動啟動');
-    expect(markup).toContain('外掛管理');
     expect(markup).toContain('剪貼簿歷史');
+    expect(markup).not.toContain('外掛管理');
     expect(markup).not.toContain('Hotkey');
   });
 
@@ -92,8 +92,10 @@ describe('SettingsPage', () => {
     expect(markup).toContain('Language');
     expect(markup).toContain('Startup');
     expect(markup).toContain('Launcher');
-    expect(markup).toContain('Plugin Management');
     expect(markup).toContain('Clipboard History');
+    expect(markup).not.toContain('Plugin Management');
+    expect(markup).not.toContain('Data Directory');
+    expect(markup).not.toContain('Favorites');
     expect(markup).not.toContain('快捷键');
   });
 

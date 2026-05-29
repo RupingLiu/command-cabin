@@ -10,12 +10,9 @@ import type {
 import { getUiStrings } from '../i18n.js';
 import { AboutSettings } from './AboutSettings.js';
 import { ClipboardHistorySettings } from './ClipboardHistorySettings.js';
-import { DataSettings } from './DataSettings.js';
-import { FavoritesSettings } from './FavoritesSettings.js';
 import { HotkeySettings } from './HotkeySettings.js';
 import { LanguageSettings } from './LanguageSettings.js';
 import { LauncherSettings } from './LauncherSettings.js';
-import { PluginSettings } from './PluginSettings.js';
 import { StartupSettings } from './StartupSettings.js';
 import { ThemeSettings } from './ThemeSettings.js';
 
@@ -255,9 +252,6 @@ export function SettingsPage({
             value={settings?.launchAtLogin}
             onLaunchAtLoginChange={(launchAtLogin) => updateSettings({ launchAtLogin })}
           />
-          <PluginSettings strings={strings.settings.plugin} />
-          <DataSettings strings={strings.settings.data} />
-          <FavoritesSettings commonStrings={strings.common} strings={strings.settings.favorites} />
           <ClipboardHistorySettings strings={strings.settings.clipboardHistory} />
         </div>
       </section>

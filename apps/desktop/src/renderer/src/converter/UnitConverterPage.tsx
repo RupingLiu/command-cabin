@@ -6,11 +6,12 @@ import {
   formatUnitConversionValue,
   getDefaultUnitPair,
   getUnitsForCategory,
+  type UnitDefinition,
   type UnitConversionCategory,
   type UnitId,
 } from '@command-cabin/core/unitConversion';
 
-import { getUiStrings } from '../i18n.js';
+import { getUiStrings, type UiStrings } from '../i18n.js';
 
 type EditedSide = 'from' | 'to';
 
@@ -115,6 +116,12 @@ export function getDisplayedUnitConversionValues(state: UnitConverterState): {
     fromValue: state.fromValue,
     toValue: state.toValue,
   };
+}
+
+export function formatUnitOptionLabel(unit: UnitDefinition, strings: UiStrings): string {
+  const unitName = strings.unitConverter.unitLabels[unit.id].trim();
+
+  return unitName ? `${unitName} ${unit.symbol}` : unit.symbol;
 }
 
 export function unitConverterReducer(
@@ -241,7 +248,7 @@ export function UnitConverterPage({ language, onReturnToLauncher }: UnitConverte
             >
               {units.map((unit) => (
                 <option key={unit.id} value={unit.id}>
-                  {unit.symbol}
+                  {formatUnitOptionLabel(unit, strings)}
                 </option>
               ))}
             </select>
@@ -286,7 +293,7 @@ export function UnitConverterPage({ language, onReturnToLauncher }: UnitConverte
             >
               {units.map((unit) => (
                 <option key={unit.id} value={unit.id}>
-                  {unit.symbol}
+                  {formatUnitOptionLabel(unit, strings)}
                 </option>
               ))}
             </select>

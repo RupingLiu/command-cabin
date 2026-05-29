@@ -35,7 +35,7 @@ const LENGTH_UNITS = [
   { id: 'cm', symbol: 'cm', category: 'length', toBaseFactor: 0.01 },
   { id: 'mm', symbol: 'mm', category: 'length', toBaseFactor: 0.001 },
   { id: 'm', symbol: 'm', category: 'length', toBaseFactor: 1 },
-  { id: 'inch', symbol: 'inch', category: 'length', toBaseFactor: 0.0254 },
+  { id: 'inch', symbol: 'in', category: 'length', toBaseFactor: 0.0254 },
   { id: 'ft', symbol: 'ft', category: 'length', toBaseFactor: 0.3048 },
 ] as const satisfies readonly UnitDefinition[];
 

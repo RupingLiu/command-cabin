@@ -30,6 +30,23 @@ describe('unit conversion model', () => {
     ]);
   });
 
+  it('uses standard unit symbols for display metadata', () => {
+    expect(getUnitsForCategory('weight').map((unit) => unit.symbol)).toEqual([
+      'kg',
+      'g',
+      'mg',
+      'lb',
+      'oz',
+    ]);
+    expect(getUnitsForCategory('length').map((unit) => unit.symbol)).toEqual([
+      'cm',
+      'mm',
+      'm',
+      'in',
+      'ft',
+    ]);
+  });
+
   it('converts kg to lb', () => {
     expect(convertUnitValue({ category: 'weight', from: 'kg', to: 'lb', value: 1 })).toBeCloseTo(
       2.2046226218487757,

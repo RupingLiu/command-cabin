@@ -2,8 +2,12 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+import { getUnitsForCategory } from '@command-cabin/core/unitConversion';
+
+import { getUiStrings } from '../i18n.js';
 import {
   createInitialUnitConverterState,
+  formatUnitOptionLabel,
   getDisplayedUnitConversionValues,
   unitConverterReducer,
   UnitConverterPage,
@@ -22,6 +26,26 @@ describe('UnitConverterPage', () => {
     expect(html).toContain('value="weight"');
     expect(html).toContain('value="kg" selected=""');
     expect(html).toContain('value="lb" selected=""');
+  });
+
+  it('renders localized unit option labels with standard symbols', () => {
+    const strings = getUiStrings('zh-CN');
+    const weightOptions = getUnitsForCategory('weight').map((unit) =>
+      formatUnitOptionLabel(unit, strings),
+    );
+    const lengthOptions = getUnitsForCategory('length').map((unit) =>
+      formatUnitOptionLabel(unit, strings),
+    );
+
+    expect(weightOptions).toEqual(['千克 kg', '克 g', '毫克 mg', '磅 lb', '盎司 oz']);
+    expect(lengthOptions).toEqual(['厘米 cm', '毫米 mm', '米 m', '英寸 in', '英尺 ft']);
+  });
+
+  it('uses English unit names when the UI language is English', () => {
+    const strings = getUiStrings('en-US');
+
+    expect(formatUnitOptionLabel(getUnitsForCategory('weight')[0], strings)).toBe('kg');
+    expect(formatUnitOptionLabel(getUnitsForCategory('length')[3], strings)).toBe('in');
   });
 
   it('converts 1 kg to 2.20462 lb', () => {

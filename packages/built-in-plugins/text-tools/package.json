@@ -1,6 +1,6 @@
 {
   "name": "@command-cabin/built-in-plugin-text-tools",
-  "version": "0.8.15",
+  "version": "0.8.16",
   "private": true,
   "description": "Built-in clipboard text transformation commands for CommandCabin.",
   "type": "module",

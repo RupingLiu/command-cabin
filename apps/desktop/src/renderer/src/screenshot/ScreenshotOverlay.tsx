@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 import type { MouseEvent, ReactNode, Ref } from 'react';
 
 import type {
@@ -27,10 +35,24 @@ const lineStyleTools = new Set<ScreenshotTool>(['rectangle', 'ellipse', 'arrow',
 const defaultScreenshotStrings = getUiStrings(DEFAULT_UI_LANGUAGE).screenshot;
 const screenshotToolbarGap = 12;
 const defaultScreenshotToolbarSize = { height: 48, width: 520 };
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 interface ScreenshotOverlayStatus {
   tone: 'info' | 'error';
   value: string;
+}
+
+export interface ScreenshotTransparentStyleElement {
+  style: Pick<
+    CSSStyleDeclaration,
+    'getPropertyPriority' | 'getPropertyValue' | 'removeProperty' | 'setProperty'
+  >;
+}
+
+export interface ScreenshotTransparentDocument {
+  body: ScreenshotTransparentStyleElement | null;
+  documentElement: ScreenshotTransparentStyleElement | null;
+  getElementById: (elementId: string) => ScreenshotTransparentStyleElement | null;
 }
 
 interface PendingTextAnnotation {
@@ -93,6 +115,34 @@ export function getScreenshotCompletionAction(
   launchState: Pick<ScreenshotLaunchState, 'mode'>,
 ): 'copy' | 'ocr' {
   return launchState.mode === 'ocr' ? 'ocr' : 'copy';
+}
+
+export function getScreenshotLaunchPhase(
+  launchState: Pick<ScreenshotLaunchState, 'phase'>,
+): 'capturing' | 'ready' {
+  return launchState.phase ?? 'ready';
+}
+
+export function isScreenshotLaunchStateReady(
+  launchState: Pick<ScreenshotLaunchState, 'phase'>,
+): boolean {
+  return getScreenshotLaunchPhase(launchState) === 'ready';
+}
+
+export function isScreenshotLaunchStateHydration(
+  previousState: Pick<ScreenshotLaunchState, 'mode' | 'phase' | 'virtualBounds'> | undefined,
+  nextState: Pick<ScreenshotLaunchState, 'mode' | 'phase' | 'virtualBounds'>,
+): boolean {
+  return (
+    previousState !== undefined &&
+    getScreenshotLaunchPhase(previousState) === 'capturing' &&
+    isScreenshotLaunchStateReady(nextState) &&
+    previousState.mode === nextState.mode &&
+    previousState.virtualBounds.height === nextState.virtualBounds.height &&
+    previousState.virtualBounds.width === nextState.virtualBounds.width &&
+    previousState.virtualBounds.x === nextState.virtualBounds.x &&
+    previousState.virtualBounds.y === nextState.virtualBounds.y
+  );
 }
 
 export function getScreenshotToolbarPlacement({
@@ -194,9 +244,42 @@ export function areDisplayImagesLoaded(
 
 export function shouldNotifyScreenshotReady(
   loadedSourceIds: ReadonlySet<string>,
-  launchState: Pick<ScreenshotLaunchState, 'displays'>,
+  launchState: Pick<ScreenshotLaunchState, 'displays' | 'phase'>,
 ): boolean {
-  return areDisplayImagesLoaded(loadedSourceIds, launchState);
+  return (
+    isScreenshotLaunchStateReady(launchState) &&
+    areDisplayImagesLoaded(loadedSourceIds, launchState)
+  );
+}
+
+export function applyScreenshotTransparentDocumentBackground(
+  documentRef: ScreenshotTransparentDocument,
+): () => void {
+  const elements = [
+    documentRef.documentElement,
+    documentRef.body,
+    documentRef.getElementById('root'),
+  ].filter((element): element is ScreenshotTransparentStyleElement => element !== null);
+  const uniqueElements = Array.from(new Set(elements));
+  const previousBackgrounds = uniqueElements.map((element) => ({
+    element,
+    priority: element.style.getPropertyPriority('background'),
+    value: element.style.getPropertyValue('background'),
+  }));
+
+  uniqueElements.forEach((element) => {
+    element.style.setProperty('background', 'transparent', 'important');
+  });
+
+  return () => {
+    previousBackgrounds.forEach(({ element, priority, value }) => {
+      if (value) {
+        element.style.setProperty('background', value, priority);
+      } else {
+        element.style.removeProperty('background');
+      }
+    });
+  };
 }
 
 export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: ScreenshotOverlayProps = {}) {
@@ -204,6 +287,14 @@ export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: Screenshot
   const [launchVersion, setLaunchVersion] = useState(0);
   const [error, setError] = useState<string | undefined>();
   const [strings, setStrings] = useState<ScreenshotStrings>(defaultScreenshotStrings);
+
+  useIsomorphicLayoutEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined;
+    }
+
+    return applyScreenshotTransparentDocumentBackground(document);
+  }, []);
 
   useEffect(() => {
     const desktopApi =
@@ -226,9 +317,14 @@ export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: Screenshot
       .catch(() => undefined);
 
     return screenshotApi.onLaunchState((nextLaunchState) => {
-      setLaunchState(nextLaunchState);
+      setLaunchState((previousLaunchState) => {
+        if (!isScreenshotLaunchStateHydration(previousLaunchState, nextLaunchState)) {
+          setLaunchVersion((version) => version + 1);
+        }
+
+        return nextLaunchState;
+      });
       setError(undefined);
-      setLaunchVersion((version) => version + 1);
     });
   }, [injectedDesktopApi]);
 
@@ -288,7 +384,10 @@ export function ScreenshotOverlayView({
     x: launchState.virtualBounds.x,
     y: launchState.virtualBounds.y,
   });
-  const ready = isScreenshotReadyToComplete(state);
+  const displayImagesReady =
+    shouldNotifyScreenshotReady(loadedDisplaySourceIds, launchState) ||
+    (typeof window === 'undefined' && isScreenshotLaunchStateReady(launchState));
+  const ready = isScreenshotReadyToComplete(state) && displayImagesReady;
   const offsetSelection = useMemo(
     () => (state.selection ? offsetRect(state.selection, launchState.virtualBounds) : undefined),
     [launchState.virtualBounds, state.selection],

@@ -179,6 +179,24 @@ function closeOverlayWindow(window: ScreenshotOverlayWindow): void {
   }
 }
 
+function hideReusableOverlayWindow(window: ScreenshotOverlayWindow): boolean {
+  if (!isOverlayWindowLive(window) || !window.hide) {
+    return false;
+  }
+
+  window.hide();
+  return true;
+}
+
+function boundsEqual(left: ScreenshotBounds | undefined, right: ScreenshotBounds): boolean {
+  return (
+    left?.height === right.height &&
+    left.width === right.width &&
+    left.x === right.x &&
+    left.y === right.y
+  );
+}
+
 function deriveSaveFormatFromPath(
   filePath: string,
   fallbackFormat: ScreenshotSaveImageRequest['format'],
@@ -215,6 +233,7 @@ export function createScreenshotController({
   const states = new Map<number, ScreenshotOverlayState>();
   const pinnedImages = new Map<string, ScreenshotPinnedImageEntry>();
   let overlayWindow: ScreenshotOverlayWindow | undefined;
+  let overlayWindowBounds: ScreenshotBounds | undefined;
   let overlayWindowPromise: Promise<ScreenshotOverlayWindow> | undefined;
   let overlayWindowClosedListener: (() => void) | undefined;
   let startInProgress = false;
@@ -288,6 +307,7 @@ export function createScreenshotController({
     const handleClosed = () => {
       if (overlayWindow === window) {
         overlayWindow = undefined;
+        overlayWindowBounds = undefined;
       }
 
       overlayWindowPromise = undefined;
@@ -300,8 +320,18 @@ export function createScreenshotController({
     };
 
     overlayWindow = window;
+    overlayWindowBounds = undefined;
     overlayWindowClosedListener = handleClosed;
     window.on('closed', handleClosed);
+  };
+
+  const setOverlayWindowBounds = (window: ScreenshotOverlayWindow, bounds: ScreenshotBounds) => {
+    if (!window.setBounds || boundsEqual(overlayWindowBounds, bounds)) {
+      return;
+    }
+
+    window.setBounds(bounds);
+    overlayWindowBounds = bounds;
   };
 
   const ensureOverlayWindow = async () => {
@@ -355,12 +385,14 @@ export function createScreenshotController({
       forgetState(state.window);
       clearRendererReadyWaiter(sender.id, new Error('Screenshot capture was canceled.'));
 
-      if (overlayWindow === state.window) {
-        overlayWindow = undefined;
-        overlayWindowPromise = undefined;
+      if (overlayWindow !== state.window || !hideReusableOverlayWindow(state.window)) {
+        if (overlayWindow === state.window) {
+          overlayWindow = undefined;
+          overlayWindowPromise = undefined;
+        }
+        closeOverlayWindow(state.window);
+        void ensureOverlayWindow().catch(() => undefined);
       }
-      closeOverlayWindow(state.window);
-      void ensureOverlayWindow().catch(() => undefined);
 
       return true;
     },
@@ -460,8 +492,11 @@ export function createScreenshotController({
       startInProgress = true;
 
       let activeWindow: ScreenshotOverlayWindow | undefined;
+      let showedCapturingState = false;
 
       try {
+        const expectedOverlayBounds = getOverlayBounds();
+        const hasWarmOverlay = overlayWindow !== undefined && isOverlayWindowLive(overlayWindow);
         const overlayWindowPromise = ensureOverlayWindow();
         const launcherWasHidden = (await hideLauncher()) === true;
 
@@ -473,10 +508,26 @@ export function createScreenshotController({
           await waitForCaptureSurface();
         }
 
+        if (hasWarmOverlay) {
+          activeWindow = await overlayWindowPromise;
+          setOverlayWindowBounds(activeWindow, expectedOverlayBounds);
+
+          const capturingLaunchState: ScreenshotLaunchState = {
+            displays: [],
+            mode: launchMode,
+            phase: 'capturing',
+            virtualBounds: expectedOverlayBounds,
+          };
+          rememberState(activeWindow, Promise.resolve(capturingLaunchState));
+          notifyOverlayLaunchState(activeWindow, capturingLaunchState);
+          activeWindow.show?.();
+          showedCapturingState = true;
+        }
+
         const captureStartedAt = performance.now();
         const capturePromise = captureDisplays();
         void capturePromise.catch(() => undefined);
-        activeWindow = await overlayWindowPromise;
+        activeWindow ??= await overlayWindowPromise;
         const readyWindow = activeWindow;
         const capture = await capturePromise;
         const captureMs = performance.now() - captureStartedAt;
@@ -484,6 +535,11 @@ export function createScreenshotController({
           ...capture,
           mode: launchMode,
         };
+
+        if (showedCapturingState && !states.has(activeWindow.webContents.id)) {
+          return launchState;
+        }
+
         rememberState(activeWindow, Promise.resolve(launchState));
 
         const readyWaiter = createDeferred<void>();
@@ -501,9 +557,11 @@ export function createScreenshotController({
         };
 
         const showStartedAt = performance.now();
-        activeWindow.setBounds?.(launchState.virtualBounds);
+        setOverlayWindowBounds(activeWindow, launchState.virtualBounds);
         notifyOverlayLaunchState(activeWindow, launchState);
-        activeWindow.show?.();
+        if (!showedCapturingState) {
+          activeWindow.show?.();
+        }
         const showMs = performance.now() - showStartedAt;
         const rendererReadyStartedAt = performance.now();
         void readyWaiter.promise

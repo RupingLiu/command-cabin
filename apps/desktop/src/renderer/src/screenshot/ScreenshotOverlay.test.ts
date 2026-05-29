@@ -8,10 +8,14 @@ import {
   ScreenshotOverlayView,
   TextAnnotationInput,
   areDisplayImagesLoaded,
+  applyScreenshotTransparentDocumentBackground,
   createPendingTextAnnotationController,
   getNextLoadedDisplaySourceIds,
+  getScreenshotLaunchPhase,
   getPendingTextPointerAction,
   getScreenshotCompletionAction,
+  isScreenshotLaunchStateHydration,
+  isScreenshotLaunchStateReady,
   getTextAnnotationKeyAction,
   requireScreenshotApi,
   shouldNotifyScreenshotReady,
@@ -38,6 +42,36 @@ const launchState: ScreenshotLaunchState = {
   virtualBounds: { height: 200, width: 300, x: 0, y: 0 },
 };
 
+function createMockBackgroundStyle(initialValue: string, initialPriority = '') {
+  let backgroundValue = initialValue;
+  let backgroundPriority = initialPriority;
+
+  return {
+    getPropertyPriority: vi.fn((propertyName: string) =>
+      propertyName === 'background' ? backgroundPriority : '',
+    ),
+    getPropertyValue: vi.fn((propertyName: string) =>
+      propertyName === 'background' ? backgroundValue : '',
+    ),
+    removeProperty: vi.fn((propertyName: string) => {
+      if (propertyName !== 'background') {
+        return '';
+      }
+
+      const previousValue = backgroundValue;
+      backgroundValue = '';
+      backgroundPriority = '';
+      return previousValue;
+    }),
+    setProperty: vi.fn((propertyName: string, value: string, priority?: string) => {
+      if (propertyName === 'background') {
+        backgroundValue = value;
+        backgroundPriority = priority ?? '';
+      }
+    }),
+  };
+}
+
 describe('ScreenshotOverlay', () => {
   it('server renders loading while waiting for a launch state subscription event', () => {
     const markup = renderToStaticMarkup(createElement(ScreenshotOverlay));
@@ -45,6 +79,44 @@ describe('ScreenshotOverlay', () => {
     expect(markup).toContain(getUiStrings('zh-CN').screenshot.loading);
     expect(markup).not.toContain(getUiStrings('zh-CN').screenshot.controlsUnavailable);
     expect(markup).not.toContain(getUiStrings('zh-CN').screenshot.loadError);
+  });
+
+  it('makes the screenshot renderer document transparent while preserving prior backgrounds', () => {
+    const htmlStyle = createMockBackgroundStyle('linear-gradient(red, blue)');
+    const bodyStyle = createMockBackgroundStyle('var(--app-bg)');
+    const rootStyle = createMockBackgroundStyle('');
+
+    const restore = applyScreenshotTransparentDocumentBackground({
+      body: { style: bodyStyle },
+      documentElement: { style: htmlStyle },
+      getElementById: () => ({ style: rootStyle }),
+    });
+
+    expect(htmlStyle.setProperty).toHaveBeenLastCalledWith(
+      'background',
+      'transparent',
+      'important',
+    );
+    expect(bodyStyle.setProperty).toHaveBeenLastCalledWith(
+      'background',
+      'transparent',
+      'important',
+    );
+    expect(rootStyle.setProperty).toHaveBeenLastCalledWith(
+      'background',
+      'transparent',
+      'important',
+    );
+
+    restore();
+
+    expect(htmlStyle.setProperty).toHaveBeenLastCalledWith(
+      'background',
+      'linear-gradient(red, blue)',
+      '',
+    );
+    expect(bodyStyle.setProperty).toHaveBeenLastCalledWith('background', 'var(--app-bg)', '');
+    expect(rootStyle.removeProperty).toHaveBeenLastCalledWith('background');
   });
 });
 
@@ -260,6 +332,33 @@ describe('ScreenshotOverlayView', () => {
     expect(shouldNotifyScreenshotReady(new Set<string>(), { ...launchState, displays: [] })).toBe(
       true,
     );
+    expect(
+      shouldNotifyScreenshotReady(new Set<string>(), {
+        ...launchState,
+        displays: [],
+        phase: 'capturing',
+      }),
+    ).toBe(false);
+  });
+
+  it('treats a capturing launch state as an overlay warm-up before the final image state', () => {
+    const capturingLaunchState: ScreenshotLaunchState = {
+      displays: [],
+      mode: 'capture',
+      phase: 'capturing',
+      virtualBounds: { height: 200, width: 300, x: 0, y: 0 },
+    };
+    const readyLaunchState: ScreenshotLaunchState = {
+      ...launchState,
+      mode: 'capture',
+      virtualBounds: capturingLaunchState.virtualBounds,
+    };
+
+    expect(getScreenshotLaunchPhase(capturingLaunchState)).toBe('capturing');
+    expect(getScreenshotLaunchPhase(readyLaunchState)).toBe('ready');
+    expect(isScreenshotLaunchStateReady(capturingLaunchState)).toBe(false);
+    expect(isScreenshotLaunchStateReady(readyLaunchState)).toBe(true);
+    expect(isScreenshotLaunchStateHydration(capturingLaunchState, readyLaunchState)).toBe(true);
   });
 
   it('cancels stale delayed text annotation commits', () => {

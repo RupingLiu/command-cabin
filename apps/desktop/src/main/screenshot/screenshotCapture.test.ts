@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { captureDisplays } from './screenshotCapture.js';
+import { calculateCaptureBounds, captureDisplays } from './screenshotCapture.js';
 
 describe('captureDisplays', () => {
   it('captures every display at physical thumbnail size and matches sources by display id', async () => {
@@ -85,6 +85,26 @@ describe('captureDisplays', () => {
     expect(getSources).toHaveBeenCalledWith({
       thumbnailSize: { height: 2160, width: 3840 },
       types: ['screen'],
+    });
+  });
+
+  it('calculates capture bounds from the active cursor display', () => {
+    const displays = [
+      { bounds: { height: 1080, width: 1920, x: -1920, y: 0 }, id: 10, scaleFactor: 1 },
+      { bounds: { height: 1440, width: 2560, x: 0, y: 0 }, id: 20, scaleFactor: 1.5 },
+    ];
+
+    expect(calculateCaptureBounds(displays, { x: 100, y: 200 })).toEqual({
+      height: 1440,
+      width: 2560,
+      x: 0,
+      y: 0,
+    });
+    expect(calculateCaptureBounds(displays, undefined)).toEqual({
+      height: 1440,
+      width: 4480,
+      x: -1920,
+      y: 0,
     });
   });
 

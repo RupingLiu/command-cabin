@@ -23,6 +23,7 @@ describe('screenshotApi parsers', () => {
     expect(
       parseScreenshotLaunchState({
         mode: 'ocr',
+        phase: 'capturing',
         displays: [
           {
             bounds: { height: 1080, width: 1920, x: 0, y: 0 },
@@ -36,6 +37,7 @@ describe('screenshotApi parsers', () => {
       }),
     ).toEqual({
       mode: 'ocr',
+      phase: 'capturing',
       displays: [
         {
           bounds: { height: 1080, width: 1920, x: 0, y: 0 },

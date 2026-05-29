@@ -8,6 +8,7 @@ export const screenshotSaveFormats = Object.freeze(['png', 'jpg'] as const);
 export const screenshotOcrLanguages = Object.freeze(['zh-CN', 'zh-TW', 'en-US'] as const);
 
 export type ScreenshotLaunchMode = (typeof screenshotLaunchModes)[number];
+export type ScreenshotLaunchPhase = 'capturing' | 'ready';
 export type ScreenshotSaveFormat = (typeof screenshotSaveFormats)[number];
 export type ScreenshotOcrLanguage = (typeof screenshotOcrLanguages)[number];
 
@@ -29,6 +30,7 @@ export interface ScreenshotDisplaySnapshot {
 export interface ScreenshotLaunchState {
   displays: ScreenshotDisplaySnapshot[];
   mode: ScreenshotLaunchMode;
+  phase?: ScreenshotLaunchPhase;
   virtualBounds: ScreenshotBounds;
 }
 
@@ -170,6 +172,16 @@ export function parseScreenshotLaunchMode(value: unknown): ScreenshotLaunchMode 
   return mode as ScreenshotLaunchMode;
 }
 
+function parseScreenshotLaunchPhase(value: unknown, context: string): ScreenshotLaunchPhase {
+  const phase = parseString(value, context);
+
+  if (phase !== 'capturing' && phase !== 'ready') {
+    throw new Error(`${context} must be "capturing" or "ready".`);
+  }
+
+  return phase;
+}
+
 export function parseScreenshotSaveFormat(value: unknown): ScreenshotSaveFormat {
   const format = parseString(value, 'Screenshot save format');
 
@@ -238,19 +250,25 @@ export function parseScreenshotLaunchState(value: unknown): ScreenshotLaunchStat
     throw new Error(`${context}: state must be an object.`);
   }
 
-  assertKnownKeys(value, new Set(['displays', 'mode', 'virtualBounds']), context);
+  assertKnownKeys(value, new Set(['displays', 'mode', 'phase', 'virtualBounds']), context);
 
   if (!Array.isArray(value.displays)) {
     throw new Error(`${context}.displays must be an array.`);
   }
 
-  return {
+  const state: ScreenshotLaunchState = {
     displays: value.displays.map((display, index) =>
       parseScreenshotDisplaySnapshot(display, `${context}.displays[${index}]`),
     ),
     mode: parseScreenshotLaunchMode(value.mode),
     virtualBounds: parseScreenshotBounds(value.virtualBounds, `${context}.virtualBounds`),
   };
+
+  if (value.phase !== undefined) {
+    state.phase = parseScreenshotLaunchPhase(value.phase, `${context}.phase`);
+  }
+
+  return state;
 }
 
 function parseScreenshotImageRequest(value: unknown, context: string): ScreenshotImageRequest {

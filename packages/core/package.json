@@ -1,6 +1,6 @@
 {
   "name": "@command-cabin/core",
-  "version": "0.8.15",
+  "version": "0.8.16",
   "private": true,
   "description": "Pure business logic for CommandCabin.",
   "type": "module",

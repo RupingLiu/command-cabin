@@ -89,6 +89,13 @@ function selectDisplaysForCapture(
   return activeDisplay ? [activeDisplay] : displays;
 }
 
+export function calculateCaptureBounds(
+  displays: ScreenshotDisplay[],
+  activePoint: ScreenshotPoint | undefined,
+): ScreenshotBounds {
+  return calculateVirtualBounds(selectDisplaysForCapture(displays, activePoint));
+}
+
 function findSourceForDisplay(
   display: ScreenshotDisplay,
   displayIndex: number,

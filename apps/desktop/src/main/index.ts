@@ -72,7 +72,7 @@ import {
   type DesktopPluginService,
 } from './plugins/desktopPluginService.js';
 import { openRepository } from './repository/openRepository.js';
-import { calculateVirtualBounds, captureDisplays } from './screenshot/screenshotCapture.js';
+import { calculateCaptureBounds, captureDisplays } from './screenshot/screenshotCapture.js';
 import { hideLauncherWindowsForScreenshot } from './screenshot/hideLauncherWindowsForScreenshot.js';
 import { runLocalOcr } from './screenshot/localOcr.js';
 import { createScreenshotController } from './screenshot/screenshotController.js';
@@ -518,7 +518,8 @@ const screenshotController = createScreenshotController({
       showOnReady: false,
     }),
   createPinnedImageToken: () => randomUUID(),
-  getOverlayBounds: () => calculateVirtualBounds(screen.getAllDisplays()),
+  getOverlayBounds: () =>
+    calculateCaptureBounds(screen.getAllDisplays(), screen.getCursorScreenPoint()),
   hideLauncher: () =>
     hideLauncherWindowsForScreenshot({
       getWindows: () => BrowserWindow.getAllWindows(),

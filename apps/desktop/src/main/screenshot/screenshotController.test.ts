@@ -67,6 +67,19 @@ function createOverlayWindow(webContents: { id: number }) {
   };
 }
 
+function createOverlayWindowWithBoundsEvents(webContents: { id: number }, events: string[]) {
+  const overlayWindow = createOverlayWindow(webContents);
+
+  overlayWindow.setBounds.mockImplementation(() => {
+    events.push('set-bounds');
+  });
+  overlayWindow.show.mockImplementation(() => {
+    events.push('show');
+  });
+
+  return overlayWindow;
+}
+
 function createPinnedWindow(webContents: { id: number }) {
   let closedListener: (() => void) | undefined;
 
@@ -359,13 +372,9 @@ describe('createScreenshotController', () => {
     expect(overlayWindow.show).toHaveBeenCalledOnce();
   });
 
-  it('preloads a fresh hidden overlay after the active capture closes', async () => {
+  it('keeps the hidden overlay warm after the active capture is canceled', async () => {
     const firstOverlayWindow = createOverlayWindow({ id: 55 });
-    const secondOverlayWindow = createOverlayWindow({ id: 56 });
-    const createOverlayWindowSpy = vi
-      .fn()
-      .mockResolvedValueOnce(firstOverlayWindow)
-      .mockResolvedValueOnce(secondOverlayWindow);
+    const createOverlayWindowSpy = vi.fn().mockResolvedValue(firstOverlayWindow);
     const controller = createScreenshotController({
       captureDisplays: vi.fn(async () => launchState),
       createOverlayWindow: createOverlayWindowSpy,
@@ -390,13 +399,16 @@ describe('createScreenshotController', () => {
     await expect(controller.start('capture')).rejects.toThrow(/already/i);
     expect(controller.cancel(firstOverlayWindow.webContents)).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
+    expect(firstOverlayWindow.hide).toHaveBeenCalledOnce();
+    expect(firstOverlayWindow.close).not.toHaveBeenCalled();
 
     const secondStart = controller.start('capture');
     await vi.advanceTimersByTimeAsync(0);
-    expect(controller.markOverlayReady(secondOverlayWindow.webContents)).toBe(true);
+    expect(controller.markOverlayReady(firstOverlayWindow.webContents)).toBe(true);
     await secondStart;
 
-    expect(createOverlayWindowSpy).toHaveBeenCalledTimes(2);
+    expect(createOverlayWindowSpy).toHaveBeenCalledOnce();
+    expect(firstOverlayWindow.show).toHaveBeenCalledTimes(2);
   });
 
   it('shows the prepared overlay as soon as capture state is available', async () => {
@@ -435,6 +447,90 @@ describe('createScreenshotController', () => {
     await start;
 
     expect(controller.markOverlayReady(overlayWindow.webContents)).toBe(true);
+  });
+
+  it('prepositions a warm overlay before capture and avoids duplicate bounds updates', async () => {
+    const events: string[] = [];
+    const activeBounds = { height: 900, width: 1440, x: 1920, y: 0 };
+    const overlayWindow = createOverlayWindowWithBoundsEvents({ id: 61 }, events);
+    const notifyOverlayLaunchState = vi.fn();
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => {
+        events.push('capture');
+        return {
+          ...launchState,
+          virtualBounds: activeBounds,
+        };
+      }),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      getOverlayBounds: vi.fn(() => activeBounds),
+      hideLauncher: vi.fn(),
+      notifyOverlayLaunchState,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    await controller.prepare();
+    await controller.start('capture');
+
+    expect(events).toEqual(['set-bounds', 'show', 'capture']);
+    expect(overlayWindow.setBounds).toHaveBeenCalledOnce();
+    expect(notifyOverlayLaunchState).toHaveBeenCalledWith(overlayWindow, {
+      ...launchState,
+      mode: 'capture',
+      virtualBounds: activeBounds,
+    });
+  });
+
+  it('shows a warm overlay with a capturing state before screen pixels finish loading', async () => {
+    const events: string[] = [];
+    const activeBounds = { height: 900, width: 1440, x: 1920, y: 0 };
+    const capture = createDeferred<typeof launchState>();
+    const overlayWindow = createOverlayWindowWithBoundsEvents({ id: 62 }, events);
+    const notifyOverlayLaunchState = vi.fn((_window, state) => {
+      events.push(`notify:${state.phase ?? 'ready'}`);
+    });
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(() => {
+        events.push('capture');
+        return capture.promise;
+      }),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      getOverlayBounds: vi.fn(() => activeBounds),
+      hideLauncher: vi.fn(),
+      notifyOverlayLaunchState,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    await controller.prepare();
+    const start = controller.start('capture');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(events).toEqual(['set-bounds', 'notify:capturing', 'show', 'capture']);
+    expect(notifyOverlayLaunchState).toHaveBeenCalledWith(overlayWindow, {
+      displays: [],
+      mode: 'capture',
+      phase: 'capturing',
+      virtualBounds: activeBounds,
+    });
+
+    capture.resolve({
+      ...launchState,
+      virtualBounds: activeBounds,
+    });
+    await start;
+
+    expect(events).toEqual(['set-bounds', 'notify:capturing', 'show', 'capture', 'notify:ready']);
+    expect(overlayWindow.show).toHaveBeenCalledOnce();
   });
 
   it('logs successful screenshot timing when the overlay is shown', async () => {
@@ -588,7 +684,7 @@ describe('createScreenshotController', () => {
     });
   });
 
-  it('closes the overlay on cancel so the hidden renderer can release memory', async () => {
+  it('hides the overlay on cancel so the hidden renderer is ready for the next capture', async () => {
     const overlayWindow = createOverlayWindow({ id: 57 });
     const controller = createScreenshotController({
       captureDisplays: vi.fn(async () => launchState),
@@ -611,8 +707,8 @@ describe('createScreenshotController', () => {
 
     expect(controller.cancel(overlayWindow.webContents)).toBe(true);
 
-    expect(overlayWindow.close).toHaveBeenCalledOnce();
-    expect(overlayWindow.hide).not.toHaveBeenCalled();
+    expect(overlayWindow.hide).toHaveBeenCalledOnce();
+    expect(overlayWindow.close).not.toHaveBeenCalled();
   });
 
   it('recreates the overlay after the persistent window closes', async () => {
@@ -796,8 +892,8 @@ describe('createScreenshotController', () => {
       },
       expect.any(Function),
     );
-    expect(overlayWindow.close).toHaveBeenCalledOnce();
-    expect(overlayWindow.hide).not.toHaveBeenCalled();
+    expect(overlayWindow.hide).toHaveBeenCalledOnce();
+    expect(overlayWindow.close).not.toHaveBeenCalled();
   });
 
   it('rejects unknown pinned image tokens and senders', async () => {

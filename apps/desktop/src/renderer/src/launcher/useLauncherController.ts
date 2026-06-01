@@ -13,6 +13,8 @@ export type LauncherStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error' | 
 export type LauncherSelectionDirection = 'next' | 'previous';
 export type LauncherKeyIntent = 'select-next' | 'select-previous' | 'execute' | 'hide';
 
+export const HOME_APP_GRID_LIMIT = 12;
+
 export interface PluginPageLaunchRequest {
   name: string;
   pluginId: string;
@@ -375,6 +377,26 @@ function statusForResults(results: readonly LauncherResultItem[]): LauncherStatu
   return results.length > 0 ? 'ready' : 'empty';
 }
 
+function shouldLimitHomeAppGridResults(
+  query: string,
+  results: readonly LauncherResultItem[],
+): boolean {
+  return (
+    query.trim().length === 0 &&
+    results.length > HOME_APP_GRID_LIMIT &&
+    results.every((result) => result.source === 'app')
+  );
+}
+
+export function getHomeAppGridResults(
+  query: string,
+  results: readonly LauncherResultItem[],
+): LauncherResultItem[] {
+  return shouldLimitHomeAppGridResults(query, results)
+    ? results.slice(0, HOME_APP_GRID_LIMIT)
+    : [...results];
+}
+
 function isImageDataUrl(icon: string | undefined): icon is string {
   return typeof icon === 'string' && icon.startsWith('data:image/');
 }
@@ -599,18 +621,21 @@ export function launcherReducer(state: LauncherState, action: LauncherAction): L
         selectedIndex: -1,
         status: 'loading',
       };
-    case 'search-succeeded':
+    case 'search-succeeded': {
       if (action.requestId !== state.requestId) {
         return state;
       }
 
+      const nextResults = getHomeAppGridResults(state.query, action.results);
+
       return {
         ...state,
         errorMessage: undefined,
-        results: action.results,
-        selectedIndex: getSelectedIndexForResults(action.results),
-        status: statusForResults(action.results),
+        results: nextResults,
+        selectedIndex: getSelectedIndexForResults(nextResults),
+        status: statusForResults(nextResults),
       };
+    }
     case 'search-result-icons-updated': {
       const nextResults = mergeSearchResultIconUpdates(state.results, action.results);
 

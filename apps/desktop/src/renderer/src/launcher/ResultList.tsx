@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 
 import { ResultItem } from './ResultItem.js';
 import {
+  HOME_APP_GRID_LIMIT,
   getLauncherOptionId,
   type LauncherResultItem,
   type LauncherStatus,
@@ -86,7 +87,7 @@ function shouldUseRecentAppGrid(query: string, results: readonly LauncherResultI
   );
 }
 
-function AddPinnedAppItem({
+function AddPinnedAppButton({
   label,
   onAddPinnedApp,
 }: {
@@ -94,23 +95,47 @@ function AddPinnedAppItem({
   onAddPinnedApp: () => void;
 }) {
   return (
-    <li className="result-item result-item--recent-app result-item--add-app">
-      <button
-        aria-label={label}
-        type="button"
-        onClick={onAddPinnedApp}
-        onMouseDown={(event) => {
-          event.preventDefault();
-        }}
-      >
-        <span className="result-icon result-icon--add" aria-hidden="true">
-          +
-        </span>
-        <span className="result-copy">
-          <span className="result-title">{label}</span>
-        </span>
-      </button>
-    </li>
+    <button
+      aria-label={label}
+      className="result-add-app-button"
+      title={label}
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onAddPinnedApp();
+      }}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
+      <span aria-hidden="true">+</span>
+    </button>
+  );
+}
+
+function EmptyPinnedAppGrid({
+  ariaLabel,
+  buttonLabel,
+  listboxId,
+  onAddPinnedApp,
+}: {
+  ariaLabel: string;
+  buttonLabel: string;
+  listboxId: string;
+  onAddPinnedApp: () => void;
+}) {
+  return (
+    <ul
+      aria-label={ariaLabel}
+      className="result-list result-list--recent-apps result-list--recent-apps-empty"
+      id={listboxId}
+      role="listbox"
+    >
+      <li className="result-add-app-empty" role="presentation">
+        <AddPinnedAppButton label={buttonLabel} onAddPinnedApp={onAddPinnedApp} />
+      </li>
+    </ul>
   );
 }
 
@@ -190,14 +215,12 @@ export function ResultList({
 
   if (status === 'empty' && canAddPinnedApp) {
     return (
-      <ul
-        aria-label={strings.launcher.results.ariaLabel}
-        className="result-list result-list--recent-apps"
-        id={listboxId}
-        role="listbox"
-      >
-        <AddPinnedAppItem label={strings.launcher.addPinnedApp} onAddPinnedApp={onAddPinnedApp} />
-      </ul>
+      <EmptyPinnedAppGrid
+        ariaLabel={strings.launcher.results.ariaLabel}
+        buttonLabel={strings.launcher.addPinnedApp}
+        listboxId={listboxId}
+        onAddPinnedApp={onAddPinnedApp}
+      />
     );
   }
 
@@ -218,6 +241,8 @@ export function ResultList({
   }
 
   const useRecentAppGrid = shouldUseRecentAppGrid(query, results);
+  const visibleResults = useRecentAppGrid ? results.slice(0, HOME_APP_GRID_LIMIT) : results;
+  const lastVisibleResultIndex = visibleResults.length - 1;
 
   return (
     <>
@@ -227,7 +252,7 @@ export function ResultList({
         id={listboxId}
         role="listbox"
       >
-        {results.map((result, index) => (
+        {visibleResults.map((result, index) => (
           <ResultItem
             id={getLauncherOptionId(result.id)}
             index={index}
@@ -251,12 +276,17 @@ export function ResultList({
             onExecute={onExecute}
             onSelect={onSelect}
             result={result}
+            trailingAction={
+              useRecentAppGrid && index === lastVisibleResultIndex && onAddPinnedApp ? (
+                <AddPinnedAppButton
+                  label={strings.launcher.addPinnedApp}
+                  onAddPinnedApp={onAddPinnedApp}
+                />
+              ) : undefined
+            }
             variant={useRecentAppGrid ? 'compact' : 'detailed'}
           />
         ))}
-        {useRecentAppGrid && onAddPinnedApp ? (
-          <AddPinnedAppItem label={strings.launcher.addPinnedApp} onAddPinnedApp={onAddPinnedApp} />
-        ) : null}
       </ul>
       {pinnedAppMenu ? (
         <div

@@ -67,7 +67,7 @@ describe('ResultList', () => {
     expect(markup).not.toContain('class="result-source"');
   });
 
-  it('renders an add app tile in the blank-query app grid when provided', () => {
+  it('renders a small add app button on the last blank-query app tile when provided', () => {
     const markup = renderResultList({
       onAddPinnedApp: vi.fn(),
       query: '',
@@ -75,8 +75,27 @@ describe('ResultList', () => {
     });
 
     expect(markup).toContain('result-list--recent-apps');
-    expect(markup).toContain('result-item--add-app');
-    expect(markup).toContain('添加应用');
+    expect(markup).toContain('result-item__trailing-action');
+    expect(markup).toContain('result-add-app-button');
+    expect(markup).toContain('aria-label="添加应用"');
+    expect(markup).not.toContain('result-item--add-app');
+  });
+
+  it('limits blank-query app grids to twelve visible apps', () => {
+    const markup = renderResultList({
+      onAddPinnedApp: vi.fn(),
+      query: '',
+      results: Array.from({ length: 13 }, (_, index) =>
+        createAppResult({
+          id: `app.${index + 1}`,
+          title: `App ${index + 1}`,
+        }),
+      ),
+    });
+
+    expect(markup).toContain('App 12');
+    expect(markup).not.toContain('App 13');
+    expect(markup).toContain('result-add-app-button');
   });
 
   it('lets recent app tiles expose a context menu when recent removal is available', () => {
@@ -90,7 +109,7 @@ describe('ResultList', () => {
     expect(markup).toContain('data-manageable="true"');
   });
 
-  it('renders an add app tile for an empty blank query instead of an empty state', () => {
+  it('renders a small add app button for an empty blank query instead of an empty state', () => {
     const markup = renderToStaticMarkup(
       createElement(ResultList, {
         errorMessage: undefined,
@@ -107,7 +126,7 @@ describe('ResultList', () => {
     );
 
     expect(markup).toContain('result-list--recent-apps');
-    expect(markup).toContain('result-item--add-app');
+    expect(markup).toContain('result-add-app-button');
     expect(markup).not.toContain('无结果');
   });
 

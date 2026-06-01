@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  HOME_APP_GRID_LIMIT,
   getExecutableSelectedResult,
   getLauncherKeyIntent,
   createLauncherSearchRequestKey,
@@ -221,6 +222,24 @@ describe('launcher controller state', () => {
     });
 
     expect(next.selectedIndex).toBe(0);
+  });
+
+  it('keeps blank-query app grid results within the two-row home limit', () => {
+    const loading = launcherReducer(baseState, {
+      requestId: 1,
+      type: 'search-started',
+    });
+    const ready = launcherReducer(loading, {
+      requestId: 1,
+      results: Array.from({ length: HOME_APP_GRID_LIMIT + 1 }, (_, index) =>
+        createAppResult(`app.${index + 1}`),
+      ),
+      type: 'search-succeeded',
+    });
+
+    expect(ready.results).toHaveLength(HOME_APP_GRID_LIMIT);
+    expect(ready.results.at(-1)?.id).toBe(`app.${HOME_APP_GRID_LIMIT}`);
+    expect(ready.selectedIndex).toBe(0);
   });
 
   it('represents empty and error states without a selected item', () => {

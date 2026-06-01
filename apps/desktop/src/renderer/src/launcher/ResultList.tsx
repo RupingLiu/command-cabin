@@ -132,7 +132,7 @@ function EmptyPinnedAppGrid({
       id={listboxId}
       role="listbox"
     >
-      <li className="result-add-app-empty" role="presentation">
+      <li className="result-add-app-cell result-add-app-empty" role="presentation">
         <AddPinnedAppButton label={buttonLabel} onAddPinnedApp={onAddPinnedApp} />
       </li>
     </ul>
@@ -241,8 +241,11 @@ export function ResultList({
   }
 
   const useRecentAppGrid = shouldUseRecentAppGrid(query, results);
-  const visibleResults = useRecentAppGrid ? results.slice(0, HOME_APP_GRID_LIMIT) : results;
-  const lastVisibleResultIndex = visibleResults.length - 1;
+  const shouldShowGridAddButton = useRecentAppGrid && onAddPinnedApp !== undefined;
+  const visibleResultLimit = shouldShowGridAddButton
+    ? Math.max(0, HOME_APP_GRID_LIMIT - 1)
+    : HOME_APP_GRID_LIMIT;
+  const visibleResults = useRecentAppGrid ? results.slice(0, visibleResultLimit) : results;
 
   return (
     <>
@@ -276,17 +279,17 @@ export function ResultList({
             onExecute={onExecute}
             onSelect={onSelect}
             result={result}
-            trailingAction={
-              useRecentAppGrid && index === lastVisibleResultIndex && onAddPinnedApp ? (
-                <AddPinnedAppButton
-                  label={strings.launcher.addPinnedApp}
-                  onAddPinnedApp={onAddPinnedApp}
-                />
-              ) : undefined
-            }
             variant={useRecentAppGrid ? 'compact' : 'detailed'}
           />
         ))}
+        {shouldShowGridAddButton ? (
+          <li className="result-add-app-cell" role="presentation">
+            <AddPinnedAppButton
+              label={strings.launcher.addPinnedApp}
+              onAddPinnedApp={onAddPinnedApp}
+            />
+          </li>
+        ) : null}
       </ul>
       {pinnedAppMenu ? (
         <div

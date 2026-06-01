@@ -219,7 +219,7 @@ select {
 .launcher-frame {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 14px;
+  gap: 12px;
   width: 100%;
   min-height: 100%;
   margin: 0 auto;
@@ -542,14 +542,13 @@ select {
 }
 
 .result-list--recent-apps {
-  --home-app-card-height: 138px;
-  --home-app-card-width: 146px;
-  grid-template-columns: repeat(6, minmax(0, var(--home-app-card-width)));
+  --home-app-card-height: 96px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   grid-auto-rows: var(--home-app-card-height);
   justify-content: start;
-  gap: 14px;
-  overflow: visible;
-  padding: 2px 20px 20px 2px;
+  gap: 9px;
+  overflow: hidden;
+  padding: 2px 2px 8px;
 }
 
 .result-list--recent-apps-empty {
@@ -604,10 +603,10 @@ select {
   position: relative;
   grid-template-columns: 1fr;
   justify-items: center;
-  min-height: var(--home-app-card-height, 138px);
-  padding: 18px 12px 15px;
-  gap: 10px;
-  border-radius: 28px;
+  min-height: var(--home-app-card-height, 96px);
+  padding: 10px 7px 9px;
+  gap: 5px;
+  border-radius: 18px;
   text-align: center;
 }
 
@@ -656,13 +655,14 @@ select {
 }
 
 .result-item--recent-app .result-icon {
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
 }
 
 .result-item--recent-app .result-icon img {
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
 }
 
 .result-copy {
@@ -676,20 +676,21 @@ select {
   justify-items: center;
 }
 
-.result-item__trailing-action {
-  position: absolute;
-  right: -12px;
-  bottom: -12px;
-  z-index: 2;
+.result-add-app-cell {
   display: grid;
+  align-self: end;
+  justify-self: start;
   place-items: center;
+  width: 38px;
+  height: 38px;
+  margin: 0 0 6px 2px;
   -webkit-app-region: no-drag;
 }
 
 .result-add-app-button {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   padding: 0;
   border: 1px solid rgba(255, 111, 38, 0.28);
@@ -703,7 +704,7 @@ select {
 }
 
 .result-add-app-button span {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 520;
   line-height: 1;
 }
@@ -720,7 +721,6 @@ select {
 }
 
 .result-add-app-empty {
-  display: grid;
   align-items: start;
   justify-items: start;
 }
@@ -737,10 +737,10 @@ select {
 
 .result-item--recent-app .result-title {
   display: -webkit-box;
-  min-height: 36px;
+  min-height: 28px;
   max-width: 100%;
-  font-size: 13px;
-  line-height: 1.3;
+  font-size: 11px;
+  line-height: 1.25;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   white-space: normal;

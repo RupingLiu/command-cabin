@@ -1,5 +1,4 @@
 import type { CommandCabinLanguage } from '@command-cabin/core';
-import type { ReactNode } from 'react';
 import { useState } from 'react';
 
 import type { LauncherResultItem } from './useLauncherController.js';
@@ -24,7 +23,6 @@ interface ResultItemProps {
     | undefined;
   onSelect: (index: number) => void;
   result: LauncherResultItem;
-  trailingAction?: ReactNode | undefined;
   variant?: 'compact' | 'detailed';
 }
 
@@ -95,7 +93,6 @@ export function ResultItem({
   onOpenAppMenu,
   onSelect,
   result: rawResult,
-  trailingAction,
   variant = 'detailed',
 }: ResultItemProps) {
   const isCompact = variant === 'compact';
@@ -152,9 +149,6 @@ export function ResultItem({
       {isCompact ? null : (
         <span className="result-source">{strings.launcher.sources[result.source]}</span>
       )}
-      {trailingAction ? (
-        <span className="result-item__trailing-action">{trailingAction}</span>
-      ) : null}
     </li>
   );
 }

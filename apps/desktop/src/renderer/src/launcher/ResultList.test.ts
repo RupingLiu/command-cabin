@@ -67,7 +67,7 @@ describe('ResultList', () => {
     expect(markup).not.toContain('class="result-source"');
   });
 
-  it('renders a small add app button on the last blank-query app tile when provided', () => {
+  it('renders a small add app button after blank-query app tiles when provided', () => {
     const markup = renderResultList({
       onAddPinnedApp: vi.fn(),
       query: '',
@@ -75,13 +75,13 @@ describe('ResultList', () => {
     });
 
     expect(markup).toContain('result-list--recent-apps');
-    expect(markup).toContain('result-item__trailing-action');
+    expect(markup).toContain('result-add-app-cell');
     expect(markup).toContain('result-add-app-button');
     expect(markup).toContain('aria-label="添加应用"');
     expect(markup).not.toContain('result-item--add-app');
   });
 
-  it('limits blank-query app grids to twelve visible apps', () => {
+  it('keeps blank-query app grids within two rows when the add app button is visible', () => {
     const markup = renderResultList({
       onAddPinnedApp: vi.fn(),
       query: '',
@@ -93,7 +93,8 @@ describe('ResultList', () => {
       ),
     });
 
-    expect(markup).toContain('App 12');
+    expect(markup).toContain('App 11');
+    expect(markup).not.toContain('App 12');
     expect(markup).not.toContain('App 13');
     expect(markup).toContain('result-add-app-button');
   });

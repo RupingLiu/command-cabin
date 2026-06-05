@@ -2,7 +2,12 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ResultItem, getRenderableResultIcon, getResultIconGlyph } from './ResultItem.js';
+import {
+  ResultItem,
+  getRenderableResultIcon,
+  getResultIconGlyph,
+  getStructuredResultTitleLines,
+} from './ResultItem.js';
 import type { LauncherResultItem } from './useLauncherController.js';
 
 function createResult(overrides: Partial<LauncherResultItem> = {}): LauncherResultItem {
@@ -106,6 +111,49 @@ describe('ResultItem', () => {
     );
 
     expect(markup).toContain('title="GBChargeDoctor"');
+  });
+
+  it('splits quick converter result titles into vertical display lines', () => {
+    const result = createResult({
+      id: 'quick-converter.result',
+      source: 'plugin',
+      title:
+        '40 厘米 × 40 厘米 × 50 厘米 = 80000 立方厘米 = 80000 毫升 = 80 升 = 0.08 立方米 = 4881.9 立方英寸',
+    });
+
+    expect(getStructuredResultTitleLines(result)).toEqual([
+      '40 厘米 × 40 厘米 × 50 厘米',
+      '80000 立方厘米',
+      '80000 毫升',
+      '80 升',
+      '0.08 立方米',
+      '4881.9 立方英寸',
+    ]);
+
+    const markup = renderToStaticMarkup(
+      createElement(ResultItem, {
+        id: 'launcher-option-quick-converter',
+        index: 0,
+        isDisabled: false,
+        isSelected: true,
+        language: 'zh-CN',
+        onExecute: vi.fn(),
+        onSelect: vi.fn(),
+        result,
+      }),
+    );
+
+    expect(markup).toContain('result-item result-item--structured');
+    expect(markup).toContain('result-title result-title--structured');
+    expect(markup).toContain('result-title__line result-title__line--source');
+    expect(markup).toContain('4881.9 立方英寸');
+    expect(markup).toContain(
+      'title="40 厘米 × 40 厘米 × 50 厘米 = 80000 立方厘米 = 80000 毫升 = 80 升 = 0.08 立方米 = 4881.9 立方英寸"',
+    );
+  });
+
+  it('keeps normal app result titles as a single display line', () => {
+    expect(getStructuredResultTitleLines(createResult())).toBeUndefined();
   });
 
   it('marks pinned app results as context-menu manageable', () => {

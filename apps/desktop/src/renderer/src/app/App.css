@@ -735,6 +735,36 @@ select {
   white-space: nowrap;
 }
 
+.result-item--structured {
+  align-items: start;
+}
+
+.result-item--structured .result-icon,
+.result-item--structured .result-source {
+  margin-top: 3px;
+}
+
+.result-title--structured {
+  display: grid;
+  gap: 4px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.result-title__line {
+  overflow-wrap: anywhere;
+  color: var(--app-title);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.result-title__line--source {
+  font-size: 14px;
+  font-weight: 720;
+}
+
 .result-item--recent-app .result-title {
   display: -webkit-box;
   min-height: 28px;

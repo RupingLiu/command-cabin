@@ -26,8 +26,26 @@ interface ResultItemProps {
   variant?: 'compact' | 'detailed';
 }
 
+const QUICK_CONVERTER_RESULT_COMMAND_ID = 'quick-converter.result';
+const STRUCTURED_RESULT_SEPARATOR_PATTERN = /\s+=\s+/u;
+
 export function getResultIconGlyph(result: LauncherResultItem): string {
   return result.title.trim().slice(0, 1).toUpperCase() || '?';
+}
+
+export function getStructuredResultTitleLines(
+  result: LauncherResultItem,
+): readonly string[] | undefined {
+  if (result.id !== QUICK_CONVERTER_RESULT_COMMAND_ID) {
+    return undefined;
+  }
+
+  const lines = result.title
+    .split(STRUCTURED_RESULT_SEPARATOR_PATTERN)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  return lines.length > 1 ? lines : undefined;
 }
 
 function isImageDataUrl(icon: string | undefined): icon is string {
@@ -99,13 +117,21 @@ export function ResultItem({
   const strings = getUiStrings(language);
   const result = localizeLauncherResult(rawResult, strings);
   const canOpenAppMenu = result.source === 'app' && isManageable && onOpenAppMenu !== undefined;
+  const structuredTitleLines = isCompact ? undefined : getStructuredResultTitleLines(result);
+  const itemClassName = [
+    'result-item',
+    isCompact ? 'result-item--recent-app' : undefined,
+    structuredTitleLines === undefined ? undefined : 'result-item--structured',
+  ]
+    .filter((className): className is string => className !== undefined)
+    .join(' ');
 
   return (
     <li
       aria-haspopup={canOpenAppMenu ? 'menu' : undefined}
       aria-disabled={isDisabled}
       aria-selected={isSelected}
-      className={isCompact ? 'result-item result-item--recent-app' : 'result-item'}
+      className={itemClassName}
       data-disabled={isDisabled}
       data-manageable={canOpenAppMenu}
       data-selected={isSelected}
@@ -139,9 +165,30 @@ export function ResultItem({
     >
       <ResultIcon result={result} />
       <span className="result-copy">
-        <span className="result-title" title={result.title}>
-          {result.title}
-        </span>
+        {structuredTitleLines === undefined ? (
+          <span className="result-title" title={result.title}>
+            {result.title}
+          </span>
+        ) : (
+          <span
+            aria-label={result.title}
+            className="result-title result-title--structured"
+            title={result.title}
+          >
+            {structuredTitleLines.map((line, lineIndex) => (
+              <span
+                className={
+                  lineIndex === 0
+                    ? 'result-title__line result-title__line--source'
+                    : 'result-title__line'
+                }
+                key={`${lineIndex}-${line}`}
+              >
+                {line}
+              </span>
+            ))}
+          </span>
+        )}
         {!isCompact && result.subtitle ? (
           <span className="result-subtitle">{result.subtitle}</span>
         ) : null}

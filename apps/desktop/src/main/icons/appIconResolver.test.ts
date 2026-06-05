@@ -128,7 +128,7 @@ describe('createAppIconResolver', () => {
     });
 
     expect(iconDataUrlCache.read).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result-v3:app\.codex:/),
+      expect.stringMatching(/^app-result-v4:app\.codex:/),
     );
     expect(getFileIcon).not.toHaveBeenCalled();
   });
@@ -228,9 +228,64 @@ describe('createAppIconResolver', () => {
     });
 
     expect(iconDataUrlCache.write).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result-v3:app\.codex:/),
+      expect.stringMatching(/^app-result-v4:app\.codex:/),
       'data:image/png;base64,CODEX',
     );
+  });
+
+  it('ignores stale v3 result icon cache and refreshes packaged Electron app icons', async () => {
+    const getFileIcon = vi.fn(async () => ({
+      toDataURL: () => 'data:image/png;base64,GENERIC_EXE',
+    }));
+    const iconDataUrlCache = {
+      read: vi.fn(async (key: string) =>
+        key.startsWith('app-result-v3:') ? 'data:image/png;base64,STALE_GENERIC' : undefined,
+      ),
+      write: vi.fn(async () => undefined),
+    };
+    const fileExists = vi.fn(async (iconPath: string) =>
+      iconPath.endsWith('\\resources\\app\\static\\logo-256x256.png'),
+    );
+    const readImageDataUrl = vi.fn(async () => 'data:image/png;base64,UGIT');
+    const resolver = createAppIconResolver({
+      fileExists,
+      getFileIcon,
+      iconDataUrlCache,
+      readImageDataUrl,
+      resolveShortcut: vi.fn(async () => ({
+        iconPath: 'C:\\Users\\Ada\\AppData\\Local\\UGit\\UGit.exe,0',
+        targetPath: 'C:\\Users\\Ada\\AppData\\Local\\UGit\\UGit.exe',
+        workingDirectory: 'C:\\Users\\Ada\\AppData\\Local\\UGit\\app-5.48.0',
+      })),
+    });
+
+    await expect(
+      resolver.resolveSearchResultIcon({
+        iconCandidates: [
+          'C:\\Users\\Ada\\AppData\\Local\\UGit\\UGit.exe,0',
+          'C:\\Users\\Ada\\AppData\\Local\\UGit\\UGit.exe',
+          'C:\\Users\\Ada\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\UGit, Inc\\UGit.lnk',
+        ],
+        id: 'app.ugit',
+        score: 1,
+        source: 'app',
+        title: 'UGit',
+      }),
+    ).resolves.toMatchObject({
+      icon: 'data:image/png;base64,UGIT',
+    });
+
+    expect(iconDataUrlCache.read).toHaveBeenCalledWith(
+      expect.stringMatching(/^app-result-v4:app\.ugit:/),
+    );
+    expect(iconDataUrlCache.write).toHaveBeenCalledWith(
+      expect.stringMatching(/^app-result-v4:app\.ugit:/),
+      'data:image/png;base64,UGIT',
+    );
+    expect(readImageDataUrl).toHaveBeenCalledWith(
+      'C:\\Users\\Ada\\AppData\\Local\\UGit\\app-5.48.0\\resources\\app\\static\\logo-256x256.png',
+    );
+    expect(getFileIcon).not.toHaveBeenCalled();
   });
 
   it('stores direct executable icons when a separate shortcut candidate is weak', async () => {
@@ -268,7 +323,7 @@ describe('createAppIconResolver', () => {
       icon: 'data:image/png;base64,EXE',
     });
     expect(iconDataUrlCache.write).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result-v3:app\.slow:/),
+      expect.stringMatching(/^app-result-v4:app\.slow:/),
       'data:image/png;base64,EXE',
     );
   });
@@ -807,10 +862,10 @@ describe('createAppIconResolver', () => {
     });
 
     expect(iconDataUrlCache.read).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result-v3:app\.yt-config-tool:/),
+      expect.stringMatching(/^app-result-v4:app\.yt-config-tool:/),
     );
     expect(iconDataUrlCache.write).toHaveBeenCalledWith(
-      expect.stringMatching(/^app-result-v3:app\.yt-config-tool:/),
+      expect.stringMatching(/^app-result-v4:app\.yt-config-tool:/),
       'data:image/png;base64,YT_CONFIG',
     );
     expect(getFileIcon).not.toHaveBeenCalled();

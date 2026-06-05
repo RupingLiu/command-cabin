@@ -17,6 +17,7 @@ export type ParsedConversionUnit =
   | 'milliliter'
   | 'cubicMeter'
   | 'cubicCentimeter'
+  | 'cubicInch'
   | 'usd';
 
 export interface ParsedConversionQuery {
@@ -25,7 +26,10 @@ export interface ParsedConversionQuery {
   unit: ParsedConversionUnit;
 }
 
-type ParsedLengthUnit = Extract<ParsedConversionUnit, 'centimeter' | 'inch' | 'millimeter' | 'meter'>;
+type ParsedLengthUnit = Extract<
+  ParsedConversionUnit,
+  'centimeter' | 'inch' | 'millimeter' | 'meter'
+>;
 
 interface ParsedVolumeDimension {
   amount: number;
@@ -68,6 +72,7 @@ const GRAMS_PER_KILOGRAM = 1_000;
 const MILLILITERS_PER_LITER = 1_000;
 const LITERS_PER_CUBIC_METER = 1_000;
 const CUBIC_CENTIMETERS_PER_MILLILITER = 1;
+const CUBIC_CENTIMETERS_PER_CUBIC_INCH = CENTIMETERS_PER_INCH ** 3;
 
 const UNIT_ALIASES = new Map<string, ParsedConversionUnit>([
   ['cm', 'centimeter'],
@@ -110,6 +115,12 @@ const UNIT_ALIASES = new Map<string, ParsedConversionUnit>([
   ['cm³', 'cubicCentimeter'],
   ['cc', 'cubicCentimeter'],
   ['立方厘米', 'cubicCentimeter'],
+  ['in3', 'cubicInch'],
+  ['in³', 'cubicInch'],
+  ['inch3', 'cubicInch'],
+  ['inch³', 'cubicInch'],
+  ['cuin', 'cubicInch'],
+  ['立方英寸', 'cubicInch'],
   ['usd', 'usd'],
   ['美元', 'usd'],
   ['美金', 'usd'],
@@ -199,6 +210,7 @@ function getUnitKind(unit: ParsedConversionUnit): ParsedConversionKind {
     case 'milliliter':
     case 'cubicMeter':
     case 'cubicCentimeter':
+    case 'cubicInch':
       return 'volume';
     case 'usd':
       return 'currency';
@@ -332,7 +344,10 @@ function formatVolumeConversion(parsed: ParsedConversionQuery): string {
         parsed.amount / LITERS_PER_CUBIC_METER,
       )} 立方米 = ${formatSignificantDecimal(
         parsed.amount * MILLILITERS_PER_LITER * CUBIC_CENTIMETERS_PER_MILLILITER,
-      )} 立方厘米`;
+      )} 立方厘米 = ${formatSignificantDecimal(
+        (parsed.amount * MILLILITERS_PER_LITER * CUBIC_CENTIMETERS_PER_MILLILITER) /
+          CUBIC_CENTIMETERS_PER_CUBIC_INCH,
+      )} 立方英寸`;
     case 'milliliter':
       return `${formatConciseDecimal(parsed.amount)} 毫升 = ${formatSignificantDecimal(
         parsed.amount / MILLILITERS_PER_LITER,
@@ -340,7 +355,9 @@ function formatVolumeConversion(parsed: ParsedConversionQuery): string {
         parsed.amount * CUBIC_CENTIMETERS_PER_MILLILITER,
       )} 立方厘米 = ${formatSignificantDecimal(
         parsed.amount / MILLILITERS_PER_LITER / LITERS_PER_CUBIC_METER,
-      )} 立方米`;
+      )} 立方米 = ${formatSignificantDecimal(
+        (parsed.amount * CUBIC_CENTIMETERS_PER_MILLILITER) / CUBIC_CENTIMETERS_PER_CUBIC_INCH,
+      )} 立方英寸`;
     case 'cubicMeter':
       return `${formatConciseDecimal(parsed.amount)} 立方米 = ${formatSignificantDecimal(
         parsed.amount * LITERS_PER_CUBIC_METER,
@@ -351,7 +368,13 @@ function formatVolumeConversion(parsed: ParsedConversionQuery): string {
           LITERS_PER_CUBIC_METER *
           MILLILITERS_PER_LITER *
           CUBIC_CENTIMETERS_PER_MILLILITER,
-      )} 立方厘米`;
+      )} 立方厘米 = ${formatSignificantDecimal(
+        (parsed.amount *
+          LITERS_PER_CUBIC_METER *
+          MILLILITERS_PER_LITER *
+          CUBIC_CENTIMETERS_PER_MILLILITER) /
+          CUBIC_CENTIMETERS_PER_CUBIC_INCH,
+      )} 立方英寸`;
     case 'cubicCentimeter':
       return `${formatConciseDecimal(parsed.amount)} 立方厘米 = ${formatSignificantDecimal(
         parsed.amount / CUBIC_CENTIMETERS_PER_MILLILITER,
@@ -362,7 +385,25 @@ function formatVolumeConversion(parsed: ParsedConversionQuery): string {
           CUBIC_CENTIMETERS_PER_MILLILITER /
           MILLILITERS_PER_LITER /
           LITERS_PER_CUBIC_METER,
+      )} 立方米 = ${formatSignificantDecimal(
+        parsed.amount / CUBIC_CENTIMETERS_PER_CUBIC_INCH,
+      )} 立方英寸`;
+    case 'cubicInch': {
+      const cubicCentimeters = parsed.amount * CUBIC_CENTIMETERS_PER_CUBIC_INCH;
+
+      return `${formatConciseDecimal(parsed.amount)} 立方英寸 = ${formatSignificantDecimal(
+        cubicCentimeters,
+      )} 立方厘米 = ${formatSignificantDecimal(
+        cubicCentimeters / CUBIC_CENTIMETERS_PER_MILLILITER,
+      )} 毫升 = ${formatSignificantDecimal(
+        cubicCentimeters / CUBIC_CENTIMETERS_PER_MILLILITER / MILLILITERS_PER_LITER,
+      )} 升 = ${formatSignificantDecimal(
+        cubicCentimeters /
+          CUBIC_CENTIMETERS_PER_MILLILITER /
+          MILLILITERS_PER_LITER /
+          LITERS_PER_CUBIC_METER,
       )} 立方米`;
+    }
     default:
       return '';
   }
@@ -378,7 +419,9 @@ function formatVolumeFromCubicCentimeters(cubicCentimeters: number): string {
       CUBIC_CENTIMETERS_PER_MILLILITER /
       MILLILITERS_PER_LITER /
       LITERS_PER_CUBIC_METER,
-  )} 立方米`;
+  )} 立方米 = ${formatSignificantDecimal(
+    cubicCentimeters / CUBIC_CENTIMETERS_PER_CUBIC_INCH,
+  )} 立方英寸`;
 }
 
 function formatWeightConversion(parsed: ParsedConversionQuery): string {

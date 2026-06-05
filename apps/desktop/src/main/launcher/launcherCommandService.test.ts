@@ -280,7 +280,7 @@ describe('launcher command service', () => {
       {
         id: 'quick-converter.result',
         source: 'plugin',
-        title: '1 升 = 1000 毫升 = 0.001 立方米 = 1000 立方厘米',
+        title: '1 升 = 1000 毫升 = 0.001 立方米 = 1000 立方厘米 = 61.0237 立方英寸',
       },
     ]);
   });
@@ -292,7 +292,8 @@ describe('launcher command service', () => {
       {
         id: 'quick-converter.result',
         source: 'plugin',
-        title: '1 厘米 × 1 厘米 × 1 厘米 = 1 立方厘米 = 1 毫升 = 0.001 升 = 0.000001 立方米',
+        title:
+          '1 厘米 × 1 厘米 × 1 厘米 = 1 立方厘米 = 1 毫升 = 0.001 升 = 0.000001 立方米 = 0.0610237 立方英寸',
       },
     ]);
   });

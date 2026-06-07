@@ -111,6 +111,33 @@ describe('screenshotReducer', () => {
     expect(branched.redoAnnotations).toEqual([]);
   });
 
+  it('adds generated translation overlays without inheriting the active drawing style', () => {
+    const selected = screenshotReducer(
+      screenshotReducer(createInitialScreenshotState(), {
+        color: '#ff3355',
+        type: 'color-selected',
+      }),
+      {
+        rect: { height: 90, width: 120, x: 10, y: 20 },
+        type: 'selection-set',
+      },
+    );
+    const translation = {
+      rect: { height: 90, width: 120, x: 0, y: 0 },
+      style: { color: '#111827', fontSize: 18, lineWidth: 1 },
+      text: 'Translation',
+      type: 'translation' as const,
+    };
+
+    const state = screenshotReducer(selected, {
+      annotation: translation,
+      type: 'annotation-added',
+    });
+
+    expect(state.annotations).toEqual([translation]);
+    expect(state.redoAnnotations).toEqual([]);
+  });
+
   it('builds and commits drag rectangle annotations as drafts', () => {
     const selected = screenshotReducer(
       screenshotReducer(createInitialScreenshotState(), {

@@ -10,10 +10,14 @@ import {
 import type { MouseEvent, ReactNode, Ref } from 'react';
 
 import type {
+  ScreenshotOcrLanguage,
   ScreenshotLaunchState,
   ScreenshotOcrResult,
   ScreenshotSaveFormat,
+  ScreenshotTranslationLanguage,
+  ScreenshotTranslationResult,
 } from '../../../shared/screenshotApi.js';
+import type { CommandCabinLanguage } from '@command-cabin/core';
 import { DEFAULT_UI_LANGUAGE, getUiStrings, type UiStrings } from '../i18n.js';
 import { composeScreenshotSelection } from './screenshotCanvas.js';
 import {
@@ -26,6 +30,12 @@ import {
   type ScreenshotState,
   type ScreenshotTool,
 } from './screenshotState.js';
+import {
+  createTranslationOverlayAnnotation,
+  getTranslationOverlayLineHeight,
+  getTranslationOverlayTextOrigin,
+  wrapTranslationOverlayText,
+} from './translationOverlay.js';
 
 const colors = ['#ff3355', '#f5c542', '#60d394', '#4aa3ff', '#ffffff'];
 const lineWidths = [2, 4, 6];
@@ -61,6 +71,7 @@ interface PendingTextAnnotation {
 }
 
 export type OcrPanelState = { status: 'running' } | ScreenshotOcrResult;
+export type TranslationPanelState = { status: 'running' } | ScreenshotTranslationResult;
 
 type ScreenshotApi = NonNullable<Window['desktopApi']['screenshot']>;
 type DesktopApi = Window['desktopApi'];
@@ -108,6 +119,7 @@ export interface ScreenshotOverlayViewProps {
   desktopApi?: Window['desktopApi']['screenshot'] | undefined;
   initialState?: ScreenshotState | undefined;
   launchState: ScreenshotLaunchState;
+  language?: CommandCabinLanguage | undefined;
   strings?: ScreenshotStrings | undefined;
 }
 
@@ -178,6 +190,18 @@ export function requireScreenshotApi(
   }
 
   return screenshotApi;
+}
+
+export function getScreenshotOcrLanguageForUi(
+  language: CommandCabinLanguage,
+): ScreenshotOcrLanguage {
+  return language === 'en-US' ? 'zh-CN' : 'en-US';
+}
+
+export function getScreenshotTranslationTargetLanguage(
+  language: CommandCabinLanguage,
+): ScreenshotTranslationLanguage {
+  return language;
 }
 
 export function createPendingTextAnnotationController({
@@ -286,6 +310,7 @@ export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: Screenshot
   const [launchState, setLaunchState] = useState<ScreenshotLaunchState | undefined>();
   const [launchVersion, setLaunchVersion] = useState(0);
   const [error, setError] = useState<string | undefined>();
+  const [language, setLanguage] = useState<CommandCabinLanguage>(DEFAULT_UI_LANGUAGE);
   const [strings, setStrings] = useState<ScreenshotStrings>(defaultScreenshotStrings);
 
   useIsomorphicLayoutEffect(() => {
@@ -312,6 +337,7 @@ export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: Screenshot
     void desktopApi
       ?.getSettings()
       .then((settings) => {
+        setLanguage(settings.language);
         setStrings(getUiStrings(settings.language).screenshot);
       })
       .catch(() => undefined);
@@ -343,6 +369,7 @@ export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: Screenshot
         (typeof window !== 'undefined' ? window.desktopApi.screenshot : undefined)
       }
       key={launchVersion}
+      language={language}
       launchState={launchState}
       strings={strings}
     />
@@ -352,6 +379,7 @@ export function ScreenshotOverlay({ desktopApi: injectedDesktopApi }: Screenshot
 export function ScreenshotOverlayView({
   desktopApi,
   initialState,
+  language = DEFAULT_UI_LANGUAGE,
   launchState,
   strings = defaultScreenshotStrings,
 }: ScreenshotOverlayViewProps) {
@@ -372,6 +400,7 @@ export function ScreenshotOverlayView({
   const saveFormat: ScreenshotSaveFormat = 'png';
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [ocrPanel, setOcrPanel] = useState<OcrPanelState | undefined>();
+  const [translationPanel, setTranslationPanel] = useState<TranslationPanelState | undefined>();
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarSize, setToolbarSize] = useState(defaultScreenshotToolbarSize);
   const [pendingTextAnnotation, setPendingTextAnnotation] = useState<
@@ -500,10 +529,55 @@ export function ScreenshotOverlayView({
       const screenshotApi = requireScreenshotApi(desktopApi, strings.controlsUnavailable);
 
       setOcrPanel({ status: 'running' });
-      const result = await screenshotApi.runOcr({ imageDataUrl, language: 'en-US' });
+      const result = await screenshotApi.runOcr({ imageDataUrl, language });
       setOcrPanel(result);
     },
-    [desktopApi, strings.controlsUnavailable],
+    [desktopApi, language, strings.controlsUnavailable],
+  );
+
+  const runTranslation = useCallback(
+    async (imageDataUrl: string) => {
+      const screenshotApi = requireScreenshotApi(desktopApi, strings.controlsUnavailable);
+
+      setOcrPanel(undefined);
+      setTranslationPanel({ status: 'running' });
+      const result = await screenshotApi.translateSelection({
+        imageDataUrl,
+        ocrLanguage: getScreenshotOcrLanguageForUi(language),
+        targetLanguage: getScreenshotTranslationTargetLanguage(language),
+      });
+
+      if (result.status !== 'success') {
+        setTranslationPanel(result);
+        return;
+      }
+
+      const annotation = state.selection
+        ? createTranslationOverlayAnnotation(state.selection, result.translatedText)
+        : undefined;
+
+      if (!annotation) {
+        setTranslationPanel({
+          message: strings.translation.noText,
+          ocrLanguage: result.ocrLanguage,
+          status: 'unavailable',
+          targetLanguage: result.targetLanguage,
+        });
+        return;
+      }
+
+      dispatch({ annotation, type: 'annotation-added' });
+      setTranslationPanel(undefined);
+      setStatus({ tone: 'info', value: strings.status.translationApplied });
+    },
+    [
+      desktopApi,
+      language,
+      state.selection,
+      strings.controlsUnavailable,
+      strings.status.translationApplied,
+      strings.translation.noText,
+    ],
   );
 
   const finish = useCallback(async () => {
@@ -521,7 +595,7 @@ export function ScreenshotOverlayView({
     } catch (reason) {
       if (getScreenshotCompletionAction(launchState) === 'ocr') {
         setOcrPanel({
-          language: 'en-US',
+          language,
           message: reason instanceof Error ? reason.message : strings.ocr.failed,
           status: 'error',
         });
@@ -677,7 +751,7 @@ export function ScreenshotOverlayView({
     });
   };
 
-  const runOutputAction = async (action: 'ocr' | 'pin' | 'save') => {
+  const runOutputAction = async (action: 'ocr' | 'pin' | 'save' | 'translate') => {
     try {
       const imageDataUrl = await exportImage(action === 'save' ? saveFormat : 'png');
       const screenshotApi = requireScreenshotApi(desktopApi, strings.controlsUnavailable);
@@ -691,15 +765,24 @@ export function ScreenshotOverlayView({
       } else if (action === 'pin') {
         await screenshotApi.pinImage({ imageDataUrl });
         setStatus({ tone: 'info', value: strings.status.pinned });
+      } else if (action === 'translate') {
+        await runTranslation(imageDataUrl);
       } else {
         await runOcr(imageDataUrl);
       }
     } catch (reason) {
       if (action === 'ocr') {
         setOcrPanel({
-          language: 'en-US',
+          language,
           message: reason instanceof Error ? reason.message : strings.ocr.failed,
           status: 'error',
+        });
+      } else if (action === 'translate') {
+        setTranslationPanel({
+          message: reason instanceof Error ? reason.message : strings.translation.failed,
+          ocrLanguage: getScreenshotOcrLanguageForUi(language),
+          status: 'error',
+          targetLanguage: getScreenshotTranslationTargetLanguage(language),
         });
       } else {
         setStatus(toStatus(reason, strings));
@@ -716,6 +799,22 @@ export function ScreenshotOverlayView({
       setStatus(toStatus(reason, strings));
     });
   }, [ocrPanel, strings]);
+
+  const copyTranslatedText = useCallback(() => {
+    if (
+      !translationPanel ||
+      translationPanel.status !== 'success' ||
+      translationPanel.translatedText.length === 0
+    ) {
+      return;
+    }
+
+    void navigator.clipboard
+      ?.writeText(translationPanel.translatedText)
+      .catch((reason: unknown) => {
+        setStatus(toStatus(reason, strings));
+      });
+  }, [strings, translationPanel]);
 
   return (
     <div
@@ -839,6 +938,13 @@ export function ScreenshotOverlayView({
           {ocrPanel ? (
             <OcrPanel state={ocrPanel} strings={strings} onCopyAll={copyOcrText} />
           ) : undefined}
+          {translationPanel ? (
+            <TranslationPanel
+              state={translationPanel}
+              strings={strings}
+              onCopyTranslation={copyTranslatedText}
+            />
+          ) : undefined}
           {status ? (
             <div className="screenshot-status" data-tone={status.tone}>
               {status.value}
@@ -904,6 +1010,15 @@ export function ScreenshotOverlayView({
               >
                 <span className="screenshot-icon">{toolbarIcon('ocr')}</span>
                 <span className="screenshot-button-label">{strings.toolbar.ocr}</span>
+              </button>
+              <button
+                aria-label={strings.toolbar.translate}
+                onClick={() => void runOutputAction('translate')}
+                title={strings.toolbar.translate}
+                type="button"
+              >
+                <span className="screenshot-icon">{toolbarIcon('translate')}</span>
+                <span className="screenshot-button-label">{strings.toolbar.translate}</span>
               </button>
               <button
                 aria-label={strings.toolbar.pin}
@@ -1068,6 +1183,52 @@ export function OcrPanel({ onCopyAll, state, strings = defaultScreenshotStrings 
   );
 }
 
+export interface TranslationPanelProps {
+  onCopyTranslation: () => void;
+  state: TranslationPanelState;
+  strings?: ScreenshotStrings | undefined;
+}
+
+export function TranslationPanel({
+  onCopyTranslation,
+  state,
+  strings = defaultScreenshotStrings,
+}: TranslationPanelProps) {
+  if (state.status === 'running') {
+    return (
+      <div className="screenshot-ocr-panel screenshot-translation-panel" role="status">
+        {strings.translation.translating}
+      </div>
+    );
+  }
+
+  if (state.status === 'success') {
+    const hasTranslation = state.translatedText.trim().length > 0;
+
+    return (
+      <div className="screenshot-ocr-panel screenshot-translation-panel">
+        <div className="screenshot-translation-section">
+          <strong>{strings.translation.source}</strong>
+          <pre>{state.sourceText || strings.ocr.noText}</pre>
+        </div>
+        <div className="screenshot-translation-section">
+          <strong>{strings.translation.result}</strong>
+          <pre>{hasTranslation ? state.translatedText : strings.translation.noText}</pre>
+        </div>
+        <button disabled={!hasTranslation} onClick={onCopyTranslation} type="button">
+          {strings.translation.copy}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="screenshot-ocr-panel screenshot-translation-panel" data-tone={state.status}>
+      {state.message}
+    </div>
+  );
+}
+
 interface TextAnnotationInputProps {
   cancelLabel: string;
   commitLabel: string;
@@ -1214,7 +1375,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max));
 }
 
-type ToolbarIconName = 'cancel' | 'done' | 'ocr' | 'pin' | 'redo' | 'save' | 'undo';
+type ToolbarIconName = 'cancel' | 'done' | 'ocr' | 'pin' | 'redo' | 'save' | 'translate' | 'undo';
 
 function ScreenshotIcon({ children }: { children: ReactNode }) {
   return (
@@ -1301,6 +1462,17 @@ function toolbarIcon(icon: ToolbarIconName) {
           <path d="M8 19h8" />
           <path d="M5 12h4" />
           <path d="M15 12h4" />
+        </ScreenshotIcon>
+      );
+    case 'translate':
+      return (
+        <ScreenshotIcon>
+          <path d="M4 5h8" />
+          <path d="M8 5v3" />
+          <path d="M5.5 11.5A8 8 0 0 0 11 8" />
+          <path d="M11.5 11.5A8 8 0 0 1 6 8" />
+          <path d="M14 19l3-8 3 8" />
+          <path d="M15.2 16h3.6" />
         </ScreenshotIcon>
       );
     case 'pin':
@@ -1462,6 +1634,37 @@ function AnnotationShape({ annotation, isDraft }: AnnotationShapeProps) {
           ))}
         </text>
       );
+    case 'translation': {
+      const lineHeight = getTranslationOverlayLineHeight(annotation.style.fontSize);
+      const lines = wrapTranslationOverlayText(
+        annotation.text,
+        annotation.rect,
+        annotation.style.fontSize,
+      );
+      const origin = getTranslationOverlayTextOrigin(
+        annotation.rect,
+        annotation.style.fontSize,
+        lines.length,
+      );
+
+      return (
+        <g data-annotation-type={annotation.type} data-draft={isDraft ? 'true' : undefined}>
+          <rect fill="#ffffff" {...annotation.rect} />
+          <text fill={annotation.style.color} fontSize={annotation.style.fontSize}>
+            {lines.map((line, index) => (
+              <tspan
+                dy={index === 0 ? 0 : lineHeight}
+                key={`${index}-${line}`}
+                x={origin.x}
+                y={index === 0 ? origin.y : undefined}
+              >
+                {line}
+              </tspan>
+            ))}
+          </text>
+        </g>
+      );
+    }
   }
 }
 

@@ -6,11 +6,13 @@ export const screenshotLaunchModes = Object.freeze([
 ] as const);
 export const screenshotSaveFormats = Object.freeze(['png', 'jpg'] as const);
 export const screenshotOcrLanguages = Object.freeze(['zh-CN', 'zh-TW', 'en-US'] as const);
+export const screenshotTranslationLanguages = Object.freeze(['zh-CN', 'zh-TW', 'en-US'] as const);
 
 export type ScreenshotLaunchMode = (typeof screenshotLaunchModes)[number];
 export type ScreenshotLaunchPhase = 'capturing' | 'ready';
 export type ScreenshotSaveFormat = (typeof screenshotSaveFormats)[number];
 export type ScreenshotOcrLanguage = (typeof screenshotOcrLanguages)[number];
+export type ScreenshotTranslationLanguage = (typeof screenshotTranslationLanguages)[number];
 
 export interface ScreenshotBounds {
   height: number;
@@ -45,6 +47,11 @@ export interface ScreenshotSaveImageRequest extends ScreenshotImageRequest {
 
 export interface ScreenshotOcrRequest extends ScreenshotImageRequest {
   language: ScreenshotOcrLanguage;
+}
+
+export interface ScreenshotTranslateSelectionRequest extends ScreenshotImageRequest {
+  ocrLanguage: ScreenshotOcrLanguage;
+  targetLanguage: ScreenshotTranslationLanguage;
 }
 
 export interface ScreenshotPinnedImageState extends ScreenshotImageRequest {
@@ -84,6 +91,33 @@ export type ScreenshotOcrResult =
   | ScreenshotOcrUnavailableResult
   | ScreenshotOcrErrorResult;
 
+export interface ScreenshotTranslationSuccessResult {
+  ocrLanguage: ScreenshotOcrLanguage;
+  sourceText: string;
+  status: 'success';
+  targetLanguage: ScreenshotTranslationLanguage;
+  translatedText: string;
+}
+
+export interface ScreenshotTranslationUnavailableResult {
+  message: string;
+  ocrLanguage: ScreenshotOcrLanguage;
+  status: 'unavailable';
+  targetLanguage: ScreenshotTranslationLanguage;
+}
+
+export interface ScreenshotTranslationErrorResult {
+  message: string;
+  ocrLanguage: ScreenshotOcrLanguage;
+  status: 'error';
+  targetLanguage: ScreenshotTranslationLanguage;
+}
+
+export type ScreenshotTranslationResult =
+  | ScreenshotTranslationSuccessResult
+  | ScreenshotTranslationUnavailableResult
+  | ScreenshotTranslationErrorResult;
+
 export interface ScreenshotPinImageResult {
   id: string;
 }
@@ -91,6 +125,9 @@ export interface ScreenshotPinImageResult {
 const launchModeSet = new Set<ScreenshotLaunchMode>(screenshotLaunchModes);
 const saveFormatSet = new Set<ScreenshotSaveFormat>(screenshotSaveFormats);
 const ocrLanguageSet = new Set<ScreenshotOcrLanguage>(screenshotOcrLanguages);
+const translationLanguageSet = new Set<ScreenshotTranslationLanguage>(
+  screenshotTranslationLanguages,
+);
 const imageDataUrlPattern = /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -200,6 +237,16 @@ export function parseScreenshotOcrLanguage(value: unknown): ScreenshotOcrLanguag
   }
 
   return language as ScreenshotOcrLanguage;
+}
+
+export function parseScreenshotTranslationLanguage(value: unknown): ScreenshotTranslationLanguage {
+  const language = parseString(value, 'Screenshot translation language');
+
+  if (!translationLanguageSet.has(language as ScreenshotTranslationLanguage)) {
+    throw new Error('Screenshot translation language must be "zh-CN", "zh-TW", or "en-US".');
+  }
+
+  return language as ScreenshotTranslationLanguage;
 }
 
 export function parseScreenshotBounds(
@@ -327,6 +374,24 @@ export function parseScreenshotOcrRequest(value: unknown): ScreenshotOcrRequest 
   };
 }
 
+export function parseScreenshotTranslateSelectionRequest(
+  value: unknown,
+): ScreenshotTranslateSelectionRequest {
+  const context = 'Invalid screenshot translation request';
+
+  if (!isRecord(value)) {
+    throw new Error(`${context} must be an object.`);
+  }
+
+  assertKnownKeys(value, new Set(['imageDataUrl', 'ocrLanguage', 'targetLanguage']), context);
+
+  return {
+    imageDataUrl: parseImageDataUrl(value.imageDataUrl, `${context}.imageDataUrl`),
+    ocrLanguage: parseScreenshotOcrLanguage(value.ocrLanguage),
+    targetLanguage: parseScreenshotTranslationLanguage(value.targetLanguage),
+  };
+}
+
 export function parseScreenshotPinnedImageToken(value: unknown): string {
   return parseNonEmptyString(value, 'Screenshot pinned image token');
 }
@@ -426,6 +491,49 @@ export function parseScreenshotOcrResult(value: unknown): ScreenshotOcrResult {
   }
 
   throw new Error('Screenshot OCR response status must be supported.');
+}
+
+export function parseScreenshotTranslationResult(value: unknown): ScreenshotTranslationResult {
+  const context = 'Invalid screenshot translation response';
+
+  if (!isRecord(value)) {
+    throw new Error(`${context} must be an object.`);
+  }
+
+  const status = parseString(value.status, `${context}.status`);
+
+  if (status === 'success') {
+    assertKnownKeys(
+      value,
+      new Set(['ocrLanguage', 'sourceText', 'status', 'targetLanguage', 'translatedText']),
+      context,
+    );
+
+    return {
+      ocrLanguage: parseScreenshotOcrLanguage(value.ocrLanguage),
+      sourceText: parseString(value.sourceText, `${context}.sourceText`),
+      status,
+      targetLanguage: parseScreenshotTranslationLanguage(value.targetLanguage),
+      translatedText: parseString(value.translatedText, `${context}.translatedText`),
+    };
+  }
+
+  if (status === 'unavailable' || status === 'error') {
+    assertKnownKeys(
+      value,
+      new Set(['message', 'ocrLanguage', 'status', 'targetLanguage']),
+      context,
+    );
+
+    return {
+      message: parseNonEmptyString(value.message, `${context}.message`),
+      ocrLanguage: parseScreenshotOcrLanguage(value.ocrLanguage),
+      status,
+      targetLanguage: parseScreenshotTranslationLanguage(value.targetLanguage),
+    };
+  }
+
+  throw new Error('Screenshot translation response status must be supported.');
 }
 
 export function parseScreenshotPinImageResult(value: unknown): ScreenshotPinImageResult {

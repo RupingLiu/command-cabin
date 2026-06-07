@@ -4,6 +4,8 @@ import type {
   ScreenshotLaunchState,
   ScreenshotOcrRequest,
   ScreenshotOcrResult,
+  ScreenshotTranslateSelectionRequest,
+  ScreenshotTranslationResult,
   ScreenshotOperationResult,
   ScreenshotPinnedImageState,
   ScreenshotPinImageResult,
@@ -17,6 +19,7 @@ import {
   parseScreenshotPinnedImageToken,
   parseScreenshotPinImageRequest,
   parseScreenshotSaveImageRequest,
+  parseScreenshotTranslateSelectionRequest,
 } from '../../shared/screenshotApi.js';
 import type { ScreenshotDisplayCapture } from './screenshotCapture.js';
 
@@ -65,6 +68,11 @@ export interface CreateScreenshotControllerOptions {
     registerWindow: (window: ScreenshotPinnedImageWindow) => void,
   ) => Promise<ScreenshotPinnedImageWindow> | ScreenshotPinnedImageWindow;
   runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult> | ScreenshotOcrResult;
+  translateSelection?:
+    | ((
+        request: ScreenshotTranslateSelectionRequest,
+      ) => Promise<ScreenshotTranslationResult> | ScreenshotTranslationResult)
+    | undefined;
   showSaveDialog: (
     request: ScreenshotSaveImageRequest,
   ) => Promise<ScreenshotSaveImageResult> | ScreenshotSaveImageResult;
@@ -88,6 +96,10 @@ export interface ScreenshotController {
   markOverlayReady: (sender: ScreenshotWebContents) => boolean;
   prepare: () => Promise<void>;
   runOcr: (sender: ScreenshotWebContents, request: unknown) => Promise<ScreenshotOcrResult>;
+  translateSelection: (
+    sender: ScreenshotWebContents,
+    request: unknown,
+  ) => Promise<ScreenshotTranslationResult>;
   saveImage: (
     sender: ScreenshotWebContents,
     request: unknown,
@@ -226,6 +238,12 @@ export function createScreenshotController({
   pinImage,
   runOcr,
   showSaveDialog,
+  translateSelection = (request) => ({
+    message: 'Screenshot translation is not configured.',
+    ocrLanguage: request.ocrLanguage,
+    status: 'error' as const,
+    targetLanguage: request.targetLanguage,
+  }),
   writeClipboardImage,
   writeImageFile,
   waitForCaptureSurface = () => delay(defaultCaptureSurfaceSettleMs),
@@ -467,6 +485,10 @@ export function createScreenshotController({
     runOcr: async (sender, request) => {
       assertLiveState(states, sender);
       return runOcr(parseScreenshotOcrRequest(request));
+    },
+    translateSelection: async (sender, request) => {
+      assertLiveState(states, sender);
+      return translateSelection(parseScreenshotTranslateSelectionRequest(request));
     },
     saveImage: async (sender, request) => {
       assertLiveState(states, sender);

@@ -38,13 +38,19 @@ export type ScreenshotAnnotation =
       point: ScreenshotPoint;
       text: string;
       type: 'text';
+    })
+  | (StyledAnnotation & {
+      rect: ScreenshotRect;
+      text: string;
+      type: 'translation';
     });
 
 export type ScreenshotAnnotationInput =
   | Omit<Extract<ScreenshotAnnotation, { type: 'rectangle' | 'ellipse' | 'mosaic' }>, 'style'>
   | Omit<Extract<ScreenshotAnnotation, { type: 'arrow' }>, 'style'>
   | Omit<Extract<ScreenshotAnnotation, { type: 'pen' }>, 'style'>
-  | Omit<Extract<ScreenshotAnnotation, { type: 'text' }>, 'style'>;
+  | Omit<Extract<ScreenshotAnnotation, { type: 'text' }>, 'style'>
+  | Omit<Extract<ScreenshotAnnotation, { type: 'translation' }>, 'style'>;
 
 export interface ScreenshotState {
   annotationAnchor: ScreenshotPoint | undefined;
@@ -92,6 +98,10 @@ export type ScreenshotAction =
   | {
       annotation: ScreenshotAnnotationInput;
       type: 'annotation-committed';
+    }
+  | {
+      annotation: ScreenshotAnnotation;
+      type: 'annotation-added';
     }
   | {
       point: ScreenshotPoint;
@@ -223,6 +233,14 @@ export function screenshotReducer(
         ...state,
         annotationAnchor: undefined,
         annotations: [...state.annotations, withStyle(action.annotation, state.style)],
+        draftAnnotation: undefined,
+        redoAnnotations: [],
+      };
+    case 'annotation-added':
+      return {
+        ...state,
+        annotationAnchor: undefined,
+        annotations: [...state.annotations, action.annotation],
         draftAnnotation: undefined,
         redoAnnotations: [],
       };
@@ -368,6 +386,8 @@ function updateDraftAnnotation(
         ...draftAnnotation,
         style: { ...style },
       };
+    case 'translation':
+      return draftAnnotation;
   }
 }
 
@@ -383,6 +403,8 @@ function isCommittableAnnotation(annotation: ScreenshotAnnotation): boolean {
       return annotation.points.length > 1;
     case 'text':
       return annotation.text.trim().length > 0;
+    case 'translation':
+      return annotation.text.trim().length > 0 && isNonEmptyScreenshotRect(annotation.rect);
   }
 }
 

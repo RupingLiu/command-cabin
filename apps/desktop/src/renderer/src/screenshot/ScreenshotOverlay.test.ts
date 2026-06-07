@@ -7,6 +7,7 @@ import {
   ScreenshotOverlay,
   ScreenshotOverlayView,
   TextAnnotationInput,
+  TranslationPanel,
   areDisplayImagesLoaded,
   applyScreenshotTransparentDocumentBackground,
   createPendingTextAnnotationController,
@@ -14,6 +15,8 @@ import {
   getScreenshotLaunchPhase,
   getPendingTextPointerAction,
   getScreenshotCompletionAction,
+  getScreenshotOcrLanguageForUi,
+  getScreenshotTranslationTargetLanguage,
   isScreenshotLaunchStateHydration,
   isScreenshotLaunchStateReady,
   getTextAnnotationKeyAction,
@@ -143,6 +146,7 @@ describe('ScreenshotOverlayView', () => {
     expect(markup).toContain('Text');
     expect(markup).toContain('Mosaic');
     expect(markup).toContain('OCR');
+    expect(markup).toContain('Translate');
     expect(markup).toContain('Pin');
     expect(markup).toContain('Save');
     expect(markup).toContain('Done');
@@ -175,10 +179,12 @@ describe('ScreenshotOverlayView', () => {
     expect(simplified).toContain('矩形');
     expect(simplified).toContain('颜色');
     expect(simplified).toContain('置顶');
+    expect(simplified).toContain('翻译');
     expect(simplified).toContain('完成');
     expect(traditional).toContain('橢圓');
     expect(traditional).toContain('顏色');
     expect(traditional).toContain('置頂');
+    expect(traditional).toContain('翻譯');
     expect(traditional).toContain('儲存');
   });
 
@@ -233,6 +239,71 @@ describe('ScreenshotOverlayView', () => {
     expect(error).toContain('OCR failed.');
   });
 
+  it('renders translation progress, translated text, unavailable, and error panel states', () => {
+    const running = renderToStaticMarkup(
+      createElement(TranslationPanel, {
+        onCopyTranslation: vi.fn(),
+        strings: getUiStrings('en-US').screenshot,
+        state: { status: 'running' },
+      }),
+    );
+    const success = renderToStaticMarkup(
+      createElement(TranslationPanel, {
+        onCopyTranslation: vi.fn(),
+        strings: getUiStrings('en-US').screenshot,
+        state: {
+          ocrLanguage: 'en-US',
+          sourceText: 'hello',
+          status: 'success',
+          targetLanguage: 'zh-CN',
+          translatedText: '你好',
+        },
+      }),
+    );
+    const unavailable = renderToStaticMarkup(
+      createElement(TranslationPanel, {
+        onCopyTranslation: vi.fn(),
+        strings: getUiStrings('en-US').screenshot,
+        state: {
+          message: 'No OCR text found.',
+          ocrLanguage: 'en-US',
+          status: 'unavailable',
+          targetLanguage: 'zh-CN',
+        },
+      }),
+    );
+    const error = renderToStaticMarkup(
+      createElement(TranslationPanel, {
+        onCopyTranslation: vi.fn(),
+        strings: getUiStrings('en-US').screenshot,
+        state: {
+          message: 'Translation failed.',
+          ocrLanguage: 'en-US',
+          status: 'error',
+          targetLanguage: 'zh-CN',
+        },
+      }),
+    );
+
+    expect(running).toContain('Translating...');
+    expect(success).toContain('Original');
+    expect(success).toContain('hello');
+    expect(success).toContain('Translation');
+    expect(success).toContain('你好');
+    expect(success).toContain('Copy translation');
+    expect(unavailable).toContain('No OCR text found.');
+    expect(error).toContain('Translation failed.');
+  });
+
+  it('defaults translation OCR source and target languages from the UI language', () => {
+    expect(getScreenshotOcrLanguageForUi('zh-CN')).toBe('en-US');
+    expect(getScreenshotTranslationTargetLanguage('zh-CN')).toBe('zh-CN');
+    expect(getScreenshotOcrLanguageForUi('zh-TW')).toBe('en-US');
+    expect(getScreenshotTranslationTargetLanguage('zh-TW')).toBe('zh-TW');
+    expect(getScreenshotOcrLanguageForUi('en-US')).toBe('zh-CN');
+    expect(getScreenshotTranslationTargetLanguage('en-US')).toBe('en-US');
+  });
+
   it('renders committed annotations and the current draft in a selection SVG overlay', () => {
     const initialState = withSelectionAndAnnotations();
     const markup = renderToStaticMarkup(
@@ -245,6 +316,8 @@ describe('ScreenshotOverlayView', () => {
     expect(markup).toContain('data-annotation-type="pen"');
     expect(markup).toContain('data-annotation-type="text"');
     expect(markup).toContain('data-annotation-type="mosaic"');
+    expect(markup).toContain('data-annotation-type="translation"');
+    expect(markup).toContain('Translated ove');
     expect(markup).toContain('screenshot-mosaic-preview');
     expect(markup).toContain('data-draft="true"');
     expect(markup).toContain('y="92"');
@@ -410,8 +483,18 @@ function withSelectionAndAnnotations(): ScreenshotState {
     selected,
   );
 
+  const withTranslation = screenshotReducer(withAnnotations, {
+    annotation: {
+      rect: { height: 120, width: 160, x: 0, y: 0 },
+      style: { color: '#111827', fontSize: 18, lineWidth: 1 },
+      text: 'Translated overlay',
+      type: 'translation',
+    },
+    type: 'annotation-added',
+  });
+
   return screenshotReducer(
-    screenshotReducer(withAnnotations, { tool: 'ellipse', type: 'tool-selected' }),
+    screenshotReducer(withTranslation, { tool: 'ellipse', type: 'tool-selected' }),
     {
       point: { x: 40, y: 40 },
       type: 'annotation-started',

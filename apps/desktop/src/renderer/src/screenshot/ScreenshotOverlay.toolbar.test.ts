@@ -75,7 +75,17 @@ describe('ScreenshotOverlayView toolbar', () => {
       }),
     );
 
-    for (const label of ['Rectangle', 'Arrow', 'Text', 'OCR', 'Pin', 'Save', 'Done', 'Cancel']) {
+    for (const label of [
+      'Rectangle',
+      'Arrow',
+      'Text',
+      'OCR',
+      'Translate',
+      'Pin',
+      'Save',
+      'Done',
+      'Cancel',
+    ]) {
       expect(markup).toContain(`aria-label="${label}"`);
       expect(markup).toContain(`title="${label}"`);
     }
@@ -106,6 +116,7 @@ describe('ScreenshotOverlayView toolbar', () => {
       'Undo',
       'Redo',
       'OCR',
+      'Translate',
       'Pin',
       'Save',
       'Cancel',

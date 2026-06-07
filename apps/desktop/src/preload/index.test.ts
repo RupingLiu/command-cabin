@@ -26,6 +26,7 @@ import {
   SCREENSHOT_READY_TO_SHOW_CHANNEL,
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
+  SCREENSHOT_TRANSLATE_SELECTION_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
   START_HOTKEY_INPUT_CAPTURE_CHANNEL,
   STOP_HOTKEY_INPUT_CAPTURE_CHANNEL,
@@ -431,6 +432,32 @@ describe('preload desktopApi settings bridge', () => {
     expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_RUN_OCR_CHANNEL, {
       imageDataUrl: 'data:image/png;base64,AAAA',
       language: 'en-US',
+    });
+
+    electronMock.invoke.mockResolvedValueOnce({
+      ocrLanguage: 'en-US',
+      sourceText: 'hello',
+      status: 'success',
+      targetLanguage: 'zh-CN',
+      translatedText: '你好',
+    });
+    await expect(
+      api.screenshot!.translateSelection({
+        imageDataUrl: 'data:image/png;base64,AAAA',
+        ocrLanguage: 'en-US',
+        targetLanguage: 'zh-CN',
+      }),
+    ).resolves.toEqual({
+      ocrLanguage: 'en-US',
+      sourceText: 'hello',
+      status: 'success',
+      targetLanguage: 'zh-CN',
+      translatedText: '你好',
+    });
+    expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_TRANSLATE_SELECTION_CHANNEL, {
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      ocrLanguage: 'en-US',
+      targetLanguage: 'zh-CN',
     });
 
     electronMock.invoke.mockResolvedValueOnce({

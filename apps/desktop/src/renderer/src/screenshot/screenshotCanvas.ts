@@ -9,6 +9,11 @@ import type {
   ScreenshotPoint,
   ScreenshotRect,
 } from './screenshotState.js';
+import {
+  getTranslationOverlayLineHeight,
+  getTranslationOverlayTextOrigin,
+  wrapTranslationOverlayText,
+} from './translationOverlay.js';
 
 type CanvasImageSourceLike = unknown;
 
@@ -32,6 +37,7 @@ export interface ScreenshotCanvasContextLike {
     endAngle: number,
   ) => void;
   fillText?: (text: string, x: number, y: number) => void;
+  fillRect?: (x: number, y: number, width: number, height: number) => void;
   getImageData?: (x: number, y: number, width: number, height: number) => ImageDataLike;
   lineTo: (x: number, y: number) => void;
   moveTo: (x: number, y: number) => void;
@@ -154,6 +160,14 @@ export function drawAnnotation(
     case 'mosaic':
       drawMosaic(context, scaleRect(annotation.rect, outputScale), outputScale);
       break;
+    case 'translation':
+      drawTranslationOverlay(
+        context,
+        annotation.text,
+        scaleRect(annotation.rect, outputScale),
+        scaledStyle,
+      );
+      break;
   }
 }
 
@@ -188,10 +202,7 @@ function scaleRect(rect: ScreenshotRect, scale: number): ScreenshotRect {
   };
 }
 
-function scaleStyle(
-  style: ScreenshotAnnotationStyle,
-  scale: number,
-): ScreenshotAnnotationStyle {
+function scaleStyle(style: ScreenshotAnnotationStyle, scale: number): ScreenshotAnnotationStyle {
   return {
     ...style,
     fontSize: style.fontSize * scale,
@@ -300,6 +311,26 @@ function drawMosaic(
 
   pixelate(imageData, Math.max(4, Math.round(8 * outputScale)));
   context.putImageData(imageData, Math.round(rect.x), Math.round(rect.y));
+}
+
+function drawTranslationOverlay(
+  context: ScreenshotCanvasContextLike,
+  text: string,
+  rect: ScreenshotRect,
+  style: ScreenshotAnnotationStyle,
+): void {
+  context.fillStyle = '#ffffff';
+  context.fillRect?.(rect.x, rect.y, rect.width, rect.height);
+  context.fillStyle = style.color;
+  context.font = `${style.fontSize}px sans-serif`;
+
+  const lineHeight = getTranslationOverlayLineHeight(style.fontSize);
+  const lines = wrapTranslationOverlayText(text, rect, style.fontSize);
+  const origin = getTranslationOverlayTextOrigin(rect, style.fontSize, lines.length);
+
+  for (const [index, line] of lines.entries()) {
+    context.fillText?.(line, origin.x, origin.y + index * lineHeight);
+  }
 }
 
 function pixelate(imageData: ImageDataLike, blockSize: number): void {

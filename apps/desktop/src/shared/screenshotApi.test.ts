@@ -6,6 +6,8 @@ import {
   parseScreenshotLaunchState,
   parseScreenshotOcrRequest,
   parseScreenshotOcrResult,
+  parseScreenshotTranslateSelectionRequest,
+  parseScreenshotTranslationResult,
   parseScreenshotPinnedImageState,
   parseScreenshotPinnedImageToken,
   parseScreenshotPinImageRequest,
@@ -101,6 +103,17 @@ describe('screenshotApi parsers', () => {
       language: 'zh-CN',
     });
     expect(
+      parseScreenshotTranslateSelectionRequest({
+        imageDataUrl: pngDataUrl,
+        ocrLanguage: 'en-US',
+        targetLanguage: 'zh-CN',
+      }),
+    ).toEqual({
+      imageDataUrl: pngDataUrl,
+      ocrLanguage: 'en-US',
+      targetLanguage: 'zh-CN',
+    });
+    expect(
       parseScreenshotSaveImageResult({ canceled: false, filePath: 'C:\\capture.png' }),
     ).toEqual({
       canceled: false,
@@ -139,6 +152,21 @@ describe('screenshotApi parsers', () => {
       message: 'Windows OCR is unavailable.',
       status: 'unavailable',
     });
+    expect(
+      parseScreenshotTranslationResult({
+        ocrLanguage: 'en-US',
+        sourceText: 'hello',
+        status: 'success',
+        targetLanguage: 'zh-CN',
+        translatedText: '你好',
+      }),
+    ).toEqual({
+      ocrLanguage: 'en-US',
+      sourceText: 'hello',
+      status: 'success',
+      targetLanguage: 'zh-CN',
+      translatedText: '你好',
+    });
   });
 
   it('rejects unknown image request keys and unsupported formats or OCR languages', () => {
@@ -151,6 +179,13 @@ describe('screenshotApi parsers', () => {
     expect(() =>
       parseScreenshotOcrRequest({ imageDataUrl: pngDataUrl, language: 'ja-JP' }),
     ).toThrow(/ocr language/i);
+    expect(() =>
+      parseScreenshotTranslateSelectionRequest({
+        imageDataUrl: pngDataUrl,
+        ocrLanguage: 'en-US',
+        targetLanguage: 'ja-JP',
+      }),
+    ).toThrow(/translation language/i);
     expect(() => parseScreenshotPinnedImageToken('')).toThrow(/pinned image token/i);
     expect(() =>
       parseScreenshotPinnedImageState({ imageDataUrl: pngDataUrl, token: 'pin-1', extra: true }),
@@ -161,5 +196,12 @@ describe('screenshotApi parsers', () => {
         status: 'pending',
       }),
     ).toThrow(/ocr response status/i);
+    expect(() =>
+      parseScreenshotTranslationResult({
+        ocrLanguage: 'en-US',
+        status: 'pending',
+        targetLanguage: 'zh-CN',
+      }),
+    ).toThrow(/translation response status/i);
   });
 });

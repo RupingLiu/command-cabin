@@ -12,6 +12,9 @@ function createMockCanvas() {
     closePath: vi.fn(() => operations.push('closePath')),
     drawImage: vi.fn((...args: unknown[]) => drawImageCalls.push({ args })),
     ellipse: vi.fn(() => operations.push('ellipse')),
+    fillRect: vi.fn((x: number, y: number, width: number, height: number) =>
+      operations.push(`fillRect:${x}:${y}:${width}:${height}`),
+    ),
     fillText: vi.fn((text: string, x: number, y: number) =>
       operations.push(`fillText:${text}:${x}:${Number(y.toFixed(1))}`),
     ),
@@ -116,6 +119,12 @@ describe('composeScreenshotSelection', () => {
       },
       { point: { x: 4, y: 48 }, style: baseStyle(), text: 'OCR', type: 'text' },
       { rect: { height: 12, width: 12, x: 36, y: 36 }, style: baseStyle(), type: 'mosaic' },
+      {
+        rect: { height: 26, width: 80, x: 0, y: 0 },
+        style: { color: '#111827', fontSize: 16, lineWidth: 1 },
+        text: 'translated',
+        type: 'translation',
+      },
     ];
 
     await composeScreenshotSelection({
@@ -132,6 +141,12 @@ describe('composeScreenshotSelection', () => {
     expect(mock.operations).toContain('lineTo');
     expect(mock.operations).toContain('fillText:OCR:4:48');
     expect(mock.operations).toContain('putImageData');
+    expect(mock.operations).toContain('fillRect:0:0:80:26');
+    expect(
+      mock.operations.some(
+        (operation) => operation.startsWith('fillText:') && operation.endsWith(':9:9'),
+      ),
+    ).toBe(true);
   });
 
   it('draws multiline text annotations one canvas line at a time', async () => {

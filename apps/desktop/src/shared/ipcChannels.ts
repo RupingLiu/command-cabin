@@ -42,3 +42,5 @@ export const SCREENSHOT_COPY_IMAGE_CHANNEL = 'command-cabin:screenshot-copy-imag
 export const SCREENSHOT_SAVE_IMAGE_CHANNEL = 'command-cabin:screenshot-save-image';
 export const SCREENSHOT_PIN_IMAGE_CHANNEL = 'command-cabin:screenshot-pin-image';
 export const SCREENSHOT_RUN_OCR_CHANNEL = 'command-cabin:screenshot-run-ocr';
+export const SCREENSHOT_TRANSLATE_SELECTION_CHANNEL =
+  'command-cabin:screenshot-translate-selection';

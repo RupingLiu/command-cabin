@@ -77,6 +77,7 @@ import { hideLauncherWindowsForScreenshot } from './screenshot/hideLauncherWindo
 import { runLocalOcr } from './screenshot/localOcr.js';
 import { createScreenshotController } from './screenshot/screenshotController.js';
 import { createScreenshotShortcutController } from './screenshot/screenshotShortcutController.js';
+import { runScreenshotTranslation } from './screenshot/screenshotTranslation.js';
 import {
   createCommandCabinTrayController,
   resolveTrayIconPath,
@@ -127,6 +128,7 @@ import {
   SCREENSHOT_READY_TO_SHOW_CHANNEL,
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
+  SCREENSHOT_TRANSLATE_SELECTION_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
   SEARCH_RESULT_ICONS_UPDATED_CHANNEL,
   SET_PLUGIN_ENABLED_CHANNEL,
@@ -142,6 +144,7 @@ import type {
   ScreenshotLaunchMode,
   ScreenshotOcrRequest,
   ScreenshotSaveImageRequest,
+  ScreenshotTranslateSelectionRequest,
 } from '../shared/screenshotApi.js';
 import { updateSettingsWithHotkeyRegistration } from './settings/updateSettingsWithHotkeyRegistration.js';
 import { configureSingleInstance } from './singleInstance.js';
@@ -503,6 +506,7 @@ const desktopApplication = createDesktopApplicationController({
 const altSpaceHotkeyCapture = createAltSpaceHotkeyCaptureController({
   registry: globalShortcut,
 });
+
 const screenshotController = createScreenshotController({
   captureDisplays: () =>
     captureDisplays({
@@ -534,6 +538,8 @@ const screenshotController = createScreenshotController({
       onWindowCreated: registerWindow,
     }),
   runOcr: (request: ScreenshotOcrRequest) => runLocalOcr(request),
+  translateSelection: (request: ScreenshotTranslateSelectionRequest) =>
+    runScreenshotTranslation(request),
   showSaveDialog: async (request) => {
     const saveDialogOptions = {
       filters: [
@@ -823,6 +829,10 @@ ipcMain.handle(SCREENSHOT_PIN_IMAGE_CHANNEL, (event, request: unknown) =>
 
 ipcMain.handle(SCREENSHOT_RUN_OCR_CHANNEL, (event, request: unknown) =>
   screenshotController.runOcr(event.sender, request),
+);
+
+ipcMain.handle(SCREENSHOT_TRANSLATE_SELECTION_CHANNEL, (event, request: unknown) =>
+  screenshotController.translateSelection(event.sender, request),
 );
 
 ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {

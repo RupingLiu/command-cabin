@@ -828,6 +828,13 @@ describe('createScreenshotController', () => {
       status: 'success' as const,
       text: 'hello',
     }));
+    const translateSelection = vi.fn(async () => ({
+      ocrLanguage: 'en-US' as const,
+      sourceText: 'hello',
+      status: 'success' as const,
+      targetLanguage: 'zh-CN' as const,
+      translatedText: '你好',
+    }));
     const notifyOverlayLaunchState = createAutoReadyNotify(() => controller);
     const controller = createScreenshotController({
       captureDisplays: vi.fn(async () => launchState),
@@ -841,6 +848,7 @@ describe('createScreenshotController', () => {
       createPinnedImageToken: vi.fn(() => 'pin-1'),
       pinImage,
       runOcr,
+      translateSelection,
     });
 
     await controller.start('ocr');
@@ -878,6 +886,19 @@ describe('createScreenshotController', () => {
       status: 'success',
       text: 'hello',
     });
+    await expect(
+      controller.translateSelection(overlayWindow.webContents, {
+        imageDataUrl: 'data:image/png;base64,AAAA',
+        ocrLanguage: 'en-US',
+        targetLanguage: 'zh-CN',
+      }),
+    ).resolves.toEqual({
+      ocrLanguage: 'en-US',
+      sourceText: 'hello',
+      status: 'success',
+      targetLanguage: 'zh-CN',
+      translatedText: '你好',
+    });
     expect(controller.cancel(overlayWindow.webContents)).toBe(true);
 
     expect(writeClipboardImage).toHaveBeenCalledWith('data:image/png;base64,AAAA');
@@ -892,6 +913,11 @@ describe('createScreenshotController', () => {
       },
       expect.any(Function),
     );
+    expect(translateSelection).toHaveBeenCalledWith({
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      ocrLanguage: 'en-US',
+      targetLanguage: 'zh-CN',
+    });
     expect(overlayWindow.hide).toHaveBeenCalledOnce();
     expect(overlayWindow.close).not.toHaveBeenCalled();
   });

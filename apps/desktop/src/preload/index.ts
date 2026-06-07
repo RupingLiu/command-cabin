@@ -35,6 +35,7 @@ import {
   SCREENSHOT_READY_TO_SHOW_CHANNEL,
   SCREENSHOT_RUN_OCR_CHANNEL,
   SCREENSHOT_SAVE_IMAGE_CHANNEL,
+  SCREENSHOT_TRANSLATE_SELECTION_CHANNEL,
   REGISTER_PLUGIN_HOST_ENTRY_CHANNEL,
   RELEASE_PLUGIN_HOST_ENTRY_CHANNEL,
   SEARCH_COMMANDS_CHANNEL,
@@ -85,6 +86,8 @@ import {
   parseScreenshotPinImageResult,
   parseScreenshotSaveImageRequest,
   parseScreenshotSaveImageResult,
+  parseScreenshotTranslateSelectionRequest,
+  parseScreenshotTranslationResult,
   type ScreenshotImageRequest,
   type ScreenshotLaunchState,
   type ScreenshotOcrRequest,
@@ -94,6 +97,8 @@ import {
   type ScreenshotPinImageResult,
   type ScreenshotSaveImageRequest,
   type ScreenshotSaveImageResult,
+  type ScreenshotTranslateSelectionRequest,
+  type ScreenshotTranslationResult,
 } from '../shared/screenshotApi.js';
 import {
   parseDataDirectoryResponse,
@@ -177,6 +182,9 @@ export interface ScreenshotPreloadApi {
   readyToShow: () => Promise<boolean>;
   runOcr: (request: ScreenshotOcrRequest) => Promise<ScreenshotOcrResult>;
   saveImage: (request: ScreenshotSaveImageRequest) => Promise<ScreenshotSaveImageResult>;
+  translateSelection: (
+    request: ScreenshotTranslateSelectionRequest,
+  ) => Promise<ScreenshotTranslationResult>;
 }
 
 export interface DesktopApi {
@@ -507,6 +515,13 @@ const desktopApi = {
         await ipcRenderer.invoke(
           SCREENSHOT_SAVE_IMAGE_CHANNEL,
           parseScreenshotSaveImageRequest(request),
+        ),
+      ),
+    translateSelection: async (request) =>
+      parseScreenshotTranslationResult(
+        await ipcRenderer.invoke(
+          SCREENSHOT_TRANSLATE_SELECTION_CHANNEL,
+          parseScreenshotTranslateSelectionRequest(request),
         ),
       ),
   },

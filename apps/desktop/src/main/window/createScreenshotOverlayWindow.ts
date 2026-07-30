@@ -2,8 +2,10 @@ import { BrowserWindow } from 'electron';
 
 import type { ScreenshotBounds } from '../../shared/screenshotApi.js';
 import { resolveSafeRendererDevServerUrl } from './devServerUrl.js';
+import { attachTrustedWindowPolicy, createWindowPreloadArguments } from './trustedWindowPolicy.js';
 
 export interface CreateScreenshotOverlayWindowOptions {
+  appVersion?: string | undefined;
   isPackaged: boolean;
   onWindowCreated?: ((window: BrowserWindow) => void) | undefined;
   initialBounds?: ScreenshotBounds | undefined;
@@ -22,6 +24,7 @@ function appendScreenshotMode(rendererDevServerUrl: string): string {
 }
 
 export async function createScreenshotOverlayWindow({
+  appVersion,
   isPackaged,
   initialBounds,
   onWindowCreated,
@@ -32,6 +35,10 @@ export async function createScreenshotOverlayWindow({
   virtualBounds,
 }: CreateScreenshotOverlayWindowOptions): Promise<BrowserWindow> {
   const windowBounds = initialBounds ?? virtualBounds;
+  const safeRendererDevServerUrl = resolveSafeRendererDevServerUrl({
+    isPackaged,
+    rendererDevServerUrl,
+  });
   const overlayWindow = new BrowserWindow({
     x: windowBounds.x,
     y: windowBounds.y,
@@ -47,11 +54,15 @@ export async function createScreenshotOverlayWindow({
     fullscreenable: false,
     autoHideMenuBar: true,
     webPreferences: {
+      additionalArguments: createWindowPreloadArguments({
+        appVersion,
+        role: 'screenshot',
+      }),
       backgroundThrottling: false,
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
     },
   });
   overlayWindow.once('ready-to-show', () => {
@@ -60,16 +71,22 @@ export async function createScreenshotOverlayWindow({
     }
   });
   onWindowCreated?.(overlayWindow);
-
-  const safeRendererDevServerUrl = resolveSafeRendererDevServerUrl({
+  attachTrustedWindowPolicy(overlayWindow, {
     isPackaged,
-    rendererDevServerUrl,
+    rendererDevServerUrl: safeRendererDevServerUrl,
+    rendererIndexPath,
+    role: 'screenshot',
   });
 
-  if (safeRendererDevServerUrl) {
-    await overlayWindow.loadURL(appendScreenshotMode(safeRendererDevServerUrl));
-  } else {
-    await overlayWindow.loadFile(rendererIndexPath, { query: { mode: 'screenshot' } });
+  try {
+    if (safeRendererDevServerUrl) {
+      await overlayWindow.loadURL(appendScreenshotMode(safeRendererDevServerUrl));
+    } else {
+      await overlayWindow.loadFile(rendererIndexPath, { query: { mode: 'screenshot' } });
+    }
+  } catch (error) {
+    overlayWindow.destroy();
+    throw error;
   }
 
   return overlayWindow;

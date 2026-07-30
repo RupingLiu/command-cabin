@@ -26,7 +26,7 @@ function defaultClearInterval(timerId: unknown): void {
   globalThis.clearInterval(timerId as ReturnType<typeof globalThis.setInterval>);
 }
 
-function normalizeClipboardText(text: string): string {
+function normalizeClipboardTextForComparison(text: string): string {
   return text.trim();
 }
 
@@ -34,7 +34,7 @@ export function createClipboardWatcher(options: ClipboardWatcherOptions): Clipbo
   const intervalMs = options.intervalMs ?? DEFAULT_CLIPBOARD_WATCH_INTERVAL_MS;
   const setIntervalFn = options.setInterval ?? defaultSetInterval;
   const clearIntervalFn = options.clearInterval ?? defaultClearInterval;
-  let lastText = '';
+  let lastNormalizedText = '';
   let activePoll: Promise<void> | undefined;
   let timerId: unknown;
 
@@ -45,14 +45,15 @@ export function createClipboardWatcher(options: ClipboardWatcherOptions): Clipbo
 
     activePoll = (async () => {
       try {
-        const text = normalizeClipboardText(await options.readText());
+        const text = await options.readText();
+        const normalizedText = normalizeClipboardTextForComparison(text);
 
-        if (text.length === 0 || text === lastText) {
+        if (normalizedText.length === 0 || normalizedText === lastNormalizedText) {
           return;
         }
 
-        lastText = text;
         await options.onText(text);
+        lastNormalizedText = normalizedText;
       } catch (error) {
         options.onError?.(error);
       } finally {

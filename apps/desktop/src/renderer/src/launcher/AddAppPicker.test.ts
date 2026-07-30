@@ -2,8 +2,12 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AddAppPickerView, getRenderableAppCandidateIcon } from './AddAppPicker.js';
 import type { AppCandidate } from '../../../shared/appCandidatesApi.js';
+import {
+  AddAppPickerView,
+  getAddAppPickerKeyboardAction,
+  getRenderableAppCandidateIcon,
+} from './AddAppPicker.js';
 
 function createCandidate(overrides: Partial<AppCandidate> = {}): AppCandidate {
   return {
@@ -38,6 +42,25 @@ function renderPicker(candidates: AppCandidate[], status: 'ready' | 'empty' = 'r
       onQueryChange: vi.fn(),
     }),
   );
+}
+
+function createKeyboardTarget(options: {
+  navigation: boolean;
+  nativeControl?: boolean;
+}): EventTarget {
+  return {
+    closest: (selector: string) => {
+      if (selector.includes('data-add-app-picker-keyboard-navigation')) {
+        return options.navigation ? {} : null;
+      }
+
+      if (selector.includes('button')) {
+        return options.nativeControl ? {} : null;
+      }
+
+      return null;
+    },
+  } as unknown as EventTarget;
 }
 
 describe('AddAppPickerView', () => {
@@ -101,5 +124,25 @@ describe('AddAppPickerView', () => {
 
     expect(markup).toContain('没有找到应用');
     expect(markup).toContain('换个关键词试试');
+  });
+
+  it('only handles navigation keys from the search or candidate region', () => {
+    const searchTarget = createKeyboardTarget({ navigation: true });
+    const dialogButtonTarget = createKeyboardTarget({
+      nativeControl: true,
+      navigation: false,
+    });
+    const candidateButtonTarget = createKeyboardTarget({
+      nativeControl: true,
+      navigation: true,
+    });
+
+    expect(getAddAppPickerKeyboardAction('ArrowDown', searchTarget)).toBe('next');
+    expect(getAddAppPickerKeyboardAction('ArrowUp', searchTarget)).toBe('previous');
+    expect(getAddAppPickerKeyboardAction('Enter', searchTarget)).toBe('add');
+    expect(getAddAppPickerKeyboardAction('Enter', dialogButtonTarget)).toBe('none');
+    expect(getAddAppPickerKeyboardAction('Enter', candidateButtonTarget)).toBe('none');
+    expect(getAddAppPickerKeyboardAction('ArrowDown', candidateButtonTarget)).toBe('none');
+    expect(getAddAppPickerKeyboardAction('Escape', dialogButtonTarget)).toBe('close');
   });
 });

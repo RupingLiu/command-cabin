@@ -5,6 +5,36 @@ import { createInMemorySettingsStore } from '@command-cabin/core';
 import { updateSettingsWithHotkeyRegistration } from './updateSettingsWithHotkeyRegistration.js';
 
 describe('updateSettingsWithHotkeyRegistration', () => {
+  it('rejects duplicate final hotkeys before changing registrations or persistence', () => {
+    const settingsStore = createInMemorySettingsStore({
+      hotkey: 'Alt+Space',
+      screenshotHotkey: 'Ctrl+Alt+A',
+      delayedScreenshotHotkey: 'Ctrl+Alt+D',
+      theme: 'dark',
+    });
+    const tryRegisterLauncherHotkey = vi.fn(() => true);
+    const tryRegisterScreenshotHotkey = vi.fn(() => true);
+
+    expect(() =>
+      updateSettingsWithHotkeyRegistration({
+        settingsPatch: {
+          delayedScreenshotHotkey: 'Alt + Ctrl + A',
+          theme: 'light',
+        },
+        settingsStore,
+        tryRegisterLauncherHotkey,
+        tryRegisterScreenshotHotkey,
+      }),
+    ).toThrow(/shortcuts must be unique/i);
+
+    expect(tryRegisterLauncherHotkey).not.toHaveBeenCalled();
+    expect(tryRegisterScreenshotHotkey).not.toHaveBeenCalled();
+    expect(settingsStore.getSettings()).toMatchObject({
+      delayedScreenshotHotkey: 'Ctrl+Alt+D',
+      theme: 'dark',
+    });
+  });
+
   it('does not persist a conflicting hotkey when registration fails', () => {
     const settingsStore = createInMemorySettingsStore({
       hotkey: 'Alt+Space',
@@ -59,10 +89,7 @@ describe('updateSettingsWithHotkeyRegistration', () => {
       delayedScreenshotHotkey: 'Ctrl+Shift+D',
     });
     expect(tryRegisterLauncherHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
-    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith(
-      'screenshotHotkey',
-      'Ctrl+Shift+S',
-    );
+    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith('screenshotHotkey', 'Ctrl+Shift+S');
     expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith(
       'delayedScreenshotHotkey',
       'Ctrl+Shift+D',
@@ -131,10 +158,7 @@ describe('updateSettingsWithHotkeyRegistration', () => {
       theme: 'dark',
     });
     expect(tryRegisterLauncherHotkey).toHaveBeenCalledWith('Ctrl+Alt+K');
-    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith(
-      'screenshotHotkey',
-      'Ctrl+Shift+S',
-    );
+    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith('screenshotHotkey', 'Ctrl+Shift+S');
   });
 
   it('rolls back launcher registration when screenshot registration fails', () => {
@@ -159,10 +183,7 @@ describe('updateSettingsWithHotkeyRegistration', () => {
 
     expect(tryRegisterLauncherHotkey).toHaveBeenNthCalledWith(1, 'Ctrl+Alt+K');
     expect(tryRegisterLauncherHotkey).toHaveBeenNthCalledWith(2, 'Alt+Space');
-    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith(
-      'screenshotHotkey',
-      'Ctrl+Shift+S',
-    );
+    expect(tryRegisterScreenshotHotkey).toHaveBeenCalledWith('screenshotHotkey', 'Ctrl+Shift+S');
     expect(settingsStore.getSettings()).toMatchObject({
       hotkey: 'Alt+Space',
       screenshotHotkey: 'Ctrl+Alt+A',

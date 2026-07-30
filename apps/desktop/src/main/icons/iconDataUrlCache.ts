@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 const CACHE_VERSION = 2;
 const DEFAULT_MAX_ENTRIES = 256;
+let temporaryFileSequence = 0;
 
 export interface IconDataUrlCache {
   read: (key: string) => Promise<string | undefined>;
@@ -103,9 +104,16 @@ async function writeCacheFile({
     entries: Object.fromEntries(entries),
     version: CACHE_VERSION,
   };
+  const temporaryFilePath = `${cacheFilePath}.${process.pid}.${temporaryFileSequence++}.tmp`;
 
   await mkdir(dirname(cacheFilePath), { recursive: true });
-  await writeFile(cacheFilePath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+  try {
+    await writeFile(temporaryFilePath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+    await rename(temporaryFilePath, cacheFilePath);
+  } catch (error) {
+    await rm(temporaryFilePath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export function createIconDataUrlCache({
@@ -115,6 +123,7 @@ export function createIconDataUrlCache({
   maxEntries = DEFAULT_MAX_ENTRIES,
 }: IconDataUrlCacheOptions): IconDataUrlCache {
   let entriesPromise: Promise<Map<string, CachedIconEntry>> | undefined;
+  let writeQueue = Promise.resolve();
 
   async function getEntries(): Promise<Map<string, CachedIconEntry>> {
     entriesPromise ??= readCacheFile({
@@ -136,17 +145,21 @@ export function createIconDataUrlCache({
         return;
       }
 
-      const entries = await getEntries();
+      const writeOperation = writeQueue.then(async () => {
+        const entries = await getEntries();
 
-      entries.set(key, {
-        cachedAt: clock().toISOString(),
-        dataUrl,
+        entries.set(key, {
+          cachedAt: clock().toISOString(),
+          dataUrl,
+        });
+        trimEntries(entries, maxEntries);
+        await writeCacheFile({
+          cacheFilePath,
+          entries,
+        });
       });
-      trimEntries(entries, maxEntries);
-      await writeCacheFile({
-        cacheFilePath,
-        entries,
-      });
+      writeQueue = writeOperation.catch(() => undefined);
+      await writeOperation;
     },
   };
 }

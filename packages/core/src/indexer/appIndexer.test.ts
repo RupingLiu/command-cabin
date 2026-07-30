@@ -4,6 +4,7 @@ import {
   createAppIndexer,
   createAppCommandsFromShortcuts,
   type AppIndexCache,
+  type AppIndexCacheSnapshot,
   type AppIndexerScanner,
 } from './appIndexer.js';
 
@@ -214,6 +215,77 @@ describe('app indexer', () => {
     expect(
       (cache as AppIndexCache & { getWrittenCommandCount: () => number }).getWrittenCommandCount(),
     ).toBe(1);
+  });
+
+  it('shares one in-flight scan across concurrent manual refreshes', async () => {
+    let finishScan: (() => void) | undefined;
+    const scanner: AppIndexerScanner = {
+      scan: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            finishScan = () => resolve({ shortcuts: [], failures: [] });
+          }),
+      ),
+    };
+    const indexer = createAppIndexer({ scanner, cache: createCache() });
+
+    const firstRefresh = indexer.refresh();
+    const secondRefresh = indexer.refresh();
+    expect(scanner.scan).toHaveBeenCalledTimes(1);
+    finishScan!();
+
+    await expect(Promise.all([firstRefresh, secondRefresh])).resolves.toHaveLength(2);
+    expect(scanner.scan).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a late cache load overwrite a newer scan', async () => {
+    let finishCacheRead: ((value: AppIndexCacheSnapshot) => void) | undefined;
+    const scanner: AppIndexerScanner = {
+      scan: vi.fn(async () => ({
+        shortcuts: [
+          {
+            name: 'Fresh',
+            shortcutPath: 'C:\\StartMenu\\Fresh.lnk',
+            targetPath: 'C:\\fresh.exe',
+          },
+        ],
+        failures: [],
+      })),
+    };
+    const cache: AppIndexCache = {
+      read: () =>
+        new Promise((resolve) => {
+          finishCacheRead = resolve;
+        }),
+      write: async (commands) => ({
+        version: 2,
+        scannedAt: '2026-05-16T02:00:00.000Z',
+        commands: [...commands],
+      }),
+      isStale: () => false,
+    };
+    const indexer = createAppIndexer({ scanner, cache });
+    const load = indexer.load();
+    await indexer.refresh();
+    finishCacheRead!({
+      version: 2,
+      scannedAt: '2026-05-16T01:00:00.000Z',
+      commands: [
+        {
+          id: 'app.stale',
+          source: 'app',
+          title: 'Stale',
+          keywords: [],
+          action: { type: 'open-app', payload: { executablePath: 'C:\\stale.exe' } },
+        },
+      ],
+    });
+
+    await expect(load).resolves.toMatchObject({
+      source: 'scan',
+      commands: [expect.objectContaining({ title: 'Fresh' })],
+    });
+    expect(indexer.getCommands()).toMatchObject([{ title: 'Fresh' }]);
   });
 
   it('loads fresh cached commands without scanning', async () => {

@@ -19,6 +19,46 @@ type RollbackAction = () => void;
 type ScreenshotHotkeyRegistrationField = 'screenshotHotkey' | 'delayedScreenshotHotkey';
 type HotkeyRegistrationField = 'hotkey' | ScreenshotHotkeyRegistrationField;
 
+function canonicalizeHotkey(hotkey: string): string {
+  const aliases: Readonly<Record<string, string>> = {
+    commandorcontrol: 'cmdorctrl',
+    control: 'ctrl',
+    option: 'alt',
+  };
+
+  return hotkey
+    .split('+')
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean)
+    .map((part) => aliases[part] ?? part)
+    .sort()
+    .join('+');
+}
+
+function assertUniqueHotkeys(
+  settings: Pick<CommandCabinSettings, 'hotkey' | ScreenshotHotkeyRegistrationField>,
+): void {
+  const entries = [
+    ['launcher', settings.hotkey],
+    ['screenshot', settings.screenshotHotkey],
+    ['delayed screenshot', settings.delayedScreenshotHotkey],
+  ] as const;
+  const fieldsByHotkey = new Map<string, string>();
+
+  for (const [field, hotkey] of entries) {
+    const canonicalHotkey = canonicalizeHotkey(hotkey);
+    const existingField = fieldsByHotkey.get(canonicalHotkey);
+
+    if (existingField !== undefined) {
+      throw new Error(
+        `CommandCabin shortcuts must be unique. ${field} conflicts with ${existingField}: ${hotkey}.`,
+      );
+    }
+
+    fieldsByHotkey.set(canonicalHotkey, field);
+  }
+}
+
 function rollbackRegistrations(rollbackActions: RollbackAction[]): void {
   for (const rollbackAction of rollbackActions.slice().reverse()) {
     rollbackAction();
@@ -55,12 +95,16 @@ export function updateSettingsWithHotkeyRegistration({
   tryRegisterScreenshotHotkey,
 }: UpdateSettingsWithHotkeyRegistrationOptions): CommandCabinSettings {
   const currentSettings = settingsStore.getSettings();
+  assertUniqueHotkeys({
+    hotkey: settingsPatch.hotkey ?? currentSettings.hotkey,
+    screenshotHotkey: settingsPatch.screenshotHotkey ?? currentSettings.screenshotHotkey,
+    delayedScreenshotHotkey:
+      settingsPatch.delayedScreenshotHotkey ?? currentSettings.delayedScreenshotHotkey,
+  });
   const rollbackActions: RollbackAction[] = [];
   const registrationFields = Object.keys(settingsPatch).filter(
     (field): field is HotkeyRegistrationField =>
-      field === 'hotkey' ||
-      field === 'screenshotHotkey' ||
-      field === 'delayedScreenshotHotkey',
+      field === 'hotkey' || field === 'screenshotHotkey' || field === 'delayedScreenshotHotkey',
   );
 
   try {

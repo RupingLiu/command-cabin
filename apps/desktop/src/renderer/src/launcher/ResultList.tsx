@@ -15,9 +15,8 @@ interface ResultListProps {
   isExecutionDisabled: boolean;
   language?: CommandCabinLanguage | undefined;
   listboxId: string;
-  onAddPinnedApp?: (() => void) | undefined;
   onEditPinnedApp?: ((favoriteId: string) => void) | undefined;
-  onExecute: () => void;
+  onExecute: (commandId: string) => void;
   onRemovePinnedApp?: ((favoriteId: string) => void) | undefined;
   onRemoveRecentApp?: ((commandId: string) => void) | undefined;
   onSelect: (index: number) => void;
@@ -87,63 +86,10 @@ function shouldUseRecentAppGrid(query: string, results: readonly LauncherResultI
   );
 }
 
-function AddPinnedAppButton({
-  label,
-  onAddPinnedApp,
-}: {
-  label: string;
-  onAddPinnedApp: () => void;
-}) {
-  return (
-    <button
-      aria-label={label}
-      className="result-add-app-button"
-      title={label}
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onAddPinnedApp();
-      }}
-      onMouseDown={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-    >
-      <span aria-hidden="true">+</span>
-    </button>
-  );
-}
-
-function EmptyPinnedAppGrid({
-  ariaLabel,
-  buttonLabel,
-  listboxId,
-  onAddPinnedApp,
-}: {
-  ariaLabel: string;
-  buttonLabel: string;
-  listboxId: string;
-  onAddPinnedApp: () => void;
-}) {
-  return (
-    <ul
-      aria-label={ariaLabel}
-      className="result-list result-list--recent-apps result-list--recent-apps-empty"
-      id={listboxId}
-      role="listbox"
-    >
-      <li className="result-add-app-cell result-add-app-empty" role="presentation">
-        <AddPinnedAppButton label={buttonLabel} onAddPinnedApp={onAddPinnedApp} />
-      </li>
-    </ul>
-  );
-}
-
 export function ResultList({
   errorMessage,
   isExecutionDisabled,
   listboxId,
-  onAddPinnedApp,
   onEditPinnedApp,
   onExecute,
   onRemovePinnedApp,
@@ -211,19 +157,6 @@ export function ResultList({
     );
   }
 
-  const canAddPinnedApp = query.trim().length === 0 && onAddPinnedApp !== undefined;
-
-  if (status === 'empty' && canAddPinnedApp) {
-    return (
-      <EmptyPinnedAppGrid
-        ariaLabel={strings.launcher.results.ariaLabel}
-        buttonLabel={strings.launcher.addPinnedApp}
-        listboxId={listboxId}
-        onAddPinnedApp={onAddPinnedApp}
-      />
-    );
-  }
-
   if (status === 'empty') {
     return (
       <StatePanel
@@ -241,11 +174,7 @@ export function ResultList({
   }
 
   const useRecentAppGrid = shouldUseRecentAppGrid(query, results);
-  const shouldShowGridAddButton = useRecentAppGrid && onAddPinnedApp !== undefined;
-  const visibleResultLimit = shouldShowGridAddButton
-    ? Math.max(0, HOME_APP_GRID_LIMIT - 1)
-    : HOME_APP_GRID_LIMIT;
-  const visibleResults = useRecentAppGrid ? results.slice(0, visibleResultLimit) : results;
+  const visibleResults = useRecentAppGrid ? results.slice(0, HOME_APP_GRID_LIMIT) : results;
 
   return (
     <>
@@ -282,14 +211,6 @@ export function ResultList({
             variant={useRecentAppGrid ? 'compact' : 'detailed'}
           />
         ))}
-        {shouldShowGridAddButton ? (
-          <li className="result-add-app-cell" role="presentation">
-            <AddPinnedAppButton
-              label={strings.launcher.addPinnedApp}
-              onAddPinnedApp={onAddPinnedApp}
-            />
-          </li>
-        ) : null}
       </ul>
       {pinnedAppMenu ? (
         <div

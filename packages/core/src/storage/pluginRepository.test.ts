@@ -92,6 +92,45 @@ describe('SQLite plugin repository', () => {
     }
   });
 
+  it('returns plugin data in a null-prototype object and preserves special keys safely', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createPluginRepository(database);
+      repository.upsertPlugin({
+        id: 'com.example.text-tools',
+        name: 'Text Tools',
+        version: '0.1.0',
+        main: 'dist/main.js',
+      });
+      repository.setPluginData('com.example.text-tools', '__proto__', { safe: true });
+
+      const values = repository.listPluginData('com.example.text-tools');
+      expect(Object.getPrototypeOf(values)).toBeNull();
+      expect(values['__proto__']).toEqual({ safe: true });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('rejects empty, control-character, and oversized plugin data keys', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createPluginRepository(database);
+
+      for (const key of ['', 'line\nbreak', 'x'.repeat(129)]) {
+        expect(() => repository.setPluginData('com.example.text-tools', key, true)).toThrow(
+          /plugin data key/i,
+        );
+      }
+    } finally {
+      database.close();
+    }
+  });
+
   it('throws contextual errors for malformed plugin permissions JSON', () => {
     const database = openInMemoryCommandCabinDatabase();
 

@@ -401,9 +401,9 @@ select {
 }
 
 .launcher-home-actions {
-  display: flex;
+  display: grid;
   align-items: center;
-  justify-content: flex-end;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   min-height: 36px;
   -webkit-app-region: no-drag;
@@ -412,7 +412,7 @@ select {
 .launcher-home-actions button {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   min-width: 0;
   min-height: 34px;
   gap: 7px;
@@ -551,10 +551,6 @@ select {
   padding: 2px 2px 8px;
 }
 
-.result-list--recent-apps-empty {
-  grid-auto-rows: 44px;
-}
-
 .result-list::-webkit-scrollbar {
   width: 10px;
 }
@@ -591,7 +587,6 @@ select {
   box-shadow:
     inset 4px 0 0 var(--app-accent),
     var(--app-shadow);
-  transform: translateY(-1px);
 }
 
 .result-item[data-disabled='true'] {
@@ -674,55 +669,6 @@ select {
 .result-item--recent-app .result-copy {
   width: 100%;
   justify-items: center;
-}
-
-.result-add-app-cell {
-  display: grid;
-  align-self: end;
-  justify-self: start;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  margin: 0 0 6px 2px;
-  -webkit-app-region: no-drag;
-}
-
-.result-add-app-button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  padding: 0;
-  border: 1px solid rgba(255, 111, 38, 0.28);
-  border-radius: 999px;
-  color: var(--app-muted);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(242, 248, 255, 0.88)) padding-box,
-    linear-gradient(135deg, rgba(255, 77, 54, 0.24), rgba(10, 132, 255, 0.18)) border-box;
-  box-shadow: 0 12px 28px rgba(25, 60, 96, 0.12);
-  backdrop-filter: var(--app-surface-blur);
-}
-
-.result-add-app-button span {
-  font-size: 16px;
-  font-weight: 520;
-  line-height: 1;
-}
-
-.result-add-app-button:hover,
-.result-add-app-button:focus-visible {
-  border-color: var(--app-accent-line);
-  outline: none;
-  color: var(--app-title);
-  background:
-    linear-gradient(135deg, rgba(255, 244, 236, 0.96), rgba(236, 246, 255, 0.92)) padding-box,
-    linear-gradient(135deg, rgba(255, 77, 54, 0.46), rgba(10, 132, 255, 0.34)) border-box;
-  box-shadow: var(--focus-ring), var(--app-shadow-soft);
-}
-
-.result-add-app-empty {
-  align-items: start;
-  justify-items: start;
 }
 
 .result-title {
@@ -1532,7 +1478,9 @@ select {
 .settings-grid {
   display: grid;
   flex: 1 1 auto;
-  gap: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 10px;
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -1543,7 +1491,7 @@ select {
   display: grid;
   gap: 10px;
   min-width: 0;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   padding: 14px;
   border: 1px solid var(--settings-line);
   border-radius: var(--app-radius-control);
@@ -1774,7 +1722,47 @@ select {
 .clipboard-history-settings {
   display: grid;
   gap: 10px;
-  max-width: 520px;
+  max-width: none;
+}
+
+.about-settings {
+  grid-column: 1 / -1;
+}
+
+.settings-section--wide,
+.plugin-settings {
+  grid-column: 1 / -1;
+}
+
+.hotkey-settings-group__rows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hotkey-settings--compact {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--settings-line);
+  border-radius: var(--app-radius-control);
+  background: var(--settings-control-bg);
+}
+
+.hotkey-settings--compact .settings-section__header h2 {
+  font-size: 13px;
+}
+
+.plugin-settings__safety-notice {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--settings-accent) 42%, transparent);
+  border-radius: var(--app-radius-control);
+  color: var(--settings-muted);
+  background: color-mix(in srgb, var(--settings-accent) 10%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .clipboard-history-settings__error {
@@ -1890,6 +1878,14 @@ select {
 
   .settings-titlebar {
     align-items: center;
+  }
+
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hotkey-settings-group__rows {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .plugin-settings__item {

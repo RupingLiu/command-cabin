@@ -263,8 +263,8 @@ describe('desktop packaging configuration', () => {
     expect(installerInclude).toContain('!macro customInstall');
     expect(installerInclude).toContain('C:\\Program Files\\command-cabin');
     expect(installerInclude).toContain('InstallLocation');
-    expect(installerInclude).toContain('ReadEnvStr $0 "LOCALAPPDATA"');
-    expect(installerInclude).toContain('$0\\Programs\\command-cabin');
+    expect(installerInclude).not.toMatch(/\bRMDir\s+\/r\b/i);
+    expect(installerInclude).toContain('unowned directory must be preserved');
     expect(installerInclude).toContain('SHChangeNotify');
     const afterPackIconHook = readFileSync(afterPackIconHookPath, 'utf8');
     expect(afterPackIconHook).toContain('rcedit');

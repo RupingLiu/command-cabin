@@ -1,6 +1,7 @@
 import { BrowserWindow, nativeImage } from 'electron';
 
 import { resolveSafeRendererDevServerUrl } from './devServerUrl.js';
+import { attachTrustedWindowPolicy, createWindowPreloadArguments } from './trustedWindowPolicy.js';
 
 const MAX_PINNED_IMAGE_WIDTH = 960;
 const MAX_PINNED_IMAGE_HEIGHT = 720;
@@ -9,6 +10,7 @@ const MIN_PINNED_IMAGE_HEIGHT = 240;
 const PINNED_IMAGE_TITLEBAR_HEIGHT = 30;
 
 export interface CreatePinnedImageWindowOptions {
+  appVersion?: string | undefined;
   imageDataUrl: string;
   isPackaged: boolean;
   onWindowCreated?: ((window: BrowserWindow) => void) | undefined;
@@ -58,6 +60,7 @@ function resolvePinnedImageWindowSize(imageDataUrl: string): {
 }
 
 export async function createPinnedImageWindow({
+  appVersion,
   imageDataUrl,
   isPackaged,
   onWindowCreated,
@@ -67,6 +70,10 @@ export async function createPinnedImageWindow({
   token,
 }: CreatePinnedImageWindowOptions): Promise<BrowserWindow> {
   const { height, minHeight, minWidth, width } = resolvePinnedImageWindowSize(imageDataUrl);
+  const safeRendererDevServerUrl = resolveSafeRendererDevServerUrl({
+    isPackaged,
+    rendererDevServerUrl,
+  });
   const pinnedWindow = new BrowserWindow({
     width,
     height,
@@ -83,11 +90,15 @@ export async function createPinnedImageWindow({
     backgroundColor: '#10110f',
     title: 'Pinned screenshot',
     webPreferences: {
+      additionalArguments: createWindowPreloadArguments({
+        appVersion,
+        role: 'pinned-image',
+      }),
       backgroundThrottling: true,
       preload: preloadPath,
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -95,16 +106,22 @@ export async function createPinnedImageWindow({
     pinnedWindow.show();
   });
   onWindowCreated?.(pinnedWindow);
-
-  const safeRendererDevServerUrl = resolveSafeRendererDevServerUrl({
+  attachTrustedWindowPolicy(pinnedWindow, {
     isPackaged,
-    rendererDevServerUrl,
+    rendererDevServerUrl: safeRendererDevServerUrl,
+    rendererIndexPath,
+    role: 'pinned-image',
   });
 
-  if (safeRendererDevServerUrl) {
-    await pinnedWindow.loadURL(appendPinnedImageMode(safeRendererDevServerUrl, token));
-  } else {
-    await pinnedWindow.loadFile(rendererIndexPath, { query: { mode: 'pinned-image', token } });
+  try {
+    if (safeRendererDevServerUrl) {
+      await pinnedWindow.loadURL(appendPinnedImageMode(safeRendererDevServerUrl, token));
+    } else {
+      await pinnedWindow.loadFile(rendererIndexPath, { query: { mode: 'pinned-image', token } });
+    }
+  } catch (error) {
+    pinnedWindow.destroy();
+    throw error;
   }
 
   return pinnedWindow;

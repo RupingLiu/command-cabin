@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createWindowsAppsFolderScanner,
@@ -372,5 +372,45 @@ describe('Windows start menu scanner', () => {
         message: 'cannot parse shortcut',
       },
     ]);
+  });
+
+  it('resolves shortcuts with bounded concurrency while preserving scan order', async () => {
+    let activeResolutions = 0;
+    let maximumActiveResolutions = 0;
+    const releaseResolvers: Array<() => void> = [];
+    const scanner = createWindowsStartMenuScanner({
+      appsFolderScanner: emptyAppsFolderScanner,
+      shortcutResolutionConcurrency: 2,
+      startMenuDirectories: ['C:\\StartMenu'],
+      fileSystem: createFileSystem({
+        'C:\\StartMenu': [
+          { name: 'A.lnk', kind: 'file' },
+          { name: 'B.lnk', kind: 'file' },
+          { name: 'C.lnk', kind: 'file' },
+        ],
+      }),
+      shortcutResolver: {
+        resolve: async (shortcutPath) => {
+          activeResolutions += 1;
+          maximumActiveResolutions = Math.max(maximumActiveResolutions, activeResolutions);
+          await new Promise<void>((resolve) => {
+            releaseResolvers.push(resolve);
+          });
+          activeResolutions -= 1;
+          return { targetPath: `${shortcutPath}.exe` };
+        },
+      },
+    });
+
+    const scan = scanner.scan();
+    await vi.waitFor(() => expect(releaseResolvers).toHaveLength(2));
+    releaseResolvers.shift()!();
+    await vi.waitFor(() => expect(releaseResolvers).toHaveLength(2));
+    releaseResolvers.shift()!();
+    releaseResolvers.shift()!();
+
+    const result = await scan;
+    expect(maximumActiveResolutions).toBe(2);
+    expect(result.shortcuts.map((shortcut) => shortcut.name)).toEqual(['A', 'B', 'C']);
   });
 });

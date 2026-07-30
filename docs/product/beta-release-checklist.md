@@ -56,7 +56,7 @@ git diff --check
 Record the generated artifacts:
 
 - Directory package: `release/win-unpacked/`
-- NSIS installer: `release/CommandCabin-0.1.0-x64-Setup.exe`
+- NSIS installer: `release/CommandCabin-0.9.0-x64-Setup.exe`
 
 ## Clean Windows User Verification
 
@@ -64,7 +64,7 @@ Use a clean Windows user profile or a clean Windows VM snapshot with no prior Co
 installation.
 
 - [ ] Confirm `%APPDATA%\CommandCabin` does not exist before install.
-- [ ] Run `CommandCabin-0.1.0-x64-Setup.exe`.
+- [ ] Run `CommandCabin-0.9.0-x64-Setup.exe`.
 - [ ] Confirm installer completes without requiring developer tools or source checkout files.
 - [ ] Confirm Start Menu shortcut named `CommandCabin` is created.
 - [ ] Confirm desktop shortcut named `CommandCabin` is created.
@@ -78,47 +78,41 @@ installation.
 - [ ] Decide whether user data retention is acceptable for beta; if retention is not desired,
       manually remove `%APPDATA%\CommandCabin` and record that behavior as a follow-up.
 
-## This Agent Run
+## This Agent Run (July 30, 2026 / v0.9.0)
 
-Full clean-user Windows verification requires a separate clean profile or VM. It was not completed
-in the May 16, 2026 agent run, so the clean-user checklist above remains unchecked.
+Full clean-user Windows verification requires a separate clean profile or VM and remains an
+independent manual acceptance item. The automated release gates below were completed locally:
 
-Local automated verification completed on May 16, 2026:
-
-- [x] `corepack pnpm install`
-- [x] Packaging config smoke test: `corepack pnpm test tests/unit/packagingConfig.test.ts`
-- [x] `corepack pnpm --filter @command-cabin/desktop package:dir`
-- [x] Full test suite after restoring the Node ABI for `better-sqlite3`: `corepack pnpm test`
+- [x] `corepack pnpm install --frozen-lockfile`
+- [x] `corepack pnpm test`: 102 test files, 854 tests
 - [x] `corepack pnpm typecheck`
 - [x] `corepack pnpm lint`
 - [x] `corepack pnpm format`
 - [x] `corepack pnpm build`
+- [x] `corepack pnpm --filter @command-cabin/desktop package:dir`
+- [x] Packaging config smoke test, including the regression guard against recursive `RMDir /r`
+- [x] 760×520 and 500×700 renderer UI verification with no horizontal overflow or console errors
 - [x] `git diff --check`
 
-Local package generation completed on May 16, 2026:
+Local package generation:
 
 - [x] Directory package: `C:\WorkingFolder\command-cabin\release\win-unpacked\`
 - [x] Unpacked app payload: `C:\WorkingFolder\command-cabin\release\win-unpacked\resources\app\`
-- [x] Native SQLite packaged at:
-      `C:\WorkingFolder\command-cabin\release\win-unpacked\resources\app\node_modules\better-sqlite3\build\Release\better_sqlite3.node`
+- [x] Packaged app uses Electron/Node `node:sqlite`; packaging smoke confirms there is no stale
+      `better-sqlite3` or other native `.node` payload.
 
-Local installer generation completed on May 16, 2026:
+Local installer generation:
 
 - [x] `corepack pnpm --filter @command-cabin/desktop dist:win`
-- [x] NSIS installer: `C:\WorkingFolder\command-cabin\release\CommandCabin-0.1.0-x64-Setup.exe`
-- [x] Block map: `C:\WorkingFolder\command-cabin\release\CommandCabin-0.1.0-x64-Setup.exe.blockmap`
+- [x] NSIS installer: `C:\WorkingFolder\command-cabin\release\CommandCabin-0.9.0-x64-Setup.exe`
+      (97,433,771 bytes; SHA-256
+      `3C12990B47D20E2CB0013B6DD9A2A50820C820CB25F5C6F98B30C0707DC96B61`)
+- [x] Block map: `C:\WorkingFolder\command-cabin\release\CommandCabin-0.9.0-x64-Setup.exe.blockmap`
+- [x] Update metadata: `C:\WorkingFolder\command-cabin\release\latest.yml`
 
-Notes for this local beta artifact:
+Notes for this beta release:
 
 - The installer is unsigned.
-- `asar: false` is intentional for this beta packaging pass because the current Windows user
-  cannot extract `winCodeSign-2.6.0.7z` symlinks. Re-enable ASAR/integrity and executable
-  resource editing in a signing-capable CI/user profile before producing a hardened release
-  candidate.
-- After a packaging attempt, run:
-
-  ```powershell
-  corepack pnpm --filter @command-cabin/core rebuild better-sqlite3
-  ```
-
-  This restores the native SQLite module for the local Node/Vitest ABI.
+- `asar: false` and Windows executable resource editing remain disabled in the current beta
+  packaging policy. Re-enable ASAR/integrity, resource editing and signing in a signing-capable
+  build environment before treating the installer as a hardened, signed distribution.

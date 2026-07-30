@@ -10,8 +10,13 @@ class MockBrowserWindow {
 
   readonly loadFile = vi.fn();
   readonly loadURL = vi.fn();
+  readonly destroy = vi.fn();
   readonly show = vi.fn();
-  readonly webContents = { id: 17 };
+  readonly webContents = {
+    id: 17,
+    on: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
+  };
   private readyToShowListener?: () => void;
 
   constructor(readonly options: BrowserWindowConstructorOptions) {
@@ -69,11 +74,15 @@ describe('createPinnedImageWindow', () => {
       skipTaskbar: true,
       transparent: false,
       webPreferences: {
+        additionalArguments: expect.arrayContaining([
+          '--command-cabin-window-role=pinned-image',
+          '--command-cabin-version=0.0.0',
+        ]),
         backgroundThrottling: true,
         contextIsolation: true,
         nodeIntegration: false,
         preload: 'C:\\CommandCabin\\dist\\preload\\index.js',
-        sandbox: false,
+        sandbox: true,
       },
       width: 960,
     });

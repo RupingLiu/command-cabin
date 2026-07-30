@@ -171,7 +171,7 @@ export function LauncherPage({
     activeDescendantId,
     appInfo,
     editPinnedApp,
-    executeSelectedCommand,
+    executeCommand,
     handleKeyDown,
     inputRef,
     isExecutionDisabled,
@@ -354,11 +354,10 @@ export function LauncherPage({
           isExecutionDisabled={isExecutionDisabled}
           language={language}
           listboxId={resultListboxId}
-          onAddPinnedApp={() => {
-            setIsAddAppPickerOpen(true);
-          }}
           onEditPinnedApp={editPinnedApp}
-          onExecute={executeSelectedCommand}
+          onExecute={(commandId) => {
+            void executeCommand(commandId);
+          }}
           onRemovePinnedApp={removePinnedApp}
           onRemoveRecentApp={removeRecentApp}
           onSelect={selectResult}
@@ -395,6 +394,17 @@ export function LauncherPage({
         ) : null}
         {state.query.trim().length === 0 ? (
           <div className="launcher-home-actions" aria-label={strings.launcher.homeActionsLabel}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddAppPickerOpen(true);
+              }}
+            >
+              <span className="launcher-home-actions__icon" aria-hidden="true">
+                +
+              </span>
+              <span>{strings.launcher.addPinnedApp}</span>
+            </button>
             <button type="button" onClick={onOpenUnitConverter}>
               <span className="launcher-home-actions__icon" aria-hidden="true">
                 ⇄

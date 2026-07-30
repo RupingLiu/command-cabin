@@ -151,6 +151,23 @@ export interface PluginRepository {
   deletePluginData: (pluginId: string, key: string) => boolean;
 }
 
+const MAX_PLUGIN_DATA_KEY_LENGTH = 128;
+
+function assertPluginDataKey(key: string): void {
+  if (
+    key.length === 0 ||
+    key.length > MAX_PLUGIN_DATA_KEY_LENGTH ||
+    Array.from(key).some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 31 || codePoint === 127;
+    })
+  ) {
+    throw new Error(
+      `Plugin data key must contain 1-${MAX_PLUGIN_DATA_KEY_LENGTH} printable characters.`,
+    );
+  }
+}
+
 export function createPluginRepository(database: CommandCabinDatabase): PluginRepository {
   const selectPlugin = database.prepare<[string], PluginRow>(
     `
@@ -331,6 +348,7 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
     },
     removePlugin: (id) => deletePlugin.run(id).changes > 0,
     setPluginData: (pluginId, key, value) => {
+      assertPluginDataKey(key);
       upsertPluginData.run({
         pluginId,
         key,
@@ -343,6 +361,7 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
       });
     },
     getPluginData: (pluginId, key) => {
+      assertPluginDataKey(key);
       const row = selectPluginData.get({ pluginId, key });
       return row
         ? parseStorageJson(row.value, {
@@ -353,7 +372,7 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
         : undefined;
     },
     listPluginData: (pluginId) => {
-      const values: Record<string, StorageJsonValue> = {};
+      const values = Object.create(null) as Record<string, StorageJsonValue>;
 
       for (const row of selectAllPluginData.all(pluginId)) {
         values[row.key] = parseStorageJson(row.value, {
@@ -365,6 +384,9 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
 
       return values;
     },
-    deletePluginData: (pluginId, key) => deletePluginData.run({ pluginId, key }).changes > 0,
+    deletePluginData: (pluginId, key) => {
+      assertPluginDataKey(key);
+      return deletePluginData.run({ pluginId, key }).changes > 0;
+    },
   };
 }

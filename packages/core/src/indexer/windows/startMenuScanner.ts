@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const DEFAULT_SHORTCUT_RESOLVER_TIMEOUT_MS = 5_000;
 const DEFAULT_APPS_FOLDER_SCANNER_TIMEOUT_MS = 3_000;
+const DEFAULT_SHORTCUT_RESOLUTION_CONCURRENCY = 8;
 const WINDOWS_APPS_FOLDER_PATH = 'shell:AppsFolder';
 
 export type StartMenuDirectoryEntryKind = 'file' | 'directory' | 'other';
@@ -94,6 +95,7 @@ export interface WindowsStartMenuScannerOptions {
   startMenuDirectories?: readonly string[];
   fileSystem?: StartMenuFileSystem;
   shortcutResolver?: ShortcutResolver;
+  shortcutResolutionConcurrency?: number;
   appsFolderScanner?: WindowsAppsFolderScanner;
   env?: NodeJS.ProcessEnv;
 }
@@ -502,6 +504,27 @@ interface ScanDirectoryOptions {
   shortcutResolver: ShortcutResolver;
 }
 
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (nextIndex < values.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await mapper(values[currentIndex]!);
+      }
+    }),
+  );
+
+  return results;
+}
+
 export function createWindowsStartMenuScanner(
   options: WindowsStartMenuScannerOptions = {},
 ): WindowsStartMenuScanner {
@@ -512,6 +535,10 @@ export function createWindowsStartMenuScanner(
   const startMenuDirectories =
     options.startMenuDirectories ?? getDefaultWindowsStartMenuDirectories(options.env);
   const desktopDirectories = options.desktopDirectories ?? [];
+  const shortcutResolutionConcurrency = Math.max(
+    1,
+    Math.floor(options.shortcutResolutionConcurrency ?? DEFAULT_SHORTCUT_RESOLUTION_CONCURRENCY),
+  );
 
   async function scanDirectory(
     directoryPath: string,
@@ -530,6 +557,8 @@ export function createWindowsStartMenuScanner(
       return;
     }
 
+    const shortcutPaths: string[] = [];
+
     for (const entry of [...entries].sort(compareDirectoryEntries)) {
       const entryPath = path.join(directoryPath, entry.name);
 
@@ -544,23 +573,41 @@ export function createWindowsStartMenuScanner(
         continue;
       }
 
-      try {
-        result.shortcuts.push(
-          mergeShortcut(
-            entryPath,
-            await scanOptions.shortcutResolver.resolve(entryPath),
-            scanOptions.opensApplication,
-          ),
-        );
-      } catch (error) {
-        result.failures.push({
-          shortcutPath: entryPath,
-          message: formatThrownValue(error),
-        });
+      shortcutPaths.push(entryPath);
+    }
 
-        if (scanOptions.includeUnresolvedShortcuts) {
-          result.shortcuts.push(mergeShortcut(entryPath, {}, scanOptions.opensApplication));
+    const resolvedShortcuts = await mapWithConcurrency(
+      shortcutPaths,
+      shortcutResolutionConcurrency,
+      async (shortcutPath) => {
+        try {
+          return {
+            shortcut: mergeShortcut(
+              shortcutPath,
+              await scanOptions.shortcutResolver.resolve(shortcutPath),
+              scanOptions.opensApplication,
+            ),
+          };
+        } catch (error) {
+          return {
+            failure: {
+              shortcutPath,
+              message: formatThrownValue(error),
+            },
+            ...(scanOptions.includeUnresolvedShortcuts
+              ? { shortcut: mergeShortcut(shortcutPath, {}, scanOptions.opensApplication) }
+              : {}),
+          };
         }
+      },
+    );
+
+    for (const resolved of resolvedShortcuts) {
+      if (resolved.shortcut !== undefined) {
+        result.shortcuts.push(resolved.shortcut);
+      }
+      if ('failure' in resolved) {
+        result.failures.push(resolved.failure);
       }
     }
   }

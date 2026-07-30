@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   CommandCabinLanguage,
@@ -10,9 +10,12 @@ import type {
 import { getUiStrings } from '../i18n.js';
 import { AboutSettings } from './AboutSettings.js';
 import { ClipboardHistorySettings } from './ClipboardHistorySettings.js';
+import { DataSettings } from './DataSettings.js';
+import { FavoritesSettings } from './FavoritesSettings.js';
 import { HotkeySettings } from './HotkeySettings.js';
 import { LanguageSettings } from './LanguageSettings.js';
 import { LauncherSettings } from './LauncherSettings.js';
+import { PluginSettings } from './PluginSettings.js';
 import { StartupSettings } from './StartupSettings.js';
 import { ThemeSettings } from './ThemeSettings.js';
 
@@ -85,6 +88,7 @@ export function SettingsPage({
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [isSaving, setIsSaving] = useState(false);
   const [settings, setSettings] = useState<CommandCabinSettings | undefined>();
+  const settingsMutationVersionRef = useRef(0);
   const [activeHotkeyRecorder, setActiveHotkeyRecorder] = useState<
     SettingsHotkeyRecorderId | undefined
   >();
@@ -107,11 +111,12 @@ export function SettingsPage({
     }
 
     let isCurrent = true;
+    const loadVersion = settingsMutationVersionRef.current;
 
     settingsApi
       .getSettings()
       .then((loadedSettings) => {
-        if (isCurrent) {
+        if (isCurrent && loadVersion === settingsMutationVersionRef.current) {
           setSettings(loadedSettings);
           onLanguageUpdated?.(loadedSettings.language);
           onThemeUpdated?.(loadedSettings.theme);
@@ -134,21 +139,28 @@ export function SettingsPage({
         throw new Error('Settings API unavailable.');
       }
 
+      const mutationVersion = ++settingsMutationVersionRef.current;
       setIsSaving(true);
       setErrorMessage(undefined);
 
       try {
         const updatedSettings = await settingsApi.updateSettings(patch);
-        setSettings(updatedSettings);
-        onLanguageUpdated?.(updatedSettings.language);
-        onThemeUpdated?.(updatedSettings.theme);
+        if (mutationVersion === settingsMutationVersionRef.current) {
+          setSettings(updatedSettings);
+          onLanguageUpdated?.(updatedSettings.language);
+          onThemeUpdated?.(updatedSettings.theme);
+        }
         return updatedSettings;
       } catch (error) {
         const message = error instanceof Error ? error.message : strings.settings.saveError;
-        setErrorMessage(message);
+        if (mutationVersion === settingsMutationVersionRef.current) {
+          setErrorMessage(message);
+        }
         throw new Error(message, { cause: error });
       } finally {
-        setIsSaving(false);
+        if (mutationVersion === settingsMutationVersionRef.current) {
+          setIsSaving(false);
+        }
       }
     },
     [onLanguageUpdated, onThemeUpdated, settingsApi, strings.settings.saveError],
@@ -165,8 +177,8 @@ export function SettingsPage({
       <section className="settings-frame" aria-label={strings.settings.ariaLabel}>
         <header className="settings-titlebar">
           <div>
-            <p className="launcher-kicker">{strings.settings.title}</p>
-            <h1>CommandCabin</h1>
+            <p className="launcher-kicker">CommandCabin</p>
+            <h1>{strings.settings.title}</h1>
           </div>
           <button className="settings-back" type="button" onClick={onReturnToLauncher}>
             {strings.settings.back}
@@ -180,52 +192,61 @@ export function SettingsPage({
         ) : null}
 
         <div className="settings-grid">
-          <AboutSettings appInfo={appInfo} strings={strings.settings.about} />
-          <HotkeySettings
-            activeRecorderId={activeHotkeyRecorder ?? null}
-            errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
-            isSaving={isSaving}
-            recorderId="launcher"
-            strings={strings.settings.hotkey}
-            value={settings?.hotkey ?? DEFAULT_LAUNCHER_HOTKEY}
-            onHotkeyChange={(hotkey) =>
-              updateSettings(createSettingsHotkeyPatch('launcher', hotkey))
-            }
-            onRecordingStart={() =>
-              setActiveHotkeyRecorder(startSettingsHotkeyRecorder('launcher'))
-            }
-            onRecordingStop={() => stopHotkeyRecording('launcher')}
-          />
-          <HotkeySettings
-            activeRecorderId={activeHotkeyRecorder ?? null}
-            errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
-            isSaving={isSaving}
-            recorderId="screenshot"
-            strings={strings.settings.screenshotHotkey}
-            value={settings?.screenshotHotkey ?? DEFAULT_SCREENSHOT_HOTKEY}
-            onHotkeyChange={(hotkey) =>
-              updateSettings(createSettingsHotkeyPatch('screenshot', hotkey))
-            }
-            onRecordingStart={() =>
-              setActiveHotkeyRecorder(startSettingsHotkeyRecorder('screenshot'))
-            }
-            onRecordingStop={() => stopHotkeyRecording('screenshot')}
-          />
-          <HotkeySettings
-            activeRecorderId={activeHotkeyRecorder ?? null}
-            errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
-            isSaving={isSaving}
-            recorderId="delayedScreenshot"
-            strings={strings.settings.delayedScreenshotHotkey}
-            value={settings?.delayedScreenshotHotkey ?? DEFAULT_DELAYED_SCREENSHOT_HOTKEY}
-            onHotkeyChange={(hotkey) =>
-              updateSettings(createSettingsHotkeyPatch('delayedScreenshot', hotkey))
-            }
-            onRecordingStart={() =>
-              setActiveHotkeyRecorder(startSettingsHotkeyRecorder('delayedScreenshot'))
-            }
-            onRecordingStop={() => stopHotkeyRecording('delayedScreenshot')}
-          />
+          <section className="settings-section settings-section--wide hotkey-settings-group">
+            <header className="settings-section__header">
+              <h2>{strings.settings.shortcutsTitle}</h2>
+            </header>
+            <div className="hotkey-settings-group__rows">
+              <HotkeySettings
+                compact
+                activeRecorderId={activeHotkeyRecorder ?? null}
+                errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
+                isSaving={isSaving}
+                recorderId="launcher"
+                strings={strings.settings.hotkey}
+                value={settings?.hotkey ?? DEFAULT_LAUNCHER_HOTKEY}
+                onHotkeyChange={(hotkey) =>
+                  updateSettings(createSettingsHotkeyPatch('launcher', hotkey))
+                }
+                onRecordingStart={() =>
+                  setActiveHotkeyRecorder(startSettingsHotkeyRecorder('launcher'))
+                }
+                onRecordingStop={() => stopHotkeyRecording('launcher')}
+              />
+              <HotkeySettings
+                compact
+                activeRecorderId={activeHotkeyRecorder ?? null}
+                errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
+                isSaving={isSaving}
+                recorderId="screenshot"
+                strings={strings.settings.screenshotHotkey}
+                value={settings?.screenshotHotkey ?? DEFAULT_SCREENSHOT_HOTKEY}
+                onHotkeyChange={(hotkey) =>
+                  updateSettings(createSettingsHotkeyPatch('screenshot', hotkey))
+                }
+                onRecordingStart={() =>
+                  setActiveHotkeyRecorder(startSettingsHotkeyRecorder('screenshot'))
+                }
+                onRecordingStop={() => stopHotkeyRecording('screenshot')}
+              />
+              <HotkeySettings
+                compact
+                activeRecorderId={activeHotkeyRecorder ?? null}
+                errorMessage={settingsApi ? undefined : strings.settings.settingsUnavailable}
+                isSaving={isSaving}
+                recorderId="delayedScreenshot"
+                strings={strings.settings.delayedScreenshotHotkey}
+                value={settings?.delayedScreenshotHotkey ?? DEFAULT_DELAYED_SCREENSHOT_HOTKEY}
+                onHotkeyChange={(hotkey) =>
+                  updateSettings(createSettingsHotkeyPatch('delayedScreenshot', hotkey))
+                }
+                onRecordingStart={() =>
+                  setActiveHotkeyRecorder(startSettingsHotkeyRecorder('delayedScreenshot'))
+                }
+                onRecordingStop={() => stopHotkeyRecording('delayedScreenshot')}
+              />
+            </div>
+          </section>
           <ThemeSettings
             isSaving={isSaving}
             strings={strings.settings.theme}
@@ -253,6 +274,10 @@ export function SettingsPage({
             onLaunchAtLoginChange={(launchAtLogin) => updateSettings({ launchAtLogin })}
           />
           <ClipboardHistorySettings strings={strings.settings.clipboardHistory} />
+          <DataSettings strings={strings.settings.data} />
+          <PluginSettings strings={strings.settings.plugin} />
+          <FavoritesSettings commonStrings={strings.common} strings={strings.settings.favorites} />
+          <AboutSettings appInfo={appInfo} strings={strings.settings.about} />
         </div>
       </section>
     </main>

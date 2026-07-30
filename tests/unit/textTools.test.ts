@@ -36,6 +36,16 @@ describe('text tools transforms', () => {
     expect(() => applyTextTransform('format-json', '{bad json')).toThrow('Invalid JSON');
     expect(() => applyTextTransform('url-decode', '%E0%A4%A')).toThrow('Invalid URL encoded text');
   });
+
+  it('rejects JSON numbers that native formatting would silently change', () => {
+    expect(() => applyTextTransform('format-json', '{"id":9007199254740993}')).toThrow(
+      /precision loss/i,
+    );
+    expect(() => applyTextTransform('format-json', '{"value":1e400}')).toThrow(/finite range/i);
+    expect(applyTextTransform('format-json', '{"label":"9007199254740993"}')).toContain(
+      '9007199254740993',
+    );
+  });
 });
 
 describe('text tools commands', () => {

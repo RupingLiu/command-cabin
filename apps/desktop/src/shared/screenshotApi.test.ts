@@ -106,11 +106,13 @@ describe('screenshotApi parsers', () => {
       parseScreenshotTranslateSelectionRequest({
         imageDataUrl: pngDataUrl,
         ocrLanguage: 'en-US',
+        onlineConsent: true,
         targetLanguage: 'zh-CN',
       }),
     ).toEqual({
       imageDataUrl: pngDataUrl,
       ocrLanguage: 'en-US',
+      onlineConsent: true,
       targetLanguage: 'zh-CN',
     });
     expect(
@@ -183,9 +185,17 @@ describe('screenshotApi parsers', () => {
       parseScreenshotTranslateSelectionRequest({
         imageDataUrl: pngDataUrl,
         ocrLanguage: 'en-US',
+        onlineConsent: true,
         targetLanguage: 'ja-JP',
       }),
     ).toThrow(/translation language/i);
+    expect(() =>
+      parseScreenshotTranslateSelectionRequest({
+        imageDataUrl: pngDataUrl,
+        ocrLanguage: 'en-US',
+        targetLanguage: 'zh-CN',
+      }),
+    ).toThrow(/onlineConsent must be true/i);
     expect(() => parseScreenshotPinnedImageToken('')).toThrow(/pinned image token/i);
     expect(() =>
       parseScreenshotPinnedImageState({ imageDataUrl: pngDataUrl, token: 'pin-1', extra: true }),

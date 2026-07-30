@@ -153,6 +153,9 @@ export interface PluginRuntimeOptions {
   clock?: PluginLifecycleClock;
   storage?: PluginStorageCapability;
   clipboard?: PluginClipboardCapability;
+  commandTimeoutMs?: number | undefined;
+  lifecycleTimeoutMs?: number | undefined;
+  moduleLoadTimeoutMs?: number | undefined;
 }
 
 export interface PluginRuntime {
@@ -226,14 +229,51 @@ function createFailure(
   };
 }
 
+const DEFAULT_PLUGIN_COMMAND_TIMEOUT_MS = 30_000;
+const DEFAULT_PLUGIN_LIFECYCLE_TIMEOUT_MS = 10_000;
+const DEFAULT_PLUGIN_MODULE_LOAD_TIMEOUT_MS = 10_000;
+
+function runWithTimeout<T>(
+  operation: () => T | Promise<T>,
+  timeoutMs: number,
+  description: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${description} timed out after ${timeoutMs} ms.`));
+    }, timeoutMs);
+
+    Promise.resolve()
+      .then(operation)
+      .then(resolve, reject)
+      .finally(() => clearTimeout(timeoutId));
+  });
+}
+
+function freezeRecursively<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const nestedValue of Object.values(value)) {
+      freezeRecursively(nestedValue);
+    }
+
+    Object.freeze(value);
+  }
+
+  return value;
+}
+
+function clonePublicManifest(manifest: PluginManifest): PluginManifest {
+  return freezeRecursively(JSON.parse(JSON.stringify(manifest)) as PluginManifest);
+}
+
 function getPublicPlugin(state: RuntimePluginState): PluginRuntimePlugin {
-  return {
+  return Object.freeze({
     pluginId: state.manifest.id,
     pluginRoot: state.pluginRoot,
     mainPath: state.mainPath,
-    manifest: state.manifest,
+    manifest: clonePublicManifest(state.manifest),
     status: state.status,
-  };
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -387,6 +427,9 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
     options.resolveMainPath ??
     ((pluginRoot: string, manifest: PluginManifest) =>
       resolvePluginManifestRealPath(pluginRoot, manifest.main, 'main'));
+  const commandTimeoutMs = options.commandTimeoutMs ?? DEFAULT_PLUGIN_COMMAND_TIMEOUT_MS;
+  const lifecycleTimeoutMs = options.lifecycleTimeoutMs ?? DEFAULT_PLUGIN_LIFECYCLE_TIMEOUT_MS;
+  const moduleLoadTimeoutMs = options.moduleLoadTimeoutMs ?? DEFAULT_PLUGIN_MODULE_LOAD_TIMEOUT_MS;
 
   const unregisterPluginCommands = (state: RuntimePluginState): number => {
     let removedCount = 0;
@@ -509,6 +552,18 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
     const existingEnabledState = pluginsById.get(manifest.id);
 
     if (existingEnabledState?.status === 'enabled') {
+      if (
+        existingEnabledState.pluginRoot !== pluginRoot ||
+        existingEnabledState.manifest.version !== manifest.version ||
+        existingEnabledState.manifest.main !== manifest.main
+      ) {
+        return createFailure(
+          'load-error',
+          `Plugin "${manifest.id}" is already enabled from a different folder or version. Disable it before loading a replacement.`,
+          manifest.id,
+        );
+      }
+
       return createSuccess(getPublicPlugin(existingEnabledState));
     }
 
@@ -583,12 +638,17 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
     stateRef.current = state;
 
     try {
-      const moduleValue = await options.moduleLoader({
-        pluginRoot,
-        mainPath: mainPathResult.path,
-        manifest,
-        context,
-      });
+      const moduleValue = await runWithTimeout(
+        () =>
+          options.moduleLoader({
+            pluginRoot,
+            mainPath: mainPathResult.path,
+            manifest,
+            context,
+          }),
+        moduleLoadTimeoutMs,
+        `Plugin "${manifest.id}" module load`,
+      );
       const plugin = normalizePluginModule(moduleValue);
 
       if (plugin.id !== undefined && plugin.id !== manifest.id) {
@@ -683,7 +743,12 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
     const activateResult = await runPluginLifecycleHook(
       state.manifest.id,
       'activate',
-      () => state.plugin.activate(state.context),
+      () =>
+        runWithTimeout(
+          () => state.plugin.activate(state.context),
+          lifecycleTimeoutMs,
+          `Plugin "${state.manifest.id}" activate`,
+        ),
       logStore,
     );
 
@@ -728,7 +793,12 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
         ? await runPluginLifecycleHook(
             state.manifest.id,
             'deactivate',
-            () => deactivateHookResult.hook!(state.context),
+            () =>
+              runWithTimeout(
+                () => deactivateHookResult.hook!(state.context),
+                lifecycleTimeoutMs,
+                `Plugin "${state.manifest.id}" deactivate`,
+              ),
             logStore,
           )
         : { ok: true as const }
@@ -790,13 +860,18 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
     }
 
     try {
-      const result = await handler(
-        {
-          pluginId: payload.pluginId,
-          commandId: payload.commandId,
-          payload: command.action.payload as PluginJsonObject,
-        },
-        state.context,
+      const result = await runWithTimeout(
+        () =>
+          handler(
+            {
+              pluginId: payload.pluginId,
+              commandId: payload.commandId,
+              payload: command.action.payload as PluginJsonObject,
+            },
+            state.context,
+          ),
+        commandTimeoutMs,
+        `Plugin "${payload.pluginId}" command "${payload.commandId}"`,
       );
       const metadata = getPluginCommandHandlerMetadata(result, command.id);
 

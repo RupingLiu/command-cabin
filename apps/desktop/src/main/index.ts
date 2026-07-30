@@ -34,6 +34,7 @@ import {
   ipcMain,
   nativeImage,
   screen,
+  session,
   shell,
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
@@ -91,6 +92,11 @@ import {
   createPluginWebviewPolicyStore,
   getPluginBridgePreloadPath,
 } from './window/webviewGuard.js';
+import {
+  assertTrustedIpcSender,
+  denyAllSessionPermissions,
+  type CommandCabinWindowRole,
+} from './window/trustedWindowPolicy.js';
 import {
   parseFavoriteCreateRequest,
   parseFavoriteId,
@@ -198,6 +204,29 @@ const openAppCommand = createOpenAppCommand({
 const pluginWebviewPolicyStore = createPluginWebviewPolicyStore({
   expectedPreloadPath: getPluginBridgePreloadPath(windowEntryPaths.preloadPath),
 });
+const ipcRolesByChannel = new Map<string, readonly CommandCabinWindowRole[]>([
+  [GET_SETTINGS_CHANNEL, ['launcher', 'screenshot']],
+  [SCREENSHOT_GET_LAUNCH_STATE_CHANNEL, ['screenshot']],
+  [SCREENSHOT_READY_TO_SHOW_CHANNEL, ['screenshot']],
+  [SCREENSHOT_CANCEL_CHANNEL, ['screenshot']],
+  [SCREENSHOT_COPY_IMAGE_CHANNEL, ['screenshot']],
+  [SCREENSHOT_SAVE_IMAGE_CHANNEL, ['screenshot']],
+  [SCREENSHOT_PIN_IMAGE_CHANNEL, ['screenshot']],
+  [SCREENSHOT_RUN_OCR_CHANNEL, ['screenshot']],
+  [SCREENSHOT_TRANSLATE_SELECTION_CHANNEL, ['screenshot']],
+  [SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL, ['pinned-image']],
+]);
+
+function handleTrustedIpc<Args extends unknown[], Result>(
+  channel: string,
+  handler: (event: IpcMainInvokeEvent, ...args: Args) => Result,
+): void {
+  ipcMain.handle(channel, (event, ...args: unknown[]) => {
+    assertTrustedIpcSender(event, ipcRolesByChannel.get(channel) ?? ['launcher']);
+    return handler(event, ...(args as Args));
+  });
+}
+
 let settingsStore: CommandCabinSettingsStore = createInMemorySettingsStore();
 let commandCabinDatabase: CommandCabinDatabase | undefined;
 let appIndexer: AppIndexer | undefined;
@@ -221,6 +250,7 @@ let startupPromise: Promise<void> | undefined;
 
 function getWindowOptions() {
   return {
+    appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
     ...windowEntryPaths,
     pluginWebviewPolicyStore,
@@ -236,6 +266,7 @@ function getScreenshotOverlayWindowOptions(virtualBounds: {
   y: number;
 }) {
   return {
+    appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
     preloadPath: windowEntryPaths.preloadPath,
     rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
@@ -255,6 +286,7 @@ function getScreenshotOverlayPreloadBounds() {
 
 function getPinnedImageWindowOptions() {
   return {
+    appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
     preloadPath: windowEntryPaths.preloadPath,
     rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
@@ -411,6 +443,7 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
     moduleLoader: async ({ mainPath }) => import(pathToFileURL(mainPath).href),
   });
   desktopPluginService = createDesktopPluginService({
+    allowUnsafePluginExecution: false,
     onPluginLoadError: (plugin, error) => {
       console.error(`Plugin "${plugin.id}" was disabled after load failure.`, error);
     },
@@ -436,6 +469,7 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
     commandRegistry,
     exchangeRateProvider,
     favoritesRepository,
+    getSearchSettings: () => settingsStore.getSettings().search,
     historyRepository: createHistoryRepository(commandCabinDatabase),
     openApp: openAppCommand,
     openPath: async (path) => {
@@ -601,7 +635,10 @@ async function showExistingApplicationInstance(): Promise<void> {
 
 function startApplication(): Promise<void> {
   const showWindow = !isLaunchAtLoginStartup(process.argv);
-  const nextStartupPromise = app.whenReady().then(() => createApplicationWindow({ showWindow }));
+  const nextStartupPromise = app.whenReady().then(() => {
+    denyAllSessionPermissions(session.defaultSession);
+    return createApplicationWindow({ showWindow });
+  });
 
   nextStartupPromise.catch((error: unknown) => {
     console.error('Failed to start CommandCabin.', error);
@@ -711,7 +748,7 @@ const hasSingleInstanceLock = configureSingleInstance({
   showExistingWindow: showExistingApplicationInstance,
 });
 
-ipcMain.handle(SEARCH_COMMANDS_CHANNEL, async (event, query: unknown) => {
+handleTrustedIpc(SEARCH_COMMANDS_CHANNEL, async (event, query: unknown) => {
   const results = await launcherCommandService.searchCommands(
     typeof query === 'string' ? query : '',
   );
@@ -726,21 +763,21 @@ ipcMain.handle(SEARCH_COMMANDS_CHANNEL, async (event, query: unknown) => {
   });
 });
 
-ipcMain.handle(EXECUTE_COMMAND_CHANNEL, (_event, commandId: unknown) =>
+handleTrustedIpc(EXECUTE_COMMAND_CHANNEL, (_event, commandId: unknown) =>
   launcherCommandService.executeCommand(typeof commandId === 'string' ? commandId : ''),
 );
 
-ipcMain.handle(HIDE_LAUNCHER_CHANNEL, (event) => {
+handleTrustedIpc(HIDE_LAUNCHER_CHANNEL, (event) => {
   BrowserWindow.fromWebContents(event.sender)?.hide();
 });
 
-ipcMain.handle(LIST_FAVORITES_CHANNEL, () => launcherCommandService.listFavorites());
+handleTrustedIpc(LIST_FAVORITES_CHANNEL, () => launcherCommandService.listFavorites());
 
-ipcMain.handle(ADD_FAVORITE_CHANNEL, (_event, input: unknown) =>
+handleTrustedIpc(ADD_FAVORITE_CHANNEL, (_event, input: unknown) =>
   launcherCommandService.addFavorite(parseFavoriteCreateRequest(input)),
 );
 
-ipcMain.handle(ADD_PINNED_APP_CHANNEL, async (event) => {
+handleTrustedIpc(ADD_PINNED_APP_CHANNEL, async (event) => {
   const appPath = await showPinnedAppDialog(event, 'Add application');
 
   if (appPath === undefined) {
@@ -750,7 +787,7 @@ ipcMain.handle(ADD_PINNED_APP_CHANNEL, async (event) => {
   return launcherCommandService.addPinnedApp(await createPinnedAppInput(appPath));
 });
 
-ipcMain.handle(LIST_APP_CANDIDATES_CHANNEL, async (_event, query: unknown) =>
+handleTrustedIpc(LIST_APP_CANDIDATES_CHANNEL, async (_event, query: unknown) =>
   Promise.all(
     (await appCandidateService.listCandidates(typeof query === 'string' ? query : '')).map(
       resolveAppCandidateIcon,
@@ -758,13 +795,13 @@ ipcMain.handle(LIST_APP_CANDIDATES_CHANNEL, async (_event, query: unknown) =>
   ),
 );
 
-ipcMain.handle(ADD_PINNED_APP_CANDIDATE_CHANNEL, (_event, input: unknown) =>
+handleTrustedIpc(ADD_PINNED_APP_CANDIDATE_CHANNEL, (_event, input: unknown) =>
   launcherCommandService.addPinnedApp(
     appCandidateService.createPinnedAppInput(parseAppCandidateAddRequest(input)),
   ),
 );
 
-ipcMain.handle(UPDATE_PINNED_APP_CHANNEL, async (event, id: unknown) => {
+handleTrustedIpc(UPDATE_PINNED_APP_CHANNEL, async (event, id: unknown) => {
   const appPath = await showPinnedAppDialog(event, 'Modify application');
 
   if (appPath === undefined) {
@@ -777,65 +814,65 @@ ipcMain.handle(UPDATE_PINNED_APP_CHANNEL, async (event, id: unknown) => {
   );
 });
 
-ipcMain.handle(UPDATE_FAVORITE_CHANNEL, (_event, id: unknown, input: unknown) =>
+handleTrustedIpc(UPDATE_FAVORITE_CHANNEL, (_event, id: unknown, input: unknown) =>
   launcherCommandService.updateFavorite(parseFavoriteId(id), parseFavoriteUpdateRequest(input)),
 );
 
-ipcMain.handle(REMOVE_FAVORITE_CHANNEL, (_event, id: unknown) =>
+handleTrustedIpc(REMOVE_FAVORITE_CHANNEL, (_event, id: unknown) =>
   launcherCommandService.removeFavorite(parseFavoriteId(id)),
 );
 
-ipcMain.handle(REMOVE_RECENT_APP_CHANNEL, (_event, commandId: unknown) =>
+handleTrustedIpc(REMOVE_RECENT_APP_CHANNEL, (_event, commandId: unknown) =>
   launcherCommandService.removeRecentApp(typeof commandId === 'string' ? commandId : ''),
 );
 
-ipcMain.handle(CLEAR_CLIPBOARD_HISTORY_CHANNEL, () =>
+handleTrustedIpc(CLEAR_CLIPBOARD_HISTORY_CHANNEL, () =>
   launcherCommandService.clearClipboardHistory(),
 );
 
-ipcMain.handle(GET_SETTINGS_CHANNEL, () => settingsStore.getSettings());
+handleTrustedIpc(GET_SETTINGS_CHANNEL, () => settingsStore.getSettings());
 
-ipcMain.handle(GET_UPDATE_STATUS_CHANNEL, () => getUpdateController().getStatus());
+handleTrustedIpc(GET_UPDATE_STATUS_CHANNEL, () => getUpdateController().getStatus());
 
-ipcMain.handle(CHECK_FOR_UPDATES_CHANNEL, () => getUpdateController().checkForUpdates());
+handleTrustedIpc(CHECK_FOR_UPDATES_CHANNEL, () => getUpdateController().checkForUpdates());
 
-ipcMain.handle(INSTALL_UPDATE_CHANNEL, () => getUpdateController().installUpdate());
+handleTrustedIpc(INSTALL_UPDATE_CHANNEL, () => getUpdateController().installUpdate());
 
-ipcMain.handle(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL, (event) =>
+handleTrustedIpc(SCREENSHOT_GET_LAUNCH_STATE_CHANNEL, (event) =>
   screenshotController.getLaunchState(event.sender),
 );
 
-ipcMain.handle(SCREENSHOT_READY_TO_SHOW_CHANNEL, (event) =>
+handleTrustedIpc(SCREENSHOT_READY_TO_SHOW_CHANNEL, (event) =>
   screenshotController.markOverlayReady(event.sender),
 );
 
-ipcMain.handle(SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL, (event, token: unknown) =>
+handleTrustedIpc(SCREENSHOT_GET_PINNED_IMAGE_STATE_CHANNEL, (event, token: unknown) =>
   screenshotController.getPinnedImageState(event.sender, token),
 );
 
-ipcMain.handle(SCREENSHOT_CANCEL_CHANNEL, (event) => screenshotController.cancel(event.sender));
+handleTrustedIpc(SCREENSHOT_CANCEL_CHANNEL, (event) => screenshotController.cancel(event.sender));
 
-ipcMain.handle(SCREENSHOT_COPY_IMAGE_CHANNEL, (event, request: unknown) =>
+handleTrustedIpc(SCREENSHOT_COPY_IMAGE_CHANNEL, (event, request: unknown) =>
   screenshotController.copyImage(event.sender, request),
 );
 
-ipcMain.handle(SCREENSHOT_SAVE_IMAGE_CHANNEL, (event, request: unknown) =>
+handleTrustedIpc(SCREENSHOT_SAVE_IMAGE_CHANNEL, (event, request: unknown) =>
   screenshotController.saveImage(event.sender, request),
 );
 
-ipcMain.handle(SCREENSHOT_PIN_IMAGE_CHANNEL, (event, request: unknown) =>
+handleTrustedIpc(SCREENSHOT_PIN_IMAGE_CHANNEL, (event, request: unknown) =>
   screenshotController.pinImage(event.sender, request),
 );
 
-ipcMain.handle(SCREENSHOT_RUN_OCR_CHANNEL, (event, request: unknown) =>
+handleTrustedIpc(SCREENSHOT_RUN_OCR_CHANNEL, (event, request: unknown) =>
   screenshotController.runOcr(event.sender, request),
 );
 
-ipcMain.handle(SCREENSHOT_TRANSLATE_SELECTION_CHANNEL, (event, request: unknown) =>
+handleTrustedIpc(SCREENSHOT_TRANSLATE_SELECTION_CHANNEL, (event, request: unknown) =>
   screenshotController.translateSelection(event.sender, request),
 );
 
-ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
+handleTrustedIpc(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
   altSpaceHotkeyCapture.stop();
   const settingsPatch = parseSettingsPatch(input);
   const updatedSettings = updateSettingsWithHotkeyRegistration({
@@ -856,22 +893,22 @@ ipcMain.handle(UPDATE_SETTINGS_CHANNEL, (_event, input: unknown) => {
   return updatedSettings;
 });
 
-ipcMain.handle(START_HOTKEY_INPUT_CAPTURE_CHANNEL, (event) =>
+handleTrustedIpc(START_HOTKEY_INPUT_CAPTURE_CHANNEL, (event) =>
   altSpaceHotkeyCapture.start(event.sender),
 );
 
-ipcMain.handle(STOP_HOTKEY_INPUT_CAPTURE_CHANNEL, () => {
+handleTrustedIpc(STOP_HOTKEY_INPUT_CAPTURE_CHANNEL, () => {
   altSpaceHotkeyCapture.stop();
   return true;
 });
 
-ipcMain.handle(LIST_PLUGINS_CHANNEL, () => desktopPluginService?.listPlugins() ?? []);
+handleTrustedIpc(LIST_PLUGINS_CHANNEL, () => desktopPluginService?.listPlugins() ?? []);
 
-ipcMain.handle(INSTALL_PLUGIN_CHANNEL, (_event, input: unknown) =>
+handleTrustedIpc(INSTALL_PLUGIN_CHANNEL, (_event, input: unknown) =>
   desktopPluginService?.installPlugin(parsePluginInstallRequest(input).pluginRoot),
 );
 
-ipcMain.handle(SET_PLUGIN_ENABLED_CHANNEL, async (_event, id: unknown, enabled: unknown) => {
+handleTrustedIpc(SET_PLUGIN_ENABLED_CHANNEL, async (_event, id: unknown, enabled: unknown) => {
   if (typeof id !== 'string' || id.trim().length === 0) {
     throw new Error('Plugin id must be a non-empty string.');
   }
@@ -882,7 +919,7 @@ ipcMain.handle(SET_PLUGIN_ENABLED_CHANNEL, async (_event, id: unknown, enabled: 
   return desktopPluginService?.setPluginEnabled(id.trim(), enabled);
 });
 
-ipcMain.handle(REMOVE_PLUGIN_CHANNEL, async (_event, id: unknown) => {
+handleTrustedIpc(REMOVE_PLUGIN_CHANNEL, async (_event, id: unknown) => {
   if (typeof id !== 'string' || id.trim().length === 0) {
     throw new Error('Plugin id must be a non-empty string.');
   }
@@ -890,11 +927,11 @@ ipcMain.handle(REMOVE_PLUGIN_CHANNEL, async (_event, id: unknown) => {
   return (await desktopPluginService?.removePlugin(id.trim())) ?? false;
 });
 
-ipcMain.handle(GET_DATA_DIRECTORY_CHANNEL, () => ({
+handleTrustedIpc(GET_DATA_DIRECTORY_CHANNEL, () => ({
   path: app.getPath('userData'),
 }));
 
-ipcMain.handle(OPEN_DATA_DIRECTORY_CHANNEL, async () => {
+handleTrustedIpc(OPEN_DATA_DIRECTORY_CHANNEL, async () => {
   const path = app.getPath('userData');
   const errorMessage = await shell.openPath(path);
 
@@ -905,11 +942,11 @@ ipcMain.handle(OPEN_DATA_DIRECTORY_CHANNEL, async () => {
   return { path };
 });
 
-ipcMain.handle(OPEN_REPOSITORY_CHANNEL, () =>
+handleTrustedIpc(OPEN_REPOSITORY_CHANNEL, () =>
   openRepository({ openExternal: (url) => shell.openExternal(url) }),
 );
 
-ipcMain.handle(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) => {
+handleTrustedIpc(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) => {
   const pluginId =
     typeof input === 'object' && input !== null && 'pluginId' in input
       ? (input as { pluginId?: unknown }).pluginId
@@ -933,7 +970,7 @@ ipcMain.handle(REGISTER_PLUGIN_HOST_ENTRY_CHANNEL, (_event, input: unknown) => {
   });
 });
 
-ipcMain.handle(RELEASE_PLUGIN_HOST_ENTRY_CHANNEL, (_event, launchToken: unknown) => {
+handleTrustedIpc(RELEASE_PLUGIN_HOST_ENTRY_CHANNEL, (_event, launchToken: unknown) => {
   if (typeof launchToken !== 'string' || launchToken.trim().length === 0) {
     return false;
   }

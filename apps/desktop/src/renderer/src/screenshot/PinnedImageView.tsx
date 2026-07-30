@@ -7,6 +7,7 @@ type ScreenshotApi = NonNullable<Window['desktopApi']['screenshot']>;
 export interface PinnedImageFrameProps {
   imageDataUrl: string;
   onClose?: (() => void) | undefined;
+  onImageError?: (() => void) | undefined;
 }
 
 export function getPinnedImageTokenFromHref(href: string): string | undefined {
@@ -29,7 +30,7 @@ function requireScreenshotApi(
   return screenshotApi;
 }
 
-export function PinnedImageFrame({ imageDataUrl, onClose }: PinnedImageFrameProps) {
+export function PinnedImageFrame({ imageDataUrl, onClose, onImageError }: PinnedImageFrameProps) {
   return (
     <div className="pinned-image-shell">
       <div className="pinned-image-titlebar">
@@ -48,7 +49,13 @@ export function PinnedImageFrame({ imageDataUrl, onClose }: PinnedImageFrameProp
           X
         </button>
       </div>
-      <img alt="Pinned screenshot" className="pinned-image" draggable={false} src={imageDataUrl} />
+      <img
+        alt="Pinned screenshot"
+        className="pinned-image"
+        draggable={false}
+        src={imageDataUrl}
+        onError={onImageError}
+      />
     </div>
   );
 }
@@ -99,5 +106,10 @@ export function PinnedImageView() {
     );
   }
 
-  return <PinnedImageFrame imageDataUrl={state.imageDataUrl} />;
+  return (
+    <PinnedImageFrame
+      imageDataUrl={state.imageDataUrl}
+      onImageError={() => setError('Pinned screenshot image failed to load.')}
+    />
+  );
 }

@@ -8,10 +8,9 @@
 !macroend
 
 !macro customInstall
-  ReadEnvStr $0 "LOCALAPPDATA"
-  StrCmp "$0" "" legacyCleanupDone 0
-  StrCmp "$INSTDIR" "$0\Programs\command-cabin" legacyCleanupDone 0
-  RMDir /r "$0\Programs\command-cabin"
-  legacyCleanupDone:
+  ; Never recursively delete the historical per-user directory from the installer.
+  ; Older builds may have shared that path with unrelated files or a reparse point.
+  ; A verified legacy uninstaller can be invoked by a future migration, but an
+  ; unowned directory must be preserved.
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
 !macroend

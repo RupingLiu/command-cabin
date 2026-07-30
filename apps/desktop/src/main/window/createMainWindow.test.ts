@@ -1,5 +1,5 @@
 import type { BrowserWindowConstructorOptions } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 type ReadyToShowListener = () => void;
 
@@ -8,9 +8,12 @@ class MockBrowserWindow {
 
   readonly loadFile = vi.fn();
   readonly loadURL = vi.fn();
+  readonly destroy = vi.fn();
   readonly show = vi.fn();
   readonly webContents = {
+    id: 1,
     on: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
   };
 
   private readyToShowListener?: ReadyToShowListener;
@@ -36,15 +39,19 @@ vi.mock('electron', () => ({
   BrowserWindow: MockBrowserWindow,
 }));
 
+let createMainWindow: typeof import('./createMainWindow.js').createMainWindow;
+
 describe('createMainWindow', () => {
+  beforeAll(async () => {
+    ({ createMainWindow } = await import('./createMainWindow.js'));
+  });
+
   beforeEach(() => {
     MockBrowserWindow.instances = [];
     vi.clearAllMocks();
   });
 
   it('creates a secure frameless always-on-top launcher window and loads the dev server', async () => {
-    const { createMainWindow } = await import('./createMainWindow.js');
-
     const window = await createMainWindow({
       isPackaged: false,
       preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
@@ -67,10 +74,14 @@ describe('createMainWindow', () => {
       resizable: false,
       maximizable: false,
       webPreferences: {
+        additionalArguments: expect.arrayContaining([
+          '--command-cabin-window-role=launcher',
+          '--command-cabin-version=0.0.0',
+        ]),
         backgroundThrottling: true,
         nodeIntegration: false,
         contextIsolation: true,
-        sandbox: false,
+        sandbox: true,
         webviewTag: true,
         preload: 'C:\\CommandCabin\\dist\\preload\\index.js',
       },
@@ -88,8 +99,6 @@ describe('createMainWindow', () => {
   });
 
   it('loads the built renderer HTML when no dev server URL is available', async () => {
-    const { createMainWindow } = await import('./createMainWindow.js');
-
     await createMainWindow({
       isPackaged: false,
       preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
@@ -103,8 +112,6 @@ describe('createMainWindow', () => {
   });
 
   it('keeps the window hidden on ready when requested for login startup', async () => {
-    const { createMainWindow } = await import('./createMainWindow.js');
-
     await createMainWindow({
       isPackaged: false,
       preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
@@ -118,8 +125,6 @@ describe('createMainWindow', () => {
   });
 
   it('ignores a dev server URL in packaged mode', async () => {
-    const { createMainWindow } = await import('./createMainWindow.js');
-
     await createMainWindow({
       isPackaged: true,
       preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',
@@ -134,8 +139,6 @@ describe('createMainWindow', () => {
   });
 
   it('rejects non-localhost dev server URLs', async () => {
-    const { createMainWindow } = await import('./createMainWindow.js');
-
     await createMainWindow({
       isPackaged: false,
       preloadPath: 'C:\\CommandCabin\\dist\\preload\\index.js',

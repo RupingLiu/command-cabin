@@ -15,6 +15,7 @@ import {
   getScreenshotLaunchPhase,
   getPendingTextPointerAction,
   getScreenshotCompletionAction,
+  getScreenshotGlobalKeyboardAction,
   getScreenshotOcrLanguageForUi,
   getScreenshotTranslationTargetLanguage,
   isScreenshotLaunchStateHydration,
@@ -73,6 +74,13 @@ function createMockBackgroundStyle(initialValue: string, initialPriority = '') {
       }
     }),
   };
+}
+
+function createScreenshotKeyboardTarget(selectorMatch: string | undefined): EventTarget {
+  return {
+    closest: (selector: string) =>
+      selectorMatch !== undefined && selector.includes(selectorMatch) ? {} : null,
+  } as unknown as EventTarget;
 }
 
 describe('ScreenshotOverlay', () => {
@@ -372,6 +380,40 @@ describe('ScreenshotOverlayView', () => {
     expect(getScreenshotCompletionAction({ mode: 'capture' })).toBe('copy');
     expect(getScreenshotCompletionAction({ mode: 'capture-delay-3' })).toBe('copy');
     expect(getScreenshotCompletionAction({ mode: 'capture-delay-5' })).toBe('copy');
+  });
+
+  it('does not treat Enter on interactive screenshot controls as global completion', () => {
+    for (const selector of ['button', 'select', '[contenteditable]', '.screenshot-toolbar']) {
+      expect(
+        getScreenshotGlobalKeyboardAction('Enter', createScreenshotKeyboardTarget(selector), true),
+      ).toBe('none');
+    }
+
+    expect(
+      getScreenshotGlobalKeyboardAction('Enter', createScreenshotKeyboardTarget(undefined), true),
+    ).toBe('finish');
+    expect(
+      getScreenshotGlobalKeyboardAction('Enter', createScreenshotKeyboardTarget(undefined), false),
+    ).toBe('none');
+  });
+
+  it('keeps Escape global except when an editing control owns it', () => {
+    for (const selector of ['input', 'textarea', 'select', '[contenteditable]']) {
+      expect(
+        getScreenshotGlobalKeyboardAction('Escape', createScreenshotKeyboardTarget(selector), true),
+      ).toBe('none');
+    }
+
+    expect(
+      getScreenshotGlobalKeyboardAction('Escape', createScreenshotKeyboardTarget('button'), true),
+    ).toBe('cancel');
+    expect(
+      getScreenshotGlobalKeyboardAction(
+        'Escape',
+        createScreenshotKeyboardTarget('.screenshot-toolbar'),
+        true,
+      ),
+    ).toBe('cancel');
   });
 
   it('tracks display image loading by source id before notifying readiness', () => {

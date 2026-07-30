@@ -325,6 +325,41 @@ describe('plugin runtime', () => {
     ]);
   });
 
+  it('rejects loading the same plugin id from a different folder while it is enabled', async () => {
+    const { registry, runtime, moduleLoader } = createRuntime();
+    await runtime.enablePlugin(resolve('plugins', 'text-tools'));
+
+    await expect(runtime.enablePlugin(resolve('plugins', 'replacement'))).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'load-error',
+        pluginId: 'com.example.text-tools',
+        message: expect.stringContaining('different folder or version'),
+      },
+    });
+
+    expect(moduleLoader).toHaveBeenCalledTimes(1);
+    expect(registry.list().map((command) => command.id)).toEqual([
+      'com.example.text-tools.uppercase',
+    ]);
+  });
+
+  it('returns frozen manifest snapshots that cannot mutate runtime state', async () => {
+    const { runtime } = createRuntime();
+    await runtime.enablePlugin(resolve('plugins', 'text-tools'));
+    const firstSnapshot = runtime.getPlugin('com.example.text-tools')!;
+
+    expect(Object.isFrozen(firstSnapshot)).toBe(true);
+    expect(Object.isFrozen(firstSnapshot.manifest)).toBe(true);
+    expect(Object.isFrozen(firstSnapshot.manifest.commands)).toBe(true);
+    expect(() => {
+      firstSnapshot.manifest.commands[0]!.title = 'Mutated';
+    }).toThrow();
+    expect(runtime.getPlugin('com.example.text-tools')?.manifest.commands[0]?.title).toBe(
+      'Uppercase',
+    );
+  });
+
   it('rolls back partial command registration when plugin command ids collide', async () => {
     const { registry, runtime, logSink } = createRuntime({
       readManifest: vi.fn(() =>
@@ -788,6 +823,28 @@ describe('plugin runtime', () => {
         error: 'handler exploded',
       }),
     );
+  });
+
+  it('times out a plugin command handler that never settles', async () => {
+    const { registry, runtime } = createRuntime({
+      commandTimeoutMs: 5,
+      moduleLoader: vi.fn(() => ({
+        activate: vi.fn(),
+        commands: {
+          uppercase: () => new Promise(() => undefined),
+        },
+      })),
+    });
+    await runtime.enablePlugin(resolve('plugins', 'text-tools'));
+    const command = registry.get('com.example.text-tools.uppercase')!;
+
+    await expect(runtime.executePluginCommand(command)).resolves.toMatchObject({
+      status: 'failure',
+      error: {
+        code: 'handler-error',
+        message: expect.stringContaining('timed out after 5 ms'),
+      },
+    });
   });
 
   it('formats hostile command handler thrown values without crashing the runtime', async () => {

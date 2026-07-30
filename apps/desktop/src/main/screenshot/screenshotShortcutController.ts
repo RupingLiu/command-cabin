@@ -20,10 +20,7 @@ export interface ScreenshotShortcutController {
 }
 
 export interface CreateScreenshotShortcutControllerOptions {
-  getAccelerators: () => Pick<
-    CommandCabinSettings,
-    'screenshotHotkey' | 'delayedScreenshotHotkey'
-  >;
+  getAccelerators: () => Pick<CommandCabinSettings, 'screenshotHotkey' | 'delayedScreenshotHotkey'>;
   logger?: HotkeyConflictLogger;
   notifyHotkeyConflict?: (message: string) => void;
   registry: GlobalShortcutRegistry;
@@ -37,7 +34,10 @@ export function createScreenshotShortcutController({
   registry,
   startScreenshotCapture,
 }: CreateScreenshotShortcutControllerOptions): ScreenshotShortcutController {
-  const hotkeyRegistrations = new Map<ScreenshotHotkeyRegistrationField, GlobalHotkeyRegistration>();
+  const hotkeyRegistrations = new Map<
+    ScreenshotHotkeyRegistrationField,
+    GlobalHotkeyRegistration
+  >();
   const modeByField = new Map<ScreenshotHotkeyRegistrationField, ScreenshotLaunchMode>([
     ['screenshotHotkey', 'capture'],
     ['delayedScreenshotHotkey', 'capture-delay-3'],

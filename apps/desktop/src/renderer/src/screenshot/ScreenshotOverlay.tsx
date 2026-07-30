@@ -401,6 +401,10 @@ export function ScreenshotOverlayView({
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [ocrPanel, setOcrPanel] = useState<OcrPanelState | undefined>();
   const [translationPanel, setTranslationPanel] = useState<TranslationPanelState | undefined>();
+  const outputOperationGenerationRef = useRef(0);
+  const outputOperationBusyRef = useRef(false);
+  const translationConsentGrantedRef = useRef(false);
+  const [outputOperationBusy, setOutputOperationBusy] = useState(false);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarSize, setToolbarSize] = useState(defaultScreenshotToolbarSize);
   const [pendingTextAnnotation, setPendingTextAnnotation] = useState<
@@ -544,6 +548,7 @@ export function ScreenshotOverlayView({
       const result = await screenshotApi.translateSelection({
         imageDataUrl,
         ocrLanguage: getScreenshotOcrLanguageForUi(language),
+        onlineConsent: true,
         targetLanguage: getScreenshotTranslationTargetLanguage(language),
       });
 
@@ -581,6 +586,10 @@ export function ScreenshotOverlayView({
   );
 
   const finish = useCallback(async () => {
+    if (outputOperationBusyRef.current) {
+      return;
+    }
+
     clearTextPromptTimer();
     try {
       const imageDataUrl = await exportImage('png');
@@ -607,15 +616,11 @@ export function ScreenshotOverlayView({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isEditableEventTarget(event.target)) {
-        return;
-      }
+      const action = getScreenshotGlobalKeyboardAction(event.key, event.target, ready);
 
-      if (event.key === 'Escape') {
+      if (action === 'cancel') {
         cancel();
-      }
-
-      if (event.key === 'Enter' && ready) {
+      } else if (action === 'finish') {
         void finish();
       }
     };
@@ -669,6 +674,10 @@ export function ScreenshotOverlayView({
   }, [desktopApi, launchState, loadedDisplaySourceIds, strings.controlsUnavailable]);
 
   const beginPointer = (point: ScreenshotPoint, detail: number) => {
+    if (outputOperationBusyRef.current) {
+      return;
+    }
+
     setPointer(point);
 
     if (getPendingTextPointerAction(Boolean(pendingTextAnnotation)) === 'commit') {
@@ -752,6 +761,25 @@ export function ScreenshotOverlayView({
   };
 
   const runOutputAction = async (action: 'ocr' | 'pin' | 'save' | 'translate') => {
+    if (outputOperationBusyRef.current) {
+      return;
+    }
+
+    if (action === 'translate' && !translationConsentGrantedRef.current) {
+      if (
+        typeof globalThis.confirm !== 'function' ||
+        !globalThis.confirm(strings.translation.onlineConsent)
+      ) {
+        return;
+      }
+
+      translationConsentGrantedRef.current = true;
+    }
+
+    const operationGeneration = ++outputOperationGenerationRef.current;
+    outputOperationBusyRef.current = true;
+    setOutputOperationBusy(true);
+
     try {
       const imageDataUrl = await exportImage(action === 'save' ? saveFormat : 'png');
       const screenshotApi = requireScreenshotApi(desktopApi, strings.controlsUnavailable);
@@ -771,6 +799,10 @@ export function ScreenshotOverlayView({
         await runOcr(imageDataUrl);
       }
     } catch (reason) {
+      if (operationGeneration !== outputOperationGenerationRef.current) {
+        return;
+      }
+
       if (action === 'ocr') {
         setOcrPanel({
           language,
@@ -786,6 +818,11 @@ export function ScreenshotOverlayView({
         });
       } else {
         setStatus(toStatus(reason, strings));
+      }
+    } finally {
+      if (operationGeneration === outputOperationGenerationRef.current) {
+        outputOperationBusyRef.current = false;
+        setOutputOperationBusy(false);
       }
     }
   };
@@ -819,6 +856,7 @@ export function ScreenshotOverlayView({
   return (
     <div
       className="screenshot-overlay"
+      aria-busy={outputOperationBusy}
       onContextMenu={(event) => {
         event.preventDefault();
         cancel();
@@ -854,6 +892,15 @@ export function ScreenshotOverlayView({
               setLoadedDisplaySourceIds((sourceIds) =>
                 getNextLoadedDisplaySourceIds(sourceIds, display.sourceId),
               );
+            }}
+            onError={() => {
+              setLoadedDisplaySourceIds((sourceIds) =>
+                getNextLoadedDisplaySourceIds(sourceIds, display.sourceId),
+              );
+              setStatus({
+                tone: 'error',
+                value: strings.status.imageLoadFailed,
+              });
             }}
             src={display.imageDataUrl}
             style={{
@@ -956,6 +1003,7 @@ export function ScreenshotOverlayView({
                 <button
                   aria-label={strings.tools[tool]}
                   data-active={state.tool === tool}
+                  disabled={outputOperationBusy}
                   key={tool}
                   onClick={() => {
                     cancelPendingTextAnnotation();
@@ -984,6 +1032,7 @@ export function ScreenshotOverlayView({
             <div className="screenshot-tool-group">
               <button
                 aria-label={strings.toolbar.undo}
+                disabled={outputOperationBusy}
                 onClick={() => dispatch({ type: 'undo' })}
                 title={strings.toolbar.undo}
                 type="button"
@@ -993,6 +1042,7 @@ export function ScreenshotOverlayView({
               </button>
               <button
                 aria-label={strings.toolbar.redo}
+                disabled={outputOperationBusy}
                 onClick={() => dispatch({ type: 'redo' })}
                 title={strings.toolbar.redo}
                 type="button"
@@ -1004,6 +1054,7 @@ export function ScreenshotOverlayView({
             <div className="screenshot-tool-group screenshot-tool-group--actions">
               <button
                 aria-label={strings.toolbar.ocr}
+                disabled={outputOperationBusy}
                 onClick={() => void runOutputAction('ocr')}
                 title={strings.toolbar.ocr}
                 type="button"
@@ -1013,6 +1064,7 @@ export function ScreenshotOverlayView({
               </button>
               <button
                 aria-label={strings.toolbar.translate}
+                disabled={outputOperationBusy}
                 onClick={() => void runOutputAction('translate')}
                 title={strings.toolbar.translate}
                 type="button"
@@ -1022,6 +1074,7 @@ export function ScreenshotOverlayView({
               </button>
               <button
                 aria-label={strings.toolbar.pin}
+                disabled={outputOperationBusy}
                 onClick={() => void runOutputAction('pin')}
                 title={strings.toolbar.pin}
                 type="button"
@@ -1031,6 +1084,7 @@ export function ScreenshotOverlayView({
               </button>
               <button
                 aria-label={strings.toolbar.save}
+                disabled={outputOperationBusy}
                 onClick={() => void runOutputAction('save')}
                 title={strings.toolbar.save}
                 type="button"
@@ -1051,6 +1105,7 @@ export function ScreenshotOverlayView({
               <button
                 aria-label={strings.toolbar.done}
                 className="screenshot-action-button screenshot-action-button--done"
+                disabled={outputOperationBusy}
                 onClick={() => void finish()}
                 title={strings.toolbar.done}
                 type="button"
@@ -1354,8 +1409,46 @@ function toSelectionPoint(point: ScreenshotPoint, selection: ScreenshotRect): Sc
   };
 }
 
-function isEditableEventTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+export type ScreenshotGlobalKeyboardAction = 'cancel' | 'finish' | 'none';
+
+function screenshotEventTargetHasClosest(target: EventTarget | null, selector: string): boolean {
+  if (target === null || typeof target !== 'object') {
+    return false;
+  }
+
+  const closest = (target as { closest?: unknown }).closest;
+  return typeof closest === 'function' && closest.call(target, selector) !== null;
+}
+
+export function getScreenshotGlobalKeyboardAction(
+  key: string,
+  target: EventTarget | null,
+  ready: boolean,
+): ScreenshotGlobalKeyboardAction {
+  if (key === 'Escape') {
+    const targetOwnsEscape = screenshotEventTargetHasClosest(
+      target,
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+    );
+    return targetOwnsEscape ? 'none' : 'cancel';
+  }
+
+  if (key !== 'Enter' || !ready) {
+    return 'none';
+  }
+
+  const targetOwnsEnter = screenshotEventTargetHasClosest(
+    target,
+    [
+      'button',
+      'input',
+      'select',
+      'textarea',
+      '[contenteditable]:not([contenteditable="false"])',
+      '.screenshot-toolbar',
+    ].join(', '),
+  );
+  return targetOwnsEnter ? 'none' : 'finish';
 }
 
 function pointInRect(point: ScreenshotPoint, rect: ScreenshotRect): boolean {

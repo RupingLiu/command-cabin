@@ -16,8 +16,60 @@ export class TextTransformError extends Error {
   }
 }
 
+const JSON_NUMBER_PATTERN = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+
+function assertJsonNumbersCanBeFormattedLosslessly(input: string): void {
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index]!;
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (character !== '-' && (character < '0' || character > '9')) {
+      continue;
+    }
+
+    JSON_NUMBER_PATTERN.lastIndex = index;
+    const match = JSON_NUMBER_PATTERN.exec(input);
+
+    if (!match) {
+      continue;
+    }
+
+    const literal = match[0];
+    const value = Number(literal);
+
+    if (!Number.isFinite(value)) {
+      throw new Error(`JSON number is outside the supported finite range: ${literal}`);
+    }
+
+    if (!literal.includes('.') && !/[eE]/u.test(literal) && !Number.isSafeInteger(value)) {
+      throw new Error(`JSON integer cannot be formatted without precision loss: ${literal}`);
+    }
+
+    index = JSON_NUMBER_PATTERN.lastIndex - 1;
+  }
+}
+
 export function formatJson(input: string): string {
   try {
+    assertJsonNumbersCanBeFormattedLosslessly(input);
     return JSON.stringify(JSON.parse(input), null, 2);
   } catch (error) {
     throw new TextTransformError(`Invalid JSON: ${formatErrorMessage(error)}`, 'format-json');

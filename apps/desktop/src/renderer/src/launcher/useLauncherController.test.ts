@@ -6,6 +6,7 @@ import {
   getLauncherKeyIntent,
   createLauncherSearchRequestKey,
   createStartScreenshotCapture,
+  getLauncherSearchRequestId,
   getPluginPageLaunchRequest,
   getSystemExecutionAction,
   isHorizontalLauncherNavigation,
@@ -42,6 +43,17 @@ function createAppResult(id: string): LauncherResultItem {
 }
 
 describe('launcher controller state', () => {
+  it('reuses the current request id after search completion', () => {
+    expect(getLauncherSearchRequestId(baseState)).toBe(1);
+    expect(
+      getLauncherSearchRequestId({
+        ...baseState,
+        requestId: 4,
+        status: 'ready',
+      }),
+    ).toBe(4);
+  });
+
   it('treats a request id change as a new search even when the query is unchanged', () => {
     const firstSearch = createLauncherSearchRequestKey({
       ...baseState,
@@ -116,6 +128,47 @@ describe('launcher controller state', () => {
 
     expect(loading).toMatchObject({
       errorMessage: undefined,
+      requestId: 2,
+      results: [],
+      selectedIndex: -1,
+      status: 'loading',
+    });
+  });
+
+  it('ignores repeated input events when the query value has not changed', () => {
+    const ready: LauncherState = {
+      ...baseState,
+      query: 'settings',
+      requestId: 1,
+      results: [createResult('settings')],
+      selectedIndex: 0,
+      status: 'ready',
+    };
+
+    expect(
+      launcherReducer(ready, {
+        query: 'settings',
+        type: 'query-changed',
+      }),
+    ).toBe(ready);
+  });
+
+  it('can refresh the current query without treating it as user input', () => {
+    const ready: LauncherState = {
+      ...baseState,
+      query: 'settings',
+      requestId: 1,
+      results: [createResult('settings')],
+      selectedIndex: 0,
+      status: 'ready',
+    };
+
+    expect(
+      launcherReducer(ready, {
+        type: 'search-refresh-requested',
+      }),
+    ).toMatchObject({
+      query: 'settings',
       requestId: 2,
       results: [],
       selectedIndex: -1,
@@ -222,6 +275,23 @@ describe('launcher controller state', () => {
     });
 
     expect(next.selectedIndex).toBe(0);
+  });
+
+  it('does not update state when the pointer selects the already-selected result', () => {
+    const ready: LauncherState = {
+      ...baseState,
+      requestId: 1,
+      results: [createResult('alpha'), createResult('bravo')],
+      selectedIndex: 0,
+      status: 'ready',
+    };
+
+    expect(
+      launcherReducer(ready, {
+        index: 0,
+        type: 'select-index',
+      }),
+    ).toBe(ready);
   });
 
   it('keeps blank-query app grid results within the two-row home limit', () => {

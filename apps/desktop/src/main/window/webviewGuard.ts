@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { denyAllSessionPermissions } from './trustedWindowPolicy.js';
+
 export const PLUGIN_WEBVIEW_ALLOWED_BASE_URL_ATTRIBUTE = 'data-plugin-allowed-base-url';
 export const PLUGIN_WEBVIEW_LAUNCH_TOKEN_ATTRIBUTE = 'data-plugin-launch-token';
 
@@ -64,6 +66,15 @@ export interface WebContentsWithWebviewAttachGuard {
 export interface PluginGuestSession {
   on: (eventName: string, listener: (...args: unknown[]) => void) => unknown;
   removeListener?: (eventName: string, listener: (...args: unknown[]) => void) => unknown;
+  setPermissionCheckHandler: (handler: () => boolean) => void;
+  setPermissionRequestHandler: (
+    handler: (
+      webContents: unknown,
+      permission: string,
+      callback: (granted: boolean) => void,
+      details: unknown,
+    ) => void,
+  ) => void;
 }
 
 export interface PluginGuestWebContents {
@@ -354,6 +365,7 @@ export function enforcePluginGuestWebContentsPolicy(
 
   guestWebContents.on('will-navigate', blockNavigation);
   guestWebContents.on('will-frame-navigate', blockNavigation);
+  denyAllSessionPermissions(guestWebContents.session);
   guestWebContents.setWindowOpenHandler(() => ({
     action: 'deny',
   }));

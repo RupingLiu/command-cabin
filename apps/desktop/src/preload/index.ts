@@ -1,6 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
 
 import {
   ADD_PINNED_APP_CANDIDATE_CHANNEL,
@@ -122,15 +120,17 @@ import {
   type UpdateInstallResult,
   type UpdateStatus,
 } from '../shared/updateApi.js';
+import {
+  parseCommandCabinWindowRole,
+  readCommandCabinAppVersion,
+  readCommandCabinPluginPreloadPath,
+} from '../shared/windowRoles.js';
 
 const PLUGIN_BRIDGE_CHANNEL = 'command-cabin:plugin-bridge';
 const PLUGIN_BRIDGE_METHODS = Object.freeze(['close', 'reportError'] as const);
-const require = createRequire(import.meta.url);
-const desktopPackageJson = require('../../package.json') as { version?: string };
-const desktopPackageVersion =
-  typeof desktopPackageJson.version === 'string' && desktopPackageJson.version.trim().length > 0
-    ? desktopPackageJson.version.trim()
-    : '0.0.0';
+const windowRole = parseCommandCabinWindowRole(process.argv) ?? 'launcher';
+const desktopPackageVersion = readCommandCabinAppVersion(process.argv);
+const pluginBridgePreloadPath = readCommandCabinPluginPreloadPath(process.argv);
 
 export type PluginHostBridgeMethod = (typeof PLUGIN_BRIDGE_METHODS)[number];
 
@@ -229,8 +229,6 @@ export interface DesktopApi {
   ) => Promise<FavoriteListRecord | undefined>;
   updateSettings: (patch: SettingsUpdateRequest) => Promise<SettingsUpdateResponse>;
 }
-
-const pluginBridgePreloadPath = join(__dirname, 'pluginBridge.cjs');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -425,7 +423,13 @@ const desktopApi = {
       channel: PLUGIN_BRIDGE_CHANNEL,
       methods: PLUGIN_BRIDGE_METHODS,
     }),
-    getPluginBridgePreloadPath: () => pluginBridgePreloadPath,
+    getPluginBridgePreloadPath: () => {
+      if (!pluginBridgePreloadPath) {
+        throw new Error('Plugin bridge preload path is unavailable.');
+      }
+
+      return pluginBridgePreloadPath;
+    },
     releaseEntry: async (launchToken) =>
       parseBoolean(
         await ipcRenderer.invoke(
@@ -556,4 +560,16 @@ const desktopApi = {
     parseSettings(await ipcRenderer.invoke(UPDATE_SETTINGS_CHANNEL, parseSettingsPatch(patch))),
 } satisfies DesktopApi;
 
-contextBridge.exposeInMainWorld('desktopApi', desktopApi);
+const exposedDesktopApi =
+  windowRole === 'screenshot'
+    ? {
+        getSettings: desktopApi.getSettings,
+        screenshot: desktopApi.screenshot,
+      }
+    : windowRole === 'pinned-image'
+      ? {
+          screenshot: desktopApi.screenshot,
+        }
+      : desktopApi;
+
+contextBridge.exposeInMainWorld('desktopApi', exposedDesktopApi);

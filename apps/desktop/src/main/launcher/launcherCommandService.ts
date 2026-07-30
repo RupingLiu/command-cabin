@@ -31,6 +31,7 @@ import {
   createCommandExecutor,
   createCommandRegistry,
   createSearchEngine,
+  SEARCH_SOURCE_SCORE_WEIGHTS,
   isLauncherPinnedAppFavorite,
   type AddFavoriteInput,
   type Command,
@@ -44,6 +45,7 @@ import {
   type HistoryRepository,
   type SearchOptions,
   type SearchRankingContext,
+  type CommandCabinSearchSettings,
   type StorageJsonObject,
   type UpdateFavoriteInput,
 } from '@command-cabin/core';
@@ -84,6 +86,7 @@ export interface LauncherCommandServiceOptions {
   exchangeRateProvider?: ExchangeRateProvider;
   favoritesRepository?: FavoritesRepository;
   historyRepository?: HistoryRepository;
+  getSearchSettings?: (() => CommandCabinSearchSettings) | undefined;
   openApp?: (payload: CommandPayload) => Promise<void> | void;
   openPath?: (path: string) => Promise<void> | void;
   openUrl?: (url: string) => Promise<void> | void;
@@ -115,19 +118,6 @@ function createSystemCommands(appVersion: string | undefined): readonly Command[
       },
     },
     {
-      id: 'system.reload-launcher',
-      source: 'system',
-      title: 'Reload Launcher',
-      subtitle: 'Refresh the desktop shell',
-      keywords: ['reload', 'refresh', 'restart'],
-      action: {
-        type: 'run-system',
-        payload: {
-          command: 'reload-launcher',
-        },
-      },
-    },
-    {
       id: 'system.copy-version',
       source: 'system',
       title: 'Copy Version Info',
@@ -137,19 +127,6 @@ function createSystemCommands(appVersion: string | undefined): readonly Command[
         type: 'copy-text',
         payload: {
           text: versionText,
-        },
-      },
-    },
-    {
-      id: 'system.open-diagnostics',
-      source: 'system',
-      title: 'Open Diagnostics',
-      subtitle: 'Runtime and startup details',
-      keywords: ['diagnostics', 'logs', 'status'],
-      action: {
-        type: 'run-system',
-        payload: {
-          command: 'open-diagnostics',
         },
       },
     },
@@ -413,6 +390,7 @@ export function createLauncherCommandService(
   const favoriteCommandIds = new Set<string>();
   let calculatorCommandRegistered = false;
   let quickConverterCommandRegistered = false;
+  let quickConverterGeneration = 0;
 
   assertNoReservedCalculatorCommandIds(commands);
   assertNoReservedQuickConverterCommandIds(commands);
@@ -549,6 +527,10 @@ export function createLauncherCommandService(
           };
         }
 
+        if (systemCommand !== 'open-settings') {
+          throw new Error(`Unsupported system command: ${systemCommand}`);
+        }
+
         return {
           metadata: {
             handled: true,
@@ -650,6 +632,8 @@ export function createLauncherCommandService(
   }
 
   async function refreshQuickConverterCommand(query: string): Promise<void> {
+    const generation = ++quickConverterGeneration;
+
     if (quickConverterCommandRegistered) {
       registry.unregister(QUICK_CONVERTER_RESULT_COMMAND_ID);
       quickConverterCommandRegistered = false;
@@ -658,6 +642,10 @@ export function createLauncherCommandService(
     const quickConverterCommand = await createQuickConverterCommand(query, {
       exchangeRateProvider: options.exchangeRateProvider,
     });
+
+    if (generation !== quickConverterGeneration) {
+      return;
+    }
 
     if (quickConverterCommand) {
       if (
@@ -674,13 +662,19 @@ export function createLauncherCommandService(
     refreshSearchIndex();
   }
 
-  function createHistoryRankingContext(): SearchRankingContext | undefined {
-    if (!options.historyRepository) {
+  function createRankingContext(
+    settings: CommandCabinSearchSettings | undefined,
+  ): SearchRankingContext | undefined {
+    if (!options.historyRepository && settings === undefined) {
       return undefined;
     }
 
-    return {
-      history: new Map(
+    const context: SearchRankingContext = {
+      now: new Date(),
+    };
+
+    if (options.historyRepository) {
+      context.history = new Map(
         options.historyRepository.listRecent(100).map((entry) => [
           entry.commandId,
           {
@@ -688,9 +682,19 @@ export function createLauncherCommandService(
             executedAt: entry.executedAt,
           },
         ]),
-      ),
-      now: new Date(),
-    };
+      );
+    }
+
+    if (settings !== undefined) {
+      context.historyWeight = settings.historyBoost;
+      context.sourceWeights = {
+        app: SEARCH_SOURCE_SCORE_WEIGHTS.app * settings.appBoost,
+        file: SEARCH_SOURCE_SCORE_WEIGHTS.file * settings.fileBoost,
+        plugin: SEARCH_SOURCE_SCORE_WEIGHTS.plugin * settings.pluginBoost,
+      };
+    }
+
+    return context;
   }
 
   function listRecentAppSearchResults(limit = 10): LauncherCommandSearchResult[] {
@@ -895,14 +899,18 @@ export function createLauncherCommandService(
       await refreshQuickConverterCommand(query);
       refreshClipboardHistoryCommands();
 
-      const limit = SEARCH_RESULT_LIMIT;
+      const searchSettings = options.getSearchSettings?.();
+      const limit =
+        searchSettings === undefined
+          ? SEARCH_RESULT_LIMIT
+          : Math.min(100, Math.max(0, searchSettings.maxResults));
       const searchOptions: SearchOptions = {
         includeAllOnEmptyQuery: false,
         limit: isExplicitClipboardHistoryQuery(query)
           ? limit
           : limit + MAX_INDEXED_CLIPBOARD_HISTORY_RESULTS,
       };
-      const ranking = createHistoryRankingContext();
+      const ranking = createRankingContext(searchSettings);
 
       if (ranking !== undefined) {
         searchOptions.ranking = ranking;

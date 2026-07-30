@@ -1,4 +1,10 @@
-import type { PluginRecord, PluginRepository, PluginRuntime } from '@command-cabin/core';
+import {
+  inspectPluginDirectory,
+  type PluginInspection,
+  type PluginRecord,
+  type PluginRepository,
+  type PluginRuntime,
+} from '@command-cabin/core';
 
 export interface DesktopPluginService {
   installPlugin: (pluginRoot: string) => Promise<PluginRecord>;
@@ -9,6 +15,8 @@ export interface DesktopPluginService {
 }
 
 export interface DesktopPluginServiceOptions {
+  allowUnsafePluginExecution?: boolean | undefined;
+  inspectPlugin?: ((pluginRoot: string) => Promise<PluginInspection>) | undefined;
   onPluginLoadError?: (plugin: PluginRecord, error: unknown) => void;
   repository: PluginRepository;
   runtime: PluginRuntime;
@@ -31,6 +39,35 @@ function formatRuntimeErrorMessage(prefix: string, message: string): string {
 export function createDesktopPluginService(
   options: DesktopPluginServiceOptions,
 ): DesktopPluginService {
+  const allowUnsafePluginExecution = options.allowUnsafePluginExecution ?? true;
+  const inspectPlugin = options.inspectPlugin ?? inspectPluginDirectory;
+  let operationQueue = Promise.resolve();
+
+  function runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const result = operationQueue.then(operation, operation);
+    operationQueue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  function saveInspectedPlugin(inspection: PluginInspection): PluginRecord {
+    const { manifest } = inspection;
+
+    return options.repository.upsertPlugin({
+      id: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      description: manifest.description,
+      main: manifest.main,
+      pluginRoot: inspection.pluginRoot,
+      enabled: false,
+      permissions: manifest.permissions,
+      ...(manifest.ui === undefined ? {} : { ui: manifest.ui }),
+    });
+  }
+
   async function enablePluginRoot(pluginRoot: string): Promise<PluginRecord> {
     const normalizedPluginRoot = normalizePluginRoot(pluginRoot);
     const enableResult = await options.runtime.enablePlugin(normalizedPluginRoot);
@@ -57,55 +94,76 @@ export function createDesktopPluginService(
   }
 
   return {
-    installPlugin: (pluginRoot) => enablePluginRoot(pluginRoot),
+    installPlugin: (pluginRoot) =>
+      runExclusive(async () => {
+        if (!allowUnsafePluginExecution) {
+          return saveInspectedPlugin(await inspectPlugin(normalizePluginRoot(pluginRoot)));
+        }
+
+        return enablePluginRoot(pluginRoot);
+      }),
     listPlugins: () => options.repository.listPlugins(),
-    loadEnabledPlugins: async () => {
-      for (const plugin of options.repository.listPlugins()) {
-        if (!plugin.enabled || plugin.pluginRoot === undefined) {
-          continue;
+    loadEnabledPlugins: () =>
+      runExclusive(async () => {
+        for (const plugin of options.repository.listPlugins()) {
+          if (!plugin.enabled || plugin.pluginRoot === undefined) {
+            continue;
+          }
+
+          if (!allowUnsafePluginExecution) {
+            options.repository.setPluginEnabled(plugin.id, false);
+            continue;
+          }
+
+          try {
+            await enablePluginRoot(plugin.pluginRoot);
+          } catch (error) {
+            options.repository.setPluginEnabled(plugin.id, false);
+            options.onPluginLoadError?.(plugin, error);
+          }
+        }
+      }),
+    removePlugin: (id) =>
+      runExclusive(async () => {
+        const plugin = options.repository.getPlugin(id);
+
+        if (!plugin) {
+          return false;
         }
 
-        try {
-          await enablePluginRoot(plugin.pluginRoot);
-        } catch (error) {
-          options.repository.setPluginEnabled(plugin.id, false);
-          options.onPluginLoadError?.(plugin, error);
-        }
-      }
-    },
-    removePlugin: async (id) => {
-      const plugin = options.repository.getPlugin(id);
-
-      if (!plugin) {
-        return false;
-      }
-
-      if (options.runtime.getPlugin(id)?.status === 'enabled') {
-        await options.runtime.disablePlugin(id);
-      }
-
-      return options.repository.removePlugin(id);
-    },
-    setPluginEnabled: async (id, enabled) => {
-      const plugin = options.repository.getPlugin(id);
-
-      if (!plugin) {
-        return undefined;
-      }
-
-      if (!enabled) {
-        if (options.runtime.getPlugin(id) !== undefined) {
+        if (options.runtime.getPlugin(id)?.status === 'enabled') {
           await options.runtime.disablePlugin(id);
         }
 
-        return options.repository.setPluginEnabled(id, false);
-      }
+        return options.repository.removePlugin(id);
+      }),
+    setPluginEnabled: (id, enabled) =>
+      runExclusive(async () => {
+        const plugin = options.repository.getPlugin(id);
 
-      if (plugin.pluginRoot === undefined) {
-        throw new Error(`Plugin "${id}" has no installed folder path.`);
-      }
+        if (!plugin) {
+          return undefined;
+        }
 
-      return enablePluginRoot(plugin.pluginRoot);
-    },
+        if (!enabled) {
+          if (options.runtime.getPlugin(id) !== undefined) {
+            await options.runtime.disablePlugin(id);
+          }
+
+          return options.repository.setPluginEnabled(id, false);
+        }
+
+        if (!allowUnsafePluginExecution) {
+          throw new Error(
+            'Third-party plugin execution is disabled until an isolated plugin runtime is available.',
+          );
+        }
+
+        if (plugin.pluginRoot === undefined) {
+          throw new Error(`Plugin "${id}" has no installed folder path.`);
+        }
+
+        return enablePluginRoot(plugin.pluginRoot);
+      }),
   };
 }

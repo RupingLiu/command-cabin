@@ -83,7 +83,7 @@ describe('launcher ARIA markup', () => {
     expect(html).toContain('data-disabled="true"');
   });
 
-  it('exposes home action buttons for unit conversion and screenshot capture', () => {
+  it('exposes a unified home action dock for apps, conversion, and screenshots', () => {
     const html = renderToStaticMarkup(
       createElement(LauncherPage, {
         language: 'zh-CN',
@@ -92,6 +92,7 @@ describe('launcher ARIA markup', () => {
       }),
     );
 
+    expect(html).toContain('添加应用');
     expect(html).toContain('单位换算');
     expect(html).toContain('截图');
     expect(html).toContain('class="launcher-home-actions"');

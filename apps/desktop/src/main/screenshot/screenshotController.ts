@@ -308,6 +308,19 @@ export function createScreenshotController({
     readyWaiter.reject(reason);
   };
 
+  const resolveRendererReadyWaiter = (senderId: number): boolean => {
+    const readyWaiter = rendererReadyWaiter;
+
+    if (!readyWaiter || readyWaiter.senderId !== senderId) {
+      return false;
+    }
+
+    rendererReadyWaiter = undefined;
+    clearTimeout(readyWaiter.timeoutId);
+    readyWaiter.resolve(undefined);
+    return true;
+  };
+
   const rememberOverlayWindow = (window: ScreenshotOverlayWindow) => {
     if (overlayWindow === window && isOverlayWindowLive(window)) {
       return;
@@ -401,7 +414,7 @@ export function createScreenshotController({
     cancel: (sender) => {
       const state = assertLiveState(states, sender);
       forgetState(state.window);
-      clearRendererReadyWaiter(sender.id, new Error('Screenshot capture was canceled.'));
+      resolveRendererReadyWaiter(sender.id);
 
       if (overlayWindow !== state.window || !hideReusableOverlayWindow(state.window)) {
         if (overlayWindow === state.window) {
@@ -472,12 +485,7 @@ export function createScreenshotController({
         return false;
       }
 
-      const readyWaiter = rendererReadyWaiter;
-      rendererReadyWaiter = undefined;
-      clearTimeout(readyWaiter.timeoutId);
-      readyWaiter.resolve(undefined);
-
-      return true;
+      return resolveRendererReadyWaiter(sender.id);
     },
     prepare: async () => {
       await ensureOverlayWindow();
@@ -514,11 +522,8 @@ export function createScreenshotController({
       startInProgress = true;
 
       let activeWindow: ScreenshotOverlayWindow | undefined;
-      let showedCapturingState = false;
 
       try {
-        const expectedOverlayBounds = getOverlayBounds();
-        const hasWarmOverlay = overlayWindow !== undefined && isOverlayWindowLive(overlayWindow);
         const overlayWindowPromise = ensureOverlayWindow();
         const launcherWasHidden = (await hideLauncher()) === true;
 
@@ -528,22 +533,6 @@ export function createScreenshotController({
           await delay(delayMilliseconds);
         } else if (launcherWasHidden) {
           await waitForCaptureSurface();
-        }
-
-        if (hasWarmOverlay) {
-          activeWindow = await overlayWindowPromise;
-          setOverlayWindowBounds(activeWindow, expectedOverlayBounds);
-
-          const capturingLaunchState: ScreenshotLaunchState = {
-            displays: [],
-            mode: launchMode,
-            phase: 'capturing',
-            virtualBounds: expectedOverlayBounds,
-          };
-          rememberState(activeWindow, Promise.resolve(capturingLaunchState));
-          notifyOverlayLaunchState(activeWindow, capturingLaunchState);
-          activeWindow.show?.();
-          showedCapturingState = true;
         }
 
         const captureStartedAt = performance.now();
@@ -557,10 +546,6 @@ export function createScreenshotController({
           ...capture,
           mode: launchMode,
         };
-
-        if (showedCapturingState && !states.has(activeWindow.webContents.id)) {
-          return launchState;
-        }
 
         rememberState(activeWindow, Promise.resolve(launchState));
 
@@ -581,9 +566,7 @@ export function createScreenshotController({
         const showStartedAt = performance.now();
         setOverlayWindowBounds(activeWindow, launchState.virtualBounds);
         notifyOverlayLaunchState(activeWindow, launchState);
-        if (!showedCapturingState) {
-          activeWindow.show?.();
-        }
+        activeWindow.show?.();
         const showMs = performance.now() - showStartedAt;
         const rendererReadyStartedAt = performance.now();
         void readyWaiter.promise
@@ -601,6 +584,7 @@ export function createScreenshotController({
           totalMs: performance.now() - totalStartedAt,
         });
 
+        await readyWaiter.promise;
         return launchState;
       } catch (error) {
         if (activeWindow) {

@@ -46,11 +46,15 @@ describe('runOnlineTranslate', () => {
     });
 
     const url = fetch.mock.calls[0]?.[0];
+    const request = fetch.mock.calls[0]?.[1];
+    const body = request?.body as URLSearchParams;
 
     expect(url).toBeInstanceOf(URL);
-    expect((url as URL).searchParams.get('sl')).toBe('en');
-    expect((url as URL).searchParams.get('tl')).toBe('zh-CN');
-    expect((url as URL).searchParams.get('q')).toBe('Updates about Google News');
+    expect((url as URL).searchParams.get('q')).toBeNull();
+    expect(request?.method).toBe('POST');
+    expect(body.get('sl')).toBe('en');
+    expect(body.get('tl')).toBe('zh-CN');
+    expect(body.get('q')).toBe('Updates about Google News');
   });
 
   it('calls the online translation endpoint with a language pair', async () => {
@@ -83,23 +87,18 @@ describe('runOnlineTranslate', () => {
     });
 
     const url = fetch.mock.calls[0]?.[0];
+    const request = fetch.mock.calls[0]?.[1];
+    const body = request?.body as URLSearchParams;
 
     expect(url).toBeInstanceOf(URL);
-    expect((url as URL).searchParams.get('q')).toBe('hello');
-    expect((url as URL).searchParams.get('langpair')).toBe('en|zh-CN');
+    expect((url as URL).searchParams.get('q')).toBeNull();
+    expect(request?.method).toBe('POST');
+    expect(body.get('q')).toBe('hello');
+    expect(body.get('langpair')).toBe('en|zh-CN');
   });
 
-  it('falls back to MyMemory when the primary endpoint fails', async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(createJsonResponse({}, false, 503))
-      .mockResolvedValueOnce(
-        createJsonResponse({
-          responseData: {
-            translatedText: '你好',
-          },
-        }),
-      );
+  it('does not send OCR text to a second provider when the primary endpoint fails', async () => {
+    const fetch = vi.fn(async () => createJsonResponse({}, false, 503));
 
     await expect(
       runOnlineTranslate(
@@ -114,13 +113,9 @@ describe('runOnlineTranslate', () => {
           myMemoryEndpoint: 'https://example.test/mymemory',
         },
       ),
-    ).resolves.toMatchObject({
-      status: 'success',
-      translatedText: '你好',
-    });
+    ).resolves.toMatchObject({ status: 'error' });
 
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect((fetch.mock.calls[1]?.[0] as URL).searchParams.get('langpair')).toBe('en|zh-CN');
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('returns an unavailable result when there is no source text', async () => {
@@ -133,6 +128,25 @@ describe('runOnlineTranslate', () => {
     ).resolves.toMatchObject({
       status: 'unavailable',
     });
+  });
+
+  it('does not send OCR text beyond the online translation size limit', async () => {
+    const fetch = vi.fn();
+
+    await expect(
+      runOnlineTranslate(
+        {
+          sourceLanguage: 'en-US',
+          targetLanguage: 'zh-CN',
+          text: 'x'.repeat(2_001),
+        },
+        { fetch },
+      ),
+    ).resolves.toMatchObject({
+      message: expect.stringContaining('2000-character'),
+      status: 'unavailable',
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('maps online translation failures to error results', async () => {

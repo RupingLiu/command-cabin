@@ -37,8 +37,16 @@ function mapClipboardHistoryRow(row: ClipboardHistoryRow): ClipboardHistoryEntry
   };
 }
 
-function normalizeClipboardText(text: string): string {
-  return text.trim().slice(0, CLIPBOARD_HISTORY_MAX_TEXT_LENGTH);
+function normalizeClipboardTextForComparison(text: string): string {
+  return text.trim();
+}
+
+function truncateClipboardText(text: string): string {
+  return text.slice(0, CLIPBOARD_HISTORY_MAX_TEXT_LENGTH);
+}
+
+function normalizeClipboardSearchQuery(query: string): string {
+  return query.trim().slice(0, CLIPBOARD_HISTORY_MAX_TEXT_LENGTH);
 }
 
 function normalizeDate(value: Date | string): string {
@@ -93,6 +101,12 @@ export function createClipboardHistoryRepository(
       WHERE text = ?
     `,
   );
+  const selectAllForComparison = database.prepare<[], ClipboardHistoryRow>(
+    `
+      SELECT id, text, copied_at
+      FROM clipboard_history
+    `,
+  );
   const selectRecent = database.prepare<[number], ClipboardHistoryRow>(
     `
       SELECT id, text, copied_at
@@ -118,6 +132,13 @@ export function createClipboardHistoryRepository(
         copied_at = excluded.copied_at
     `,
   );
+  const updateText = database.prepare<{ id: number; text: string; copiedAt: string }>(
+    `
+      UPDATE clipboard_history
+      SET text = @text, copied_at = @copiedAt
+      WHERE id = @id
+    `,
+  );
   const pruneOldRows = database.prepare<[number]>(
     `
       DELETE FROM clipboard_history
@@ -131,20 +152,32 @@ export function createClipboardHistoryRepository(
   );
   const clearHistory = database.prepare('DELETE FROM clipboard_history');
 
-  const saveTransaction = database.transaction((text: string, copiedAt: string) => {
-    upsertText.run({ text, copiedAt });
-    pruneOldRows.run(MAX_CLIPBOARD_HISTORY_LIMIT);
-  });
+  const saveTransaction = database.transaction(
+    (text: string, normalizedText: string, copiedAt: string) => {
+      const duplicate = selectAllForComparison
+        .all()
+        .find((row) => normalizeClipboardTextForComparison(row.text) === normalizedText);
+
+      if (duplicate) {
+        updateText.run({ id: duplicate.id, text, copiedAt });
+      } else {
+        upsertText.run({ text, copiedAt });
+      }
+
+      pruneOldRows.run(MAX_CLIPBOARD_HISTORY_LIMIT);
+    },
+  );
 
   return {
     saveText: (inputText, options = {}) => {
-      const text = normalizeClipboardText(inputText);
+      const text = truncateClipboardText(inputText);
+      const normalizedText = normalizeClipboardTextForComparison(text);
 
-      if (text.length === 0) {
+      if (normalizedText.length === 0) {
         return undefined;
       }
 
-      saveTransaction(text, normalizeDate(options.copiedAt ?? new Date()));
+      saveTransaction(text, normalizedText, normalizeDate(options.copiedAt ?? new Date()));
 
       const row = selectByText.get(text);
 
@@ -157,7 +190,7 @@ export function createClipboardHistoryRepository(
     listRecent: (limit = DEFAULT_CLIPBOARD_HISTORY_LIMIT) =>
       selectRecent.all(normalizeLimit(limit)).map(mapClipboardHistoryRow),
     search: (query, limit = DEFAULT_CLIPBOARD_HISTORY_LIMIT) => {
-      const normalizedQuery = normalizeClipboardText(query);
+      const normalizedQuery = normalizeClipboardSearchQuery(query);
 
       if (normalizedQuery.length === 0) {
         return selectRecent.all(normalizeLimit(limit)).map(mapClipboardHistoryRow);

@@ -49,6 +49,9 @@ type LauncherAction =
       type: 'query-changed';
     }
   | {
+      type: 'search-refresh-requested';
+    }
+  | {
       requestId: number;
       type: 'search-started';
     }
@@ -96,13 +99,6 @@ const fallbackResults: LauncherResultItem[] = [
     source: 'system',
     title: 'Open Settings',
     subtitle: 'CommandCabin preferences',
-  },
-  {
-    id: 'fallback.reload-launcher',
-    score: 0.95,
-    source: 'system',
-    title: 'Reload Launcher',
-    subtitle: 'Refresh the desktop shell',
   },
   {
     id: 'fallback.copy-version',
@@ -443,6 +439,10 @@ export function createLauncherSearchRequestKey(state: LauncherState): string {
   return `${state.requestId}\u0000${state.query}`;
 }
 
+export function getLauncherSearchRequestId(state: LauncherState): number {
+  return state.requestId > 0 ? state.requestId : 1;
+}
+
 export function getExecutableSelectedResult(state: LauncherState): LauncherResultItem | undefined {
   if (state.status !== 'ready') {
     return undefined;
@@ -589,10 +589,23 @@ export function createStartScreenshotCapture(
 export function launcherReducer(state: LauncherState, action: LauncherAction): LauncherState {
   switch (action.type) {
     case 'query-changed':
+      if (action.query === state.query) {
+        return state;
+      }
+
       return {
         ...state,
         errorMessage: undefined,
         query: action.query,
+        requestId: state.requestId + 1,
+        results: [],
+        selectedIndex: -1,
+        status: 'loading',
+      };
+    case 'search-refresh-requested':
+      return {
+        ...state,
+        errorMessage: undefined,
         requestId: state.requestId + 1,
         results: [],
         selectedIndex: -1,
@@ -671,15 +684,22 @@ export function launcherReducer(state: LauncherState, action: LauncherAction): L
           action.direction,
         ),
       };
-    case 'select-index':
+    case 'select-index': {
       if (state.status === 'executing') {
+        return state;
+      }
+
+      const nextSelectedIndex = clampSelectedIndex(action.index, state.results.length);
+
+      if (nextSelectedIndex === state.selectedIndex) {
         return state;
       }
 
       return {
         ...state,
-        selectedIndex: clampSelectedIndex(action.index, state.results.length),
+        selectedIndex: nextSelectedIndex,
       };
+    }
     case 'execution-started':
       return {
         ...state,
@@ -716,10 +736,11 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
   const [state, dispatch] = useReducer(launcherReducer, initialLauncherState);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastStartedSearchKeyRef = useRef<string | undefined>(undefined);
-  const nextRequestIdRef = useRef(0);
   const executionInFlightRef = useRef(false);
   const isMountedRef = useRef(false);
   const preserveSearchQueryRef = useRef(false);
+  const queryRef = useRef(state.query);
+  queryRef.current = state.query;
 
   const selectedResult = state.selectedIndex >= 0 ? state.results[state.selectedIndex] : undefined;
   const executableSelectedResult = getExecutableSelectedResult(state);
@@ -735,6 +756,10 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
   }, []);
 
   const setQuery = useCallback((query: string) => {
+    if (query === queryRef.current) {
+      return;
+    }
+
     dispatch({
       query,
       type: 'query-changed',
@@ -759,56 +784,67 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     }
   }, [desktopApi]);
 
+  const executeCommand = useCallback(
+    async (commandId: string) => {
+      if (executionInFlightRef.current) {
+        return;
+      }
+
+      executionInFlightRef.current = true;
+      dispatch({
+        type: 'execution-started',
+      });
+
+      try {
+        const executionResult = await desktopApi.executeCommand(commandId);
+        const executionErrorMessage = getExecutionErrorMessage(executionResult);
+
+        if (executionErrorMessage) {
+          dispatch({
+            errorMessage: executionErrorMessage,
+            type: 'execution-failed',
+          });
+          return;
+        }
+
+        dispatch({
+          type: 'execution-succeeded',
+        });
+        if (getSystemExecutionAction(executionResult) === 'open-settings') {
+          onOpenSettings?.();
+          return;
+        }
+
+        if (
+          await openPluginPageFromExecutionResult(
+            executionResult,
+            desktopApi.pluginHost,
+            onOpenPluginPage,
+          )
+        ) {
+          return;
+        }
+
+        await desktopApi.hideLauncher();
+      } catch (error) {
+        dispatch({
+          errorMessage: formatUnknownError(error, 'Command execution failed.'),
+          type: 'execution-failed',
+        });
+      } finally {
+        executionInFlightRef.current = false;
+      }
+    },
+    [desktopApi, onOpenPluginPage, onOpenSettings],
+  );
+
   const executeSelectedCommand = useCallback(async () => {
-    if (!executableSelectedResult || executionInFlightRef.current) {
+    if (!executableSelectedResult) {
       return;
     }
 
-    executionInFlightRef.current = true;
-    dispatch({
-      type: 'execution-started',
-    });
-
-    try {
-      const executionResult = await desktopApi.executeCommand(executableSelectedResult.id);
-      const executionErrorMessage = getExecutionErrorMessage(executionResult);
-
-      if (executionErrorMessage) {
-        dispatch({
-          errorMessage: executionErrorMessage,
-          type: 'execution-failed',
-        });
-        return;
-      }
-
-      dispatch({
-        type: 'execution-succeeded',
-      });
-      if (getSystemExecutionAction(executionResult) === 'open-settings') {
-        onOpenSettings?.();
-        return;
-      }
-
-      if (
-        await openPluginPageFromExecutionResult(
-          executionResult,
-          desktopApi.pluginHost,
-          onOpenPluginPage,
-        )
-      ) {
-        return;
-      }
-
-      await desktopApi.hideLauncher();
-    } catch (error) {
-      dispatch({
-        errorMessage: formatUnknownError(error, 'Command execution failed.'),
-        type: 'execution-failed',
-      });
-    } finally {
-      executionInFlightRef.current = false;
-    }
-  }, [desktopApi, executableSelectedResult, onOpenPluginPage, onOpenSettings]);
+    await executeCommand(executableSelectedResult.id);
+  }, [executableSelectedResult, executeCommand]);
 
   const startScreenshotCapture = useMemo(
     () => createStartScreenshotCapture(desktopApi, dispatch),
@@ -817,11 +853,10 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
 
   const refreshCurrentQuery = useCallback(() => {
     dispatch({
-      query: state.query,
-      type: 'query-changed',
+      type: 'search-refresh-requested',
     });
     focusSearchInput();
-  }, [focusSearchInput, state.query]);
+  }, [focusSearchInput]);
 
   const addPinnedApp = useCallback(async () => {
     try {
@@ -974,10 +1009,7 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
   );
 
   useEffect(() => {
-    const requestId =
-      state.status === 'loading' && state.requestId > 0
-        ? state.requestId
-        : nextRequestIdRef.current + 1;
+    const requestId = getLauncherSearchRequestId(state);
     const nextSearchKey = createLauncherSearchRequestKey({
       ...state,
       requestId,
@@ -988,7 +1020,6 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     }
 
     lastStartedSearchKeyRef.current = nextSearchKey;
-    nextRequestIdRef.current = requestId;
 
     dispatch({
       requestId,
@@ -1026,6 +1057,7 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
     addPinnedApp,
     appInfo: desktopApi.getAppInfo(),
     editPinnedApp,
+    executeCommand,
     executeSelectedCommand,
     handleKeyDown,
     inputRef,

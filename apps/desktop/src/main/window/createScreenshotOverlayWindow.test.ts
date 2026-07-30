@@ -6,8 +6,13 @@ class MockBrowserWindow {
 
   readonly loadFile = vi.fn();
   readonly loadURL = vi.fn();
+  readonly destroy = vi.fn();
   readonly show = vi.fn();
-  readonly webContents = { id: 7 };
+  readonly webContents = {
+    id: 7,
+    on: vi.fn(),
+    setWindowOpenHandler: vi.fn(),
+  };
   private readyToShowListener?: () => void;
 
   constructor(readonly options: BrowserWindowConstructorOptions) {
@@ -56,11 +61,15 @@ describe('createScreenshotOverlayWindow', () => {
       show: false,
       transparent: true,
       webPreferences: {
+        additionalArguments: expect.arrayContaining([
+          '--command-cabin-window-role=screenshot',
+          '--command-cabin-version=0.0.0',
+        ]),
         backgroundThrottling: false,
         contextIsolation: true,
         nodeIntegration: false,
         preload: 'C:\\CommandCabin\\dist\\preload\\index.js',
-        sandbox: false,
+        sandbox: true,
       },
       width: 3360,
       x: -1440,

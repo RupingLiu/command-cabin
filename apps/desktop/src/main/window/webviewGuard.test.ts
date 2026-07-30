@@ -30,6 +30,8 @@ class MockGuestSession {
       this.listeners.delete(eventName);
     }
   });
+  readonly setPermissionCheckHandler = vi.fn();
+  readonly setPermissionRequestHandler = vi.fn();
 
   private readonly listeners = new Map<string, (...args: unknown[]) => void>();
 
@@ -330,6 +332,8 @@ describe('plugin webview attachment guard', () => {
       action: 'deny',
     });
     expect(downloadEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(guest.session.setPermissionCheckHandler).toHaveBeenCalledOnce();
+    expect(guest.session.setPermissionRequestHandler).toHaveBeenCalledOnce();
   });
 
   it('attaches the guard to main window webContents', () => {

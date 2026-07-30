@@ -99,6 +99,8 @@ export type {
   ValidatePluginManifestResult,
   ValidatePluginManifestSuccess,
 } from './plugin/validateManifest.js';
+export { inspectPluginDirectory } from './plugin/pluginInspection.js';
+export type { PluginInspection } from './plugin/pluginInspection.js';
 export {
   createPluginCommand,
   createPluginCommandId,

@@ -10,10 +10,15 @@ import {
   type SearchRankingContext,
   type SearchRankingExplanation,
 } from './ranking.js';
-import { normalizeSearchText } from './tokenize.js';
+import {
+  normalizeSearchText,
+  normalizeSearchTextWithMapping,
+  type SearchTextSourceRange,
+} from './tokenize.js';
 
 const DEFAULT_SEARCH_LIMIT = 20;
 const DEFAULT_RANKING_CANDIDATE_LIMIT = 100;
+const MAX_CACHED_FUSE_QUERIES = 32;
 const SEARCH_MATCH_FIELD_ORDER: readonly SearchMatchField[] = [
   'title',
   'subtitle',
@@ -25,10 +30,13 @@ interface SearchDocument {
   command: Command;
   title: string;
   normalizedTitle: string;
+  titleSourceRanges: readonly SearchTextSourceRange[];
   subtitle?: string;
   normalizedSubtitle?: string;
+  subtitleSourceRanges?: readonly SearchTextSourceRange[];
   keywords: string[];
   normalizedKeywords: string[];
+  keywordSourceRanges: ReadonlyArray<readonly SearchTextSourceRange[]>;
 }
 
 interface RankedSearchCandidate {
@@ -88,17 +96,24 @@ function normalizeThreshold(threshold: number): number {
 
 function createSearchDocument(command: Command): SearchDocument {
   const clonedCommand = cloneCommand(command);
+  const normalizedTitle = normalizeSearchTextWithMapping(clonedCommand.title);
+  const normalizedKeywords = clonedCommand.keywords.map(normalizeSearchTextWithMapping);
   const document: SearchDocument = {
     command: clonedCommand,
     title: clonedCommand.title,
-    normalizedTitle: normalizeSearchText(clonedCommand.title),
+    normalizedTitle: normalizedTitle.normalizedText,
+    titleSourceRanges: normalizedTitle.sourceRanges,
     keywords: [...clonedCommand.keywords],
-    normalizedKeywords: clonedCommand.keywords.map(normalizeSearchText),
+    normalizedKeywords: normalizedKeywords.map((keyword) => keyword.normalizedText),
+    keywordSourceRanges: normalizedKeywords.map((keyword) => keyword.sourceRanges),
   };
 
   if (clonedCommand.subtitle !== undefined) {
+    const normalizedSubtitle = normalizeSearchTextWithMapping(clonedCommand.subtitle);
+
     document.subtitle = clonedCommand.subtitle;
-    document.normalizedSubtitle = normalizeSearchText(clonedCommand.subtitle);
+    document.normalizedSubtitle = normalizedSubtitle.normalizedText;
+    document.subtitleSourceRanges = normalizedSubtitle.sourceRanges;
   }
 
   return document;
@@ -201,6 +216,7 @@ function appendExactMatch(
   field: SearchMatchField,
   value: string,
   normalizedValue: string,
+  sourceRanges: readonly SearchTextSourceRange[],
   normalizedQuery: string,
   refIndex?: number,
 ): void {
@@ -210,10 +226,18 @@ function appendExactMatch(
     return;
   }
 
+  const endIndex = startIndex + normalizedQuery.length - 1;
+  const startRange = sourceRanges[startIndex];
+  const endRange = sourceRanges[endIndex];
+
+  if (startRange === undefined || endRange === undefined) {
+    return;
+  }
+
   const match: SearchMatchedBy = {
     field,
     value,
-    indices: [[startIndex, startIndex + normalizedQuery.length - 1]],
+    indices: [[startRange[0], endRange[1]]],
   };
 
   if (refIndex !== undefined) {
@@ -229,14 +253,26 @@ function createExactMatchedBy(
 ): SearchMatchedBy[] {
   const matchedBy: SearchMatchedBy[] = [];
 
-  appendExactMatch(matchedBy, 'title', document.title, document.normalizedTitle, normalizedQuery);
+  appendExactMatch(
+    matchedBy,
+    'title',
+    document.title,
+    document.normalizedTitle,
+    document.titleSourceRanges,
+    normalizedQuery,
+  );
 
-  if (document.subtitle !== undefined && document.normalizedSubtitle !== undefined) {
+  if (
+    document.subtitle !== undefined &&
+    document.normalizedSubtitle !== undefined &&
+    document.subtitleSourceRanges !== undefined
+  ) {
     appendExactMatch(
       matchedBy,
       'subtitle',
       document.subtitle,
       document.normalizedSubtitle,
+      document.subtitleSourceRanges,
       normalizedQuery,
     );
   }
@@ -247,6 +283,7 @@ function createExactMatchedBy(
       'keywords',
       keyword,
       document.normalizedKeywords[index] ?? '',
+      document.keywordSourceRanges[index] ?? [],
       normalizedQuery,
       index,
     );
@@ -267,8 +304,8 @@ function compareRankedSearchCandidates(
     return left.fuseScore - right.fuseScore;
   }
 
-  const leftTitle = normalizeSearchText(left.document.command.title);
-  const rightTitle = normalizeSearchText(right.document.command.title);
+  const leftTitle = left.document.normalizedTitle;
+  const rightTitle = right.document.normalizedTitle;
 
   if (leftTitle !== rightTitle) {
     return leftTitle < rightTitle ? -1 : 1;
@@ -347,6 +384,7 @@ export class SearchEngine {
   private documents: SearchDocument[] = [];
   private documentsById = new Map<string, SearchDocument>();
   private fuse: Fuse<SearchDocument>;
+  private readonly fuseResultsCache = new Map<string, readonly FuseResult<SearchDocument>[]>();
   private readonly options: Required<SearchEngineOptions>;
 
   constructor(commands: readonly Command[] = [], options: SearchEngineOptions = {}) {
@@ -365,6 +403,7 @@ export class SearchEngine {
       this.documents.map((document) => [document.command.id, document] as const),
     );
     this.fuse = new Fuse(this.documents, createFuseOptions(this.options.threshold));
+    this.fuseResultsCache.clear();
   }
 
   upsert(command: Command): void {
@@ -400,51 +439,62 @@ export class SearchEngine {
       return this.searchEmptyQuery(query, limit, options);
     }
 
-    const exactResults = this.searchExactQuery(query, normalizedQuery, limit, options.ranking);
-
-    if (exactResults) {
-      return exactResults;
-    }
-
-    const fuseResults = this.createRankedFuseCandidates(normalizedQuery, limit, options.ranking);
-
-    return this.collectTopSearchResults(fuseResults, limit, (result) =>
-      this.createCandidateFromFuseResult(query, result, options.ranking),
-    );
+    return this.searchRankedQuery(query, normalizedQuery, limit, options.ranking);
   }
 
-  private searchExactQuery(
+  private searchRankedQuery(
     query: string,
     normalizedQuery: string,
     limit: number,
     context: SearchRankingContext | undefined,
-  ): SearchResult[] | undefined {
+  ): SearchResult[] {
     const topCandidates: RankedSearchCandidate[] = [];
-    const exactCommandIds = new Set<string>();
-    let exactMatchCount = 0;
+    const exactDocuments = new Set<SearchDocument>();
 
     for (const document of this.documents) {
-      const matchedBy = createExactMatchedBy(document, normalizedQuery);
+      const exactMatchedBy = createExactMatchedBy(document, normalizedQuery);
 
-      if (matchedBy.length === 0) {
+      if (exactMatchedBy.length === 0) {
         continue;
       }
 
-      exactMatchCount += 1;
-      exactCommandIds.add(document.command.id);
+      exactDocuments.add(document);
       insertTopCandidate(
         topCandidates,
-        createRankedSearchCandidate(query, document, 0, matchedBy, context),
+        createRankedSearchCandidate(query, document, 0, exactMatchedBy, context),
         limit,
       );
     }
 
-    if (exactMatchCount < limit) {
-      return undefined;
+    if (exactDocuments.size === this.documents.length) {
+      return topCandidates.map(toSearchResult);
+    }
+
+    const fuseCandidateDocuments = new Set<SearchDocument>();
+    const fuseCandidateLimit = Math.max(limit, DEFAULT_RANKING_CANDIDATE_LIMIT);
+
+    for (const result of this.searchFuse(normalizedQuery, fuseCandidateLimit)) {
+      fuseCandidateDocuments.add(result.item);
+
+      if (exactDocuments.has(result.item)) {
+        continue;
+      }
+
+      insertTopCandidate(
+        topCandidates,
+        createRankedSearchCandidate(
+          query,
+          result.item,
+          result.score ?? 1,
+          createMatchedBy(result.matches),
+          context,
+        ),
+        limit,
+      );
     }
 
     const boostedDocuments = this.getBoostedDocuments(context).filter(
-      (document) => !exactCommandIds.has(document.command.id),
+      (document) => !exactDocuments.has(document) && !fuseCandidateDocuments.has(document),
     );
 
     if (boostedDocuments.length > 0) {
@@ -453,7 +503,13 @@ export class SearchEngine {
       for (const result of boostedFuse.search(normalizedQuery)) {
         insertTopCandidate(
           topCandidates,
-          this.createCandidateFromFuseResult(query, result, context),
+          createRankedSearchCandidate(
+            query,
+            result.item,
+            result.score ?? 1,
+            createMatchedBy(result.matches),
+            context,
+          ),
           limit,
         );
       }
@@ -462,26 +518,31 @@ export class SearchEngine {
     return topCandidates.map(toSearchResult);
   }
 
-  private createRankedFuseCandidates(
+  private searchFuse(
     normalizedQuery: string,
-    limit: number,
-    context: SearchRankingContext | undefined,
-  ): FuseResult<SearchDocument>[] {
-    const candidateLimit = Math.max(limit, DEFAULT_RANKING_CANDIDATE_LIMIT);
-    const fuseResults = this.fuse.search(normalizedQuery, {
-      limit: candidateLimit,
-    });
-    const candidateIds = new Set(fuseResults.map((result) => result.item.command.id));
-    const boostedDocuments = this.getBoostedDocuments(context).filter(
-      (document) => !candidateIds.has(document.command.id),
-    );
+    candidateLimit: number,
+  ): readonly FuseResult<SearchDocument>[] {
+    const cacheKey = `${candidateLimit}\u0000${normalizedQuery}`;
+    const cachedResults = this.fuseResultsCache.get(cacheKey);
 
-    if (boostedDocuments.length === 0) {
-      return fuseResults;
+    if (cachedResults !== undefined) {
+      this.fuseResultsCache.delete(cacheKey);
+      this.fuseResultsCache.set(cacheKey, cachedResults);
+      return cachedResults;
     }
 
-    const boostedFuse = new Fuse(boostedDocuments, createFuseOptions(this.options.threshold));
-    return [...fuseResults, ...boostedFuse.search(normalizedQuery)];
+    const results = this.fuse.search(normalizedQuery, { limit: candidateLimit });
+    this.fuseResultsCache.set(cacheKey, results);
+
+    if (this.fuseResultsCache.size > MAX_CACHED_FUSE_QUERIES) {
+      const oldestCacheKey = this.fuseResultsCache.keys().next().value;
+
+      if (oldestCacheKey !== undefined) {
+        this.fuseResultsCache.delete(oldestCacheKey);
+      }
+    }
+
+    return results;
   }
 
   private getBoostedDocuments(context: SearchRankingContext | undefined): SearchDocument[] {
@@ -533,20 +594,6 @@ export class SearchEngine {
     }
 
     return topCandidates.map(toSearchResult);
-  }
-
-  private createCandidateFromFuseResult(
-    query: string,
-    result: FuseResult<SearchDocument>,
-    context: SearchRankingContext | undefined,
-  ): RankedSearchCandidate {
-    return createRankedSearchCandidate(
-      query,
-      result.item,
-      result.score ?? 1,
-      createMatchedBy(result.matches),
-      context,
-    );
   }
 }
 

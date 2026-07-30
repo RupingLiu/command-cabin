@@ -16,6 +16,7 @@ export type HotkeySettingsStrings = UiStrings['settings']['hotkey'];
 
 export interface HotkeySettingsProps {
   activeRecorderId?: string | null | undefined;
+  compact?: boolean | undefined;
   errorMessage?: string | undefined;
   isSaving?: boolean;
   onHotkeyChange?: (hotkey: string) => Promise<CommandCabinSettings | void> | void;
@@ -154,6 +155,7 @@ export async function saveRecordedHotkey(
 
 export function HotkeySettings({
   activeRecorderId,
+  compact = false,
   errorMessage,
   isSaving = false,
   onHotkeyChange,
@@ -266,7 +268,12 @@ export function HotkeySettings({
   });
 
   return (
-    <section className="settings-section hotkey-settings" aria-label={strings.ariaLabel}>
+    <section
+      className={
+        compact ? 'hotkey-settings hotkey-settings--compact' : 'settings-section hotkey-settings'
+      }
+      aria-label={strings.ariaLabel}
+    >
       <header className="settings-section__header">
         <h2>{strings.title}</h2>
         <span>{currentHotkey}</span>

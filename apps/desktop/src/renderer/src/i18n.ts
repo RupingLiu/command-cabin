@@ -122,12 +122,15 @@ const zhCnStrings = {
       copy: '复制译文',
       failed: '翻译失败。',
       noText: '未翻译出文字。',
+      onlineConsent:
+        '翻译会将本次本地 OCR 文字发送到 Google 在线翻译服务（最多 2000 个字符）。是否继续？',
       result: '译文',
       source: '原文',
       translating: '正在翻译...',
     },
     status: {
       imageSaved: '图片已保存。',
+      imageLoadFailed: '部分屏幕图像加载失败；可按 Esc 退出后重试。',
       pinned: '已置顶选区。',
       saveCanceled: '已取消保存。',
       translationApplied: '已用译文覆盖选区。',
@@ -185,6 +188,7 @@ const zhCnStrings = {
   settings: {
     ariaLabel: 'CommandCabin 设置',
     back: '返回',
+    shortcutsTitle: '全局快捷键',
     about: {
       ariaLabel: '关于与更新',
       check: '检查更新',
@@ -290,6 +294,8 @@ const zhCnStrings = {
       operationError: '插件操作失败。',
       pathLabel: '本地插件文件夹路径',
       pathRequired: '请输入插件文件夹路径。',
+      safetyNotice:
+        '安全模式已启用：可以检查和登记本地插件，但在隔离运行时完成前不会执行第三方代码。',
       title: '插件管理',
       uninstall: '卸载',
       unavailable: '插件接口不可用。',
@@ -444,12 +450,15 @@ const zhTwStrings: UiStrings = {
       copy: '複製譯文',
       failed: '翻譯失敗。',
       noText: '未翻譯出文字。',
+      onlineConsent:
+        '翻譯會將本次本地 OCR 文字傳送到 Google 線上翻譯服務（最多 2000 個字元）。是否繼續？',
       result: '譯文',
       source: '原文',
       translating: '正在翻譯...',
     },
     status: {
       imageSaved: '圖片已儲存。',
+      imageLoadFailed: '部分螢幕影像載入失敗；可按 Esc 離開後重試。',
       pinned: '已置頂選取區域。',
       saveCanceled: '已取消儲存。',
       translationApplied: '已用譯文覆蓋選取區域。',
@@ -507,6 +516,7 @@ const zhTwStrings: UiStrings = {
   settings: {
     ariaLabel: 'CommandCabin 設定',
     back: '返回',
+    shortcutsTitle: '全域快捷鍵',
     about: {
       ariaLabel: '關於與更新',
       check: '檢查更新',
@@ -612,6 +622,8 @@ const zhTwStrings: UiStrings = {
       operationError: '外掛操作失敗。',
       pathLabel: '本地外掛資料夾路徑',
       pathRequired: '請輸入外掛資料夾路徑。',
+      safetyNotice:
+        '安全模式已啟用：可以檢查及登記本地外掛，但隔離執行環境完成前不會執行第三方程式碼。',
       title: '外掛管理',
       uninstall: '解除安裝',
       unavailable: '外掛介面不可用。',
@@ -758,12 +770,15 @@ const enUsStrings: UiStrings = {
       copy: 'Copy translation',
       failed: 'Translation failed.',
       noText: 'No translated text found.',
+      onlineConsent:
+        'Translation sends this locally recognized OCR text to the Google online translation service (up to 2,000 characters). Continue?',
       result: 'Translation',
       source: 'Original',
       translating: 'Translating...',
     },
     status: {
       imageSaved: 'Image saved.',
+      imageLoadFailed: 'A display image failed to load. Press Esc to exit and try again.',
       pinned: 'Pinned selection.',
       saveCanceled: 'Save canceled.',
       translationApplied: 'Translation applied over the selection.',
@@ -821,6 +836,7 @@ const enUsStrings: UiStrings = {
   settings: {
     ariaLabel: 'CommandCabin settings',
     back: 'Back',
+    shortcutsTitle: 'Global shortcuts',
     about: {
       ariaLabel: 'About and updates',
       check: 'Check for updates',
@@ -926,6 +942,8 @@ const enUsStrings: UiStrings = {
       operationError: 'Plugin operation failed.',
       pathLabel: 'Local plugin folder path',
       pathRequired: 'Plugin folder path is required.',
+      safetyNotice:
+        'Safe mode is active: local plugins can be inspected and registered, but third-party code will not run until an isolated runtime is available.',
       title: 'Plugin Management',
       uninstall: 'Uninstall',
       unavailable: 'Plugin API unavailable.',

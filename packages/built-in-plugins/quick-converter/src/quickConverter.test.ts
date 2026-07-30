@@ -165,4 +165,24 @@ describe('quick converter built-in plugin', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it('rejects non-positive exchange rates', async () => {
+    await expect(
+      createQuickConverterCommand('1美元', {
+        exchangeRateProvider: {
+          getUsdToCnyRate: vi.fn(async () => ({
+            fetchedAt: '2026-05-18T00:00:00.000Z',
+            provider: 'invalid',
+            rate: 0,
+            source: 'live',
+            updatedAt: '2026-05-18',
+          })),
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects static conversions whose intermediate results overflow', () => {
+    expect(createStaticConversionCommand(`${'1'.padEnd(308, '0')}米`)).toBeUndefined();
+  });
 });

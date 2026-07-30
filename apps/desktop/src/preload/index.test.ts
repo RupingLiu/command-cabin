@@ -60,6 +60,17 @@ async function loadDesktopApi(): Promise<DesktopApi> {
   return electronMock.exposeInMainWorld.mock.calls.at(-1)?.[1] as DesktopApi;
 }
 
+async function loadDesktopApiForRole(role: 'launcher' | 'pinned-image' | 'screenshot') {
+  const originalArgvLength = process.argv.length;
+  process.argv.push(`--command-cabin-window-role=${role}`, '--command-cabin-version=0.9.0');
+
+  try {
+    return await loadDesktopApi();
+  } finally {
+    process.argv.splice(originalArgvLength);
+  }
+}
+
 describe('preload desktopApi settings bridge', () => {
   beforeEach(() => {
     electronMock.exposeInMainWorld.mockClear();
@@ -234,6 +245,18 @@ describe('preload desktopApi settings bridge', () => {
       OPEN_SETTINGS_CHANNEL,
       registeredListener,
     );
+  });
+
+  it('exposes only the minimum API surface to screenshot and pinned-image windows', async () => {
+    const screenshotApi = await loadDesktopApiForRole('screenshot');
+
+    expect(Object.keys(screenshotApi).sort()).toEqual(['getSettings', 'screenshot']);
+    expect(screenshotApi.getAppInfo).toBeUndefined();
+
+    const pinnedImageApi = await loadDesktopApiForRole('pinned-image');
+
+    expect(Object.keys(pinnedImageApi)).toEqual(['screenshot']);
+    expect(pinnedImageApi.getSettings).toBeUndefined();
   });
 
   it('exposes update IPC methods and a removable update status listener', async () => {
@@ -445,6 +468,7 @@ describe('preload desktopApi settings bridge', () => {
       api.screenshot!.translateSelection({
         imageDataUrl: 'data:image/png;base64,AAAA',
         ocrLanguage: 'en-US',
+        onlineConsent: true,
         targetLanguage: 'zh-CN',
       }),
     ).resolves.toEqual({
@@ -457,6 +481,7 @@ describe('preload desktopApi settings bridge', () => {
     expect(electronMock.invoke).toHaveBeenLastCalledWith(SCREENSHOT_TRANSLATE_SELECTION_CHANNEL, {
       imageDataUrl: 'data:image/png;base64,AAAA',
       ocrLanguage: 'en-US',
+      onlineConsent: true,
       targetLanguage: 'zh-CN',
     });
 

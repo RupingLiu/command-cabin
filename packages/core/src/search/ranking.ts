@@ -48,6 +48,7 @@ export interface SearchRankingContext {
     | Readonly<Record<string, SearchRankingHistoryEntry>>
     | ReadonlyMap<string, SearchRankingHistoryEntry>;
   sourceWeights?: Readonly<Partial<Record<CommandSource, number>>>;
+  historyWeight?: number;
   now?: Date | string | number;
 }
 
@@ -246,13 +247,14 @@ export function rankSearchCandidate(input: SearchRankingInput): SearchRankingRes
   const normalizedTitle = normalizeSearchText(input.command.title);
   const historyEntry = getHistoryEntry(input.context, input.command.id);
   const executionCount = normalizeExecutionCount(historyEntry?.executionCount);
+  const historyWeight = normalizeScoreWeight(input.context?.historyWeight, 1);
   const components: SearchRankingComponents = {
     fuzzy: roundScore(normalizeFuseScore(input.fuseScore)),
     field: roundScore(scoreMatchedFields(input.matchedBy)),
     source: roundScore(scoreCommandSource(input.command, input.context)),
-    history: roundScore(scoreHistory(executionCount)),
+    history: roundScore(scoreHistory(executionCount) * historyWeight),
     pinned: hasPinnedCommand(input.context, input.command.id) ? SEARCH_RANKING_BOOSTS.pinned : 0,
-    recent: roundScore(scoreRecentUse(historyEntry, input.context)),
+    recent: roundScore(scoreRecentUse(historyEntry, input.context) * historyWeight),
     exactTitle:
       normalizedQuery.length > 0 && normalizedQuery === normalizedTitle
         ? SEARCH_RANKING_BOOSTS.exactTitle

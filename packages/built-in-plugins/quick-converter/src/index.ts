@@ -152,17 +152,21 @@ export function parseConversionQuery(query: string): ParsedConversionQuery | und
 export function createStaticConversionCommand(query: string): Command | undefined {
   const parsed = parseConversionQuery(query);
 
-  if (parsed !== undefined && parsed.kind !== 'currency') {
-    return createCopyTextCommand(formatStaticConversion(parsed), query);
-  }
+  try {
+    if (parsed !== undefined && parsed.kind !== 'currency') {
+      return createCopyTextCommand(formatStaticConversion(parsed), query);
+    }
 
-  const volumeCalculation = parseVolumeCalculation(query);
+    const volumeCalculation = parseVolumeCalculation(query);
 
-  if (volumeCalculation === undefined) {
+    if (volumeCalculation === undefined) {
+      return undefined;
+    }
+
+    return createCopyTextCommand(formatVolumeCalculation(volumeCalculation), query);
+  } catch {
     return undefined;
   }
-
-  return createCopyTextCommand(formatVolumeCalculation(volumeCalculation), query);
 }
 
 export async function createQuickConverterCommand(
@@ -183,12 +187,20 @@ export async function createQuickConverterCommand(
 
   const rate = await getUsdToCnyRate(options.exchangeRateProvider);
 
-  if (rate === undefined || !Number.isFinite(rate.rate)) {
+  const convertedAmount = rate === undefined ? undefined : parsed.amount * rate.rate;
+
+  if (
+    rate === undefined ||
+    !Number.isFinite(rate.rate) ||
+    rate.rate <= 0 ||
+    convertedAmount === undefined ||
+    !Number.isFinite(convertedAmount)
+  ) {
     return undefined;
   }
 
   const title = `${formatConciseDecimal(parsed.amount)} 美元 ≈ ${formatCurrency(
-    parsed.amount * rate.rate,
+    convertedAmount,
   )} 人民币`;
   const subtitle = `${rate.source === 'live' ? '实时汇率' : '缓存汇率'} · 更新时间 ${rate.updatedAt}`;
 
@@ -482,15 +494,24 @@ function createCopyTextCommand(title: string, query: string, subtitle?: string):
 }
 
 function formatConciseDecimal(value: number): string {
+  assertFiniteConversionValue(value);
   return normalizeNumber(value).toString();
 }
 
 function formatSignificantDecimal(value: number): string {
+  assertFiniteConversionValue(value);
   return normalizeNumber(Number(value.toPrecision(6))).toString();
 }
 
 function formatCurrency(value: number): string {
+  assertFiniteConversionValue(value);
   return value.toFixed(2);
+}
+
+function assertFiniteConversionValue(value: number): void {
+  if (!Number.isFinite(value)) {
+    throw new RangeError('Conversion result exceeds the supported numeric range.');
+  }
 }
 
 function normalizeNumber(value: number): number {

@@ -162,7 +162,7 @@ export function ClipboardHistorySettings({
   }
 
   return (
-    <section className="clipboard-history-settings" aria-label={strings.ariaLabel}>
+    <section className="settings-section clipboard-history-settings" aria-label={strings.ariaLabel}>
       <header className="clipboard-history-settings__header">
         <h2>{strings.title}</h2>
       </header>

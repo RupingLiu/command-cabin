@@ -140,6 +140,47 @@ function getSelectableCandidateIndex(
   return (baseIndex + delta + candidates.length) % candidates.length;
 }
 
+export type AddAppPickerKeyboardAction = 'add' | 'close' | 'next' | 'none' | 'previous';
+
+const addAppPickerNavigationSelector = '[data-add-app-picker-keyboard-navigation="true"]';
+const addAppPickerNativeControlSelector =
+  'button, select, textarea, [contenteditable]:not([contenteditable="false"])';
+
+function eventTargetHasClosest(target: EventTarget | null, selector: string): boolean {
+  if (target === null || typeof target !== 'object') {
+    return false;
+  }
+
+  const closest = (target as { closest?: unknown }).closest;
+  return typeof closest === 'function' && closest.call(target, selector) !== null;
+}
+
+export function getAddAppPickerKeyboardAction(
+  key: string,
+  target: EventTarget | null,
+): AddAppPickerKeyboardAction {
+  if (key === 'Escape') {
+    return 'close';
+  }
+
+  if (
+    !eventTargetHasClosest(target, addAppPickerNavigationSelector) ||
+    eventTargetHasClosest(target, addAppPickerNativeControlSelector)
+  ) {
+    return 'none';
+  }
+
+  if (key === 'ArrowDown') {
+    return 'next';
+  }
+
+  if (key === 'ArrowUp') {
+    return 'previous';
+  }
+
+  return key === 'Enter' ? 'add' : 'none';
+}
+
 export function AddAppPickerView({
   candidates,
   errorMessage,
@@ -188,6 +229,7 @@ export function AddAppPickerView({
           <span>{pickerStrings.searchLabel}</span>
           <input
             autoFocus
+            data-add-app-picker-keyboard-navigation="true"
             placeholder={pickerStrings.searchPlaceholder}
             type="search"
             value={query}
@@ -215,7 +257,7 @@ export function AddAppPickerView({
             </div>
           ) : null}
           {status === 'ready' ? (
-            <ul className="add-app-candidates">
+            <ul className="add-app-candidates" data-add-app-picker-keyboard-navigation="true">
               {candidates.map((candidate, index) => (
                 <li
                   className="add-app-candidate"
@@ -357,25 +399,17 @@ export function AddAppPicker({ language, onClose, onPinnedAppAdded }: AddAppPick
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLElement>) => {
-      if (event.key === 'Escape') {
+      const action = getAddAppPickerKeyboardAction(event.key, event.target);
+
+      if (action === 'close') {
         event.preventDefault();
         onClose();
-        return;
-      }
-
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      } else if (action === 'next' || action === 'previous') {
         event.preventDefault();
         setSelectedIndex((currentIndex) =>
-          getSelectableCandidateIndex(
-            candidates,
-            currentIndex,
-            event.key === 'ArrowDown' ? 'next' : 'previous',
-          ),
+          getSelectableCandidateIndex(candidates, currentIndex, action),
         );
-        return;
-      }
-
-      if (event.key === 'Enter' && selectedIndex >= 0) {
+      } else if (action === 'add' && selectedIndex >= 0) {
         event.preventDefault();
         void addCandidate(candidates[selectedIndex]!);
       }

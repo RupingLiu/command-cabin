@@ -1,9 +1,10 @@
 {
   "name": "@command-cabin/desktop",
-  "version": "0.8.21",
+  "version": "0.9.0",
   "private": true,
   "productName": "CommandCabin",
   "description": "Electron desktop shell for CommandCabin.",
+  "author": "CommandCabin",
   "type": "module",
   "main": "./out/main/index.js",
   "types": "./dist/main/index.d.ts",

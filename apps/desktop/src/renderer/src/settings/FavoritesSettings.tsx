@@ -280,7 +280,10 @@ export function FavoritesSettings({
   };
 
   return (
-    <section className="favorites-settings" aria-label={strings.ariaLabel}>
+    <section
+      className="settings-section settings-section--wide favorites-settings"
+      aria-label={strings.ariaLabel}
+    >
       <header className="favorites-settings__header">
         <h2>{strings.title}</h2>
         <button type="button" onClick={resetDraft} disabled={isMutating}>

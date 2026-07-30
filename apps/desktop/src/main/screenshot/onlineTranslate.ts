@@ -4,8 +4,8 @@ import type {
 } from '../../shared/screenshotApi.js';
 
 const GOOGLE_TRANSLATE_ENDPOINT = 'https://translate.googleapis.com/translate_a/single';
-const MYMEMORY_ENDPOINT = 'https://api.mymemory.translated.net/get';
 const DEFAULT_TRANSLATION_TIMEOUT_MS = 6_000;
+const MAX_TRANSLATION_TEXT_LENGTH = 2_000;
 
 export interface OnlineTranslateRequest {
   sourceLanguage: ScreenshotTranslationLanguage;
@@ -105,15 +105,23 @@ function formatTranslationError(reason: unknown): string {
   return reason instanceof Error ? reason.message : 'Online translation failed.';
 }
 
-async function fetchJson(url: URL, fetchImpl: typeof fetch, timeoutMs: number): Promise<unknown> {
+async function fetchJson(
+  url: URL,
+  body: URLSearchParams,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<unknown> {
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), timeoutMs);
 
   try {
     const response = await fetchImpl(url, {
+      body,
       headers: {
         Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
       },
+      method: 'POST',
       signal: abortController.signal,
     });
 
@@ -143,13 +151,17 @@ async function translateWithGoogle({
   timeoutMs: number;
 }): Promise<string> {
   const url = new URL(endpoint);
-  url.searchParams.set('client', 'gtx');
-  url.searchParams.set('sl', sourceLanguage);
-  url.searchParams.set('tl', targetLanguage);
-  url.searchParams.set('dt', 't');
-  url.searchParams.set('q', sourceText);
+  const body = new URLSearchParams({
+    client: 'gtx',
+    dt: 't',
+    q: sourceText,
+    sl: sourceLanguage,
+    tl: targetLanguage,
+  });
 
-  const translatedText = parseGoogleTranslatedText(await fetchJson(url, fetchImpl, timeoutMs));
+  const translatedText = parseGoogleTranslatedText(
+    await fetchJson(url, body, fetchImpl, timeoutMs),
+  );
 
   if (!translatedText) {
     throw new Error('Online translation returned no text.');
@@ -174,10 +186,14 @@ async function translateWithMyMemory({
   timeoutMs: number;
 }): Promise<string> {
   const url = new URL(endpoint);
-  url.searchParams.set('q', sourceText);
-  url.searchParams.set('langpair', `${sourceLanguage}|${targetLanguage}`);
+  const body = new URLSearchParams({
+    langpair: `${sourceLanguage}|${targetLanguage}`,
+    q: sourceText,
+  });
 
-  const translatedText = parseMyMemoryTranslatedText(await fetchJson(url, fetchImpl, timeoutMs));
+  const translatedText = parseMyMemoryTranslatedText(
+    await fetchJson(url, body, fetchImpl, timeoutMs),
+  );
 
   if (!translatedText) {
     throw new Error('Online translation returned no text.');
@@ -195,6 +211,15 @@ export async function runOnlineTranslate(
   if (sourceText.length === 0) {
     return {
       message: 'No OCR text found.',
+      ocrLanguage: request.sourceLanguage,
+      status: 'unavailable',
+      targetLanguage: request.targetLanguage,
+    };
+  }
+
+  if (sourceText.length > MAX_TRANSLATION_TEXT_LENGTH) {
+    return {
+      message: `OCR text exceeds the ${MAX_TRANSLATION_TEXT_LENGTH}-character online translation limit.`,
       ocrLanguage: request.sourceLanguage,
       status: 'unavailable',
       targetLanguage: request.targetLanguage,
@@ -243,16 +268,7 @@ export async function runOnlineTranslate(
           sourceText,
           targetLanguage,
           timeoutMs,
-        }).catch(() =>
-          translateWithMyMemory({
-            endpoint: dependencies.myMemoryEndpoint ?? MYMEMORY_ENDPOINT,
-            fetchImpl,
-            sourceLanguage,
-            sourceText,
-            targetLanguage,
-            timeoutMs,
-          }),
-        );
+        });
 
     return {
       ocrLanguage: request.sourceLanguage,

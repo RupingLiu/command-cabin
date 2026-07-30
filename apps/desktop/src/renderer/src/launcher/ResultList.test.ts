@@ -18,12 +18,10 @@ function createAppResult(overrides: Partial<LauncherResultItem> = {}): LauncherR
 }
 
 function renderResultList({
-  onAddPinnedApp,
   onRemoveRecentApp,
   query,
   results,
 }: {
-  onAddPinnedApp?: (() => void) | undefined;
   onRemoveRecentApp?: ((commandId: string) => void) | undefined;
   query: string;
   results: LauncherResultItem[];
@@ -33,7 +31,6 @@ function renderResultList({
       errorMessage: undefined,
       isExecutionDisabled: false,
       listboxId: 'launcher-results-listbox',
-      onAddPinnedApp,
       onExecute: vi.fn(),
       onRemoveRecentApp,
       onSelect: vi.fn(),
@@ -67,23 +64,8 @@ describe('ResultList', () => {
     expect(markup).not.toContain('class="result-source"');
   });
 
-  it('renders a small add app button after blank-query app tiles when provided', () => {
+  it('renders all twelve selectable home apps without reserving an invisible slot', () => {
     const markup = renderResultList({
-      onAddPinnedApp: vi.fn(),
-      query: '',
-      results: [createAppResult()],
-    });
-
-    expect(markup).toContain('result-list--recent-apps');
-    expect(markup).toContain('result-add-app-cell');
-    expect(markup).toContain('result-add-app-button');
-    expect(markup).toContain('aria-label="添加应用"');
-    expect(markup).not.toContain('result-item--add-app');
-  });
-
-  it('keeps blank-query app grids within two rows when the add app button is visible', () => {
-    const markup = renderResultList({
-      onAddPinnedApp: vi.fn(),
       query: '',
       results: Array.from({ length: 13 }, (_, index) =>
         createAppResult({
@@ -94,9 +76,8 @@ describe('ResultList', () => {
     });
 
     expect(markup).toContain('App 11');
-    expect(markup).not.toContain('App 12');
+    expect(markup).toContain('App 12');
     expect(markup).not.toContain('App 13');
-    expect(markup).toContain('result-add-app-button');
   });
 
   it('lets recent app tiles expose a context menu when recent removal is available', () => {
@@ -110,13 +91,12 @@ describe('ResultList', () => {
     expect(markup).toContain('data-manageable="true"');
   });
 
-  it('renders a small add app button for an empty blank query instead of an empty state', () => {
+  it('renders the empty state when a blank query has no apps', () => {
     const markup = renderToStaticMarkup(
       createElement(ResultList, {
         errorMessage: undefined,
         isExecutionDisabled: false,
         listboxId: 'launcher-results-listbox',
-        onAddPinnedApp: vi.fn(),
         onExecute: vi.fn(),
         onSelect: vi.fn(),
         query: '',
@@ -126,9 +106,8 @@ describe('ResultList', () => {
       }),
     );
 
-    expect(markup).toContain('result-list--recent-apps');
-    expect(markup).toContain('result-add-app-button');
-    expect(markup).not.toContain('无结果');
+    expect(markup).toContain('无结果');
+    expect(markup).not.toContain('result-add-app-button');
   });
 
   it('keeps searched app results in the detailed list layout', () => {

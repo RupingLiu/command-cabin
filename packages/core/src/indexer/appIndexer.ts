@@ -277,9 +277,20 @@ export function createAppIndexer(options: AppIndexerOptions = {}): AppIndexer {
   const refreshIntervalMs = options.refreshIntervalMs;
   let commands: Command[] = [];
   let timer: ReturnType<typeof setInterval> | undefined;
-  let autoRefreshInFlight = false;
+  let refreshInFlight: Promise<AppIndexSnapshot> | undefined;
+  let mutationGeneration = 0;
+  let latestSnapshot: AppIndexSnapshot | undefined;
 
-  async function refresh(): Promise<AppIndexSnapshot> {
+  function cloneSnapshot(snapshot: AppIndexSnapshot): AppIndexSnapshot {
+    return {
+      ...snapshot,
+      commands: cloneSnapshotCommands(snapshot.commands),
+      failures: [...snapshot.failures],
+    };
+  }
+
+  async function performRefresh(): Promise<AppIndexSnapshot> {
+    mutationGeneration += 1;
     const scanResult = await scanner.scan();
     const nextCommands = createAppCommandsFromShortcuts(scanResult.shortcuts);
     const cacheSnapshot = await options.cache?.write(nextCommands);
@@ -291,31 +302,36 @@ export function createAppIndexer(options: AppIndexerOptions = {}): AppIndexer {
     };
 
     commands = cloneSnapshotCommands(snapshot.commands);
+    latestSnapshot = cloneSnapshot(snapshot);
 
-    return {
-      ...snapshot,
-      commands: cloneSnapshotCommands(snapshot.commands),
-    };
+    return cloneSnapshot(snapshot);
+  }
+
+  function refresh(): Promise<AppIndexSnapshot> {
+    if (refreshInFlight !== undefined) {
+      return refreshInFlight;
+    }
+
+    const refreshPromise = performRefresh().finally(() => {
+      if (refreshInFlight === refreshPromise) {
+        refreshInFlight = undefined;
+      }
+    });
+    refreshInFlight = refreshPromise;
+    return refreshPromise;
   }
 
   async function runAutoRefresh(): Promise<void> {
-    if (autoRefreshInFlight) {
-      return;
-    }
-
-    autoRefreshInFlight = true;
-
     try {
       await refresh();
     } catch (error) {
       options.onRefreshError?.(error);
-    } finally {
-      autoRefreshInFlight = false;
     }
   }
 
   return {
     load: async () => {
+      const loadGeneration = mutationGeneration;
       let cacheSnapshot: AppIndexCacheSnapshot | undefined;
 
       try {
@@ -328,6 +344,14 @@ export function createAppIndexer(options: AppIndexerOptions = {}): AppIndexer {
         throw error;
       }
 
+      if (loadGeneration !== mutationGeneration) {
+        if (refreshInFlight !== undefined) {
+          return refreshInFlight;
+        }
+
+        return latestSnapshot === undefined ? undefined : cloneSnapshot(latestSnapshot);
+      }
+
       if (!cacheSnapshot) {
         return undefined;
       }
@@ -338,8 +362,9 @@ export function createAppIndexer(options: AppIndexerOptions = {}): AppIndexer {
 
       const snapshot = createSnapshotFromCache(cacheSnapshot);
       commands = cloneSnapshotCommands(snapshot.commands);
+      latestSnapshot = cloneSnapshot(snapshot);
 
-      return snapshot;
+      return cloneSnapshot(snapshot);
     },
     refresh,
     getCommands: () => cloneSnapshotCommands(commands),

@@ -204,6 +204,66 @@ describe('search engine', () => {
     expect(results[0]?.ranking.components.exactTitle).toBeGreaterThan(0);
   });
 
+  it('keeps the highest-ranked result stable when the requested limit changes', () => {
+    const engine = createSearchEngine([
+      createCommand({
+        id: 'exact-keyword',
+        source: 'plugin',
+        title: 'Unrelated Tool',
+        keywords: ['settings'],
+        action: {
+          type: 'run-plugin',
+          payload: {},
+        },
+      }),
+      createCommand({
+        id: 'fuzzy-title',
+        source: 'system',
+        title: 'Setting',
+        keywords: [],
+        action: {
+          type: 'run-system',
+          payload: {},
+        },
+      }),
+    ]);
+
+    const singleResult = engine.search('settings', { limit: 1 });
+    const multipleResults = engine.search('settings', { limit: 2 });
+
+    expect(singleResult.map((result) => result.command.id)).toEqual(['fuzzy-title']);
+    expect(multipleResults.map((result) => result.command.id)).toEqual([
+      'fuzzy-title',
+      'exact-keyword',
+    ]);
+    expect(singleResult[0]?.score).toBe(multipleResults[0]?.score);
+  });
+
+  it.each([
+    ['collapsed whitespace', 'Open   Settings', 'settings', [7, 14]],
+    ['NFKD compatibility expansion', 'Open ﬃle', 'ffi', [5, 5]],
+    ['decomposed diacritic', 'Cafe\u0301', 'cafe', [0, 4]],
+  ])(
+    'maps normalized %s match indices back to the original title',
+    (_name, title, query, expectedIndices) => {
+      const engine = createSearchEngine([
+        createCommand({
+          id: 'normalized-title',
+          title,
+          keywords: [],
+        }),
+      ]);
+
+      const [result] = engine.search(query, { limit: 1 });
+
+      expect(result?.matchedBy).toContainEqual({
+        field: 'title',
+        indices: [expectedIndices],
+        value: title,
+      });
+    },
+  );
+
   it('returns matchedBy fields with Fuse match indices for debugging', () => {
     const engine = createSearchEngine([
       createCommand({
@@ -290,6 +350,18 @@ describe('search engine', () => {
 
     expect(engine.search('notepad')).toEqual([]);
     expect(engine.search('calculator')[0]?.command.keywords).toEqual(['math']);
+  });
+
+  it('invalidates cached fuzzy candidates when the command index changes', () => {
+    const engine = createSearchEngine([
+      createCommand({ id: 'calendar', title: 'Calendar', keywords: [] }),
+    ]);
+
+    expect(engine.search('calendr')[0]?.command.id).toBe('calendar');
+
+    engine.update([createCommand({ id: 'calculator', title: 'Calculator', keywords: [] })]);
+
+    expect(engine.search('calendr')).toEqual([]);
   });
 
   it.each([

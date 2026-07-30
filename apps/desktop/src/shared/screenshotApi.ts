@@ -51,6 +51,7 @@ export interface ScreenshotOcrRequest extends ScreenshotImageRequest {
 
 export interface ScreenshotTranslateSelectionRequest extends ScreenshotImageRequest {
   ocrLanguage: ScreenshotOcrLanguage;
+  onlineConsent: true;
   targetLanguage: ScreenshotTranslationLanguage;
 }
 
@@ -383,11 +384,20 @@ export function parseScreenshotTranslateSelectionRequest(
     throw new Error(`${context} must be an object.`);
   }
 
-  assertKnownKeys(value, new Set(['imageDataUrl', 'ocrLanguage', 'targetLanguage']), context);
+  assertKnownKeys(
+    value,
+    new Set(['imageDataUrl', 'ocrLanguage', 'onlineConsent', 'targetLanguage']),
+    context,
+  );
+
+  if (value.onlineConsent !== true) {
+    throw new Error(`${context}.onlineConsent must be true.`);
+  }
 
   return {
     imageDataUrl: parseImageDataUrl(value.imageDataUrl, `${context}.imageDataUrl`),
     ocrLanguage: parseScreenshotOcrLanguage(value.ocrLanguage),
+    onlineConsent: true,
     targetLanguage: parseScreenshotTranslationLanguage(value.targetLanguage),
   };
 }

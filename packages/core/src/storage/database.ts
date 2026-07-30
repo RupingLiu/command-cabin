@@ -181,6 +181,16 @@ class CommandCabinNodeSqliteDatabase implements CommandCabinDatabase {
       try {
         const result = handler(...args);
 
+        if (
+          result !== null &&
+          (typeof result === 'object' || typeof result === 'function') &&
+          typeof (result as { then?: unknown }).then === 'function'
+        ) {
+          throw new TypeError(
+            'CommandCabin database transactions must use synchronous handlers; Promise-like results are not supported.',
+          );
+        }
+
         if (isNestedTransaction) {
           this.exec(`RELEASE ${savepointName}`);
         } else {

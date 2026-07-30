@@ -11,7 +11,7 @@ interface ResultItemProps {
   isDisabled: boolean;
   isSelected: boolean;
   language?: CommandCabinLanguage | undefined;
-  onExecute: () => void;
+  onExecute: (commandId: string) => void;
   onOpenAppMenu?:
     | ((
         result: LauncherResultItem,
@@ -138,14 +138,14 @@ export function ResultItem({
       id={id}
       onClick={() => {
         if (!isDisabled) {
-          onExecute();
+          onExecute(result.id);
         }
       }}
       onMouseDown={(event) => {
         event.preventDefault();
       }}
-      onMouseEnter={() => {
-        if (!isDisabled) {
+      onMouseMove={() => {
+        if (!isDisabled && !isSelected) {
           onSelect(index);
         }
       }}

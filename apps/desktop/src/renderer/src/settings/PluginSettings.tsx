@@ -19,6 +19,7 @@ export interface PluginSettingsState {
 
 export interface PluginSettingsProps {
   api?: PluginSettingsApi;
+  executionDisabled?: boolean | undefined;
   state?: PluginSettingsState;
   strings?: UiStrings['settings']['plugin'] | undefined;
 }
@@ -40,6 +41,7 @@ function formatPermissions(
 
 export function PluginSettings({
   api,
+  executionDisabled = true,
   state,
   strings = getUiStrings(undefined).settings.plugin,
 }: PluginSettingsProps) {
@@ -125,6 +127,11 @@ export function PluginSettings({
         <h2>{strings.title}</h2>
         <span>{currentState.plugins.length}</span>
       </header>
+      {executionDisabled ? (
+        <p className="plugin-settings__safety-notice" role="status">
+          {strings.safetyNotice}
+        </p>
+      ) : null}
       <form
         className="plugin-settings__install"
         onSubmit={(event) => {
@@ -182,7 +189,7 @@ export function PluginSettings({
                 </span>
                 <button
                   aria-busy={isBusy}
-                  disabled={isBusy}
+                  disabled={isBusy || (executionDisabled && !plugin.enabled)}
                   type="button"
                   onClick={() =>
                     void runPluginOperation(plugin.id, () =>

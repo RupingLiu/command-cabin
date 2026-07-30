@@ -182,11 +182,9 @@ describe('SQLite settings repository', () => {
       runMigrations(database);
       const repository = createSettingsRepository(database);
 
-      expect(repository.updateSettings({ delayedScreenshotHotkey: 'Ctrl+Shift+D' })).toMatchObject(
-        {
-          delayedScreenshotHotkey: 'Ctrl+Shift+D',
-        },
-      );
+      expect(repository.updateSettings({ delayedScreenshotHotkey: 'Ctrl+Shift+D' })).toMatchObject({
+        delayedScreenshotHotkey: 'Ctrl+Shift+D',
+      });
       expect(repository.getSettings().delayedScreenshotHotkey).toBe('Ctrl+Shift+D');
     } finally {
       database.close();

@@ -60,4 +60,19 @@ describe('createIconDataUrlCache', () => {
       createIconDataUrlCache({ cacheFilePath }).read('app-result:app.codex:abc123'),
     ).resolves.toBeUndefined();
   });
+
+  it('serializes concurrent writes without losing cache entries', async () => {
+    const directory = await createTempDirectory();
+    const cacheFilePath = join(directory, 'app-icons.json');
+    const cache = createIconDataUrlCache({ cacheFilePath });
+
+    await Promise.all([
+      cache.write('first', 'data:image/png;base64,FIRST'),
+      cache.write('second', 'data:image/png;base64,SECOND'),
+    ]);
+
+    const reloadedCache = createIconDataUrlCache({ cacheFilePath });
+    await expect(reloadedCache.read('first')).resolves.toBe('data:image/png;base64,FIRST');
+    await expect(reloadedCache.read('second')).resolves.toBe('data:image/png;base64,SECOND');
+  });
 });

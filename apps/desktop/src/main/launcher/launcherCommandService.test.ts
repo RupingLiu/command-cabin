@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createClipboardHistoryRepository } from '@command-cabin/built-in-plugin-clipboard-history';
 import {
@@ -18,6 +18,30 @@ describe('launcher command service', () => {
     const service = createLauncherCommandService();
 
     await expect(service.searchCommands('')).resolves.toEqual([]);
+  });
+
+  it('applies the persisted maximum search result setting', async () => {
+    const service = createLauncherCommandService({
+      commands: Array.from({ length: 8 }, (_, index) => ({
+        id: `file.result-${index}`,
+        source: 'file' as const,
+        title: `Shared result ${index}`,
+        keywords: ['shared'],
+        action: {
+          type: 'open-path' as const,
+          payload: { path: `C:\\result-${index}.txt` },
+        },
+      })),
+      getSearchSettings: () => ({
+        appBoost: 1.2,
+        fileBoost: 0.9,
+        historyBoost: 1.4,
+        maxResults: 3,
+        pluginBoost: 1,
+      }),
+    });
+
+    await expect(service.searchCommands('shared')).resolves.toHaveLength(3);
   });
 
   it('executes a selected command through the core command executor', async () => {
@@ -120,6 +144,33 @@ describe('launcher command service', () => {
       error: {
         code: 'handler-error',
         message: 'No screenshot command handler configured.',
+      },
+      status: 'failure',
+    });
+  });
+
+  it('rejects unsupported system commands instead of reporting a false success', async () => {
+    const service = createLauncherCommandService({
+      commands: [
+        {
+          id: 'system.unsupported',
+          keywords: ['unsupported'],
+          source: 'system',
+          title: 'Unsupported command',
+          action: {
+            type: 'run-system',
+            payload: {
+              command: 'unsupported',
+            },
+          },
+        },
+      ],
+    });
+
+    await expect(service.executeCommand('system.unsupported')).resolves.toMatchObject({
+      error: {
+        code: 'handler-error',
+        message: 'Unsupported system command: unsupported',
       },
       status: 'failure',
     });
@@ -271,6 +322,63 @@ describe('launcher command service', () => {
         title: '1 美元 ≈ 7.12 人民币',
       },
     ]);
+  });
+
+  it('discards a stale currency conversion when searches finish out of order', async () => {
+    let resolveFirst:
+      | ((value: {
+          fetchedAt: string;
+          provider: string;
+          rate: number;
+          source: 'live';
+          updatedAt: string;
+        }) => void)
+      | undefined;
+    let resolveSecond: typeof resolveFirst;
+    const providerResult = (rate: number) => ({
+      fetchedAt: '2026-05-18T00:00:00.000Z',
+      provider: 'Test',
+      rate,
+      source: 'live' as const,
+      updatedAt: '2026-05-18',
+    });
+    const getUsdToCnyRate = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    const service = createLauncherCommandService({
+      commands: [],
+      exchangeRateProvider: { getUsdToCnyRate },
+    });
+
+    const firstSearch = service.searchCommands('1美元');
+    const secondSearch = service.searchCommands('2美元');
+    resolveSecond!(providerResult(7));
+    await expect(secondSearch).resolves.toMatchObject([
+      {
+        id: 'quick-converter.result',
+        title: '2 美元 ≈ 14.00 人民币',
+      },
+    ]);
+    resolveFirst!(providerResult(8));
+    await firstSearch;
+
+    await expect(service.executeCommand('quick-converter.result')).resolves.toMatchObject({
+      metadata: {
+        text: '2 美元 ≈ 14.00 人民币',
+      },
+      status: 'success',
+    });
   });
 
   it('returns quick converter results for volume queries', async () => {

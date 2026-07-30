@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -39,9 +39,10 @@ afterEach(async () => {
 describe('inspectPluginDirectory', () => {
   it('validates and resolves a plugin without executing its main module', async () => {
     const pluginRoot = await createPluginDirectory();
+    const mainPath = await realpath(join(pluginRoot, 'main.js'));
 
     await expect(inspectPluginDirectory(pluginRoot)).resolves.toMatchObject({
-      mainPath: join(pluginRoot, 'main.js'),
+      mainPath,
       manifest: {
         id: 'com.example.safe-inspection',
         version: '1.0.0',

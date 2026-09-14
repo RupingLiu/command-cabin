@@ -250,6 +250,10 @@ Section "-Install"
   ${GetSize} "$INSTDIR" "/S=0K" $R1 $R2 $R3
   IntFmt $R1 "0x%08X" $R1
   WriteRegDWORD HKLM "${UNINSTALL_KEY}" "EstimatedSize" $R1
+
+  ; 装完自动启动（含静默自更新路径）：直接 Exec 新装 exe。交互与静默一致——
+  ; 自更新链路（应用 spawn Setup /S 后立即退出）装完即拉起新实例，免手动开启。
+  Exec '"$INSTDIR\${APP_EXE}"'
 SectionEnd
 
 ; --- 卸载 ------------------------------------------------------------------

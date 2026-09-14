@@ -75,6 +75,42 @@ export struct PinnedTile {
     command-id: string,
 }
 
+/// 齿轮图标组件（UI 修复 13）：15×15 纯矢量齿轮（圆环 + 8 齿），零字体依赖。
+/// 所有子元素用固定居中坐标（圆心 7.5,7.5），组件自身被父布局居中放置——
+/// 不依赖嵌套布局对 if 委托矩形的对齐（该路径曾实测把齿轮挤偏左上）。
+/// 严格对称重写：所有子元素坐标满足 x+w = 15-x'（对侧元素）或居中于 7.5，
+/// 保证齿群质心 = 圆环中心 = 盒中心 (7.5,7.5)。此前 N/S 齿外沿 0.2 vs 11.4+3.4=14.8
+/// 不对称（质心 7.35）是偏心的直接来源。
+component GearIcon inherits Rectangle {
+    in property <color> tooth-color: #ff4d36;
+    width: 15px;
+    height: 15px;
+    background: transparent;
+    // 齿圈：8.6px 圆环、环宽 2.6px，外接盒 (3.2,3.2)–(11.8,11.8)，中心 (7.5,7.5)。
+    Rectangle {
+        x: 3.2px;
+        y: 3.2px;
+        width: 8.6px;
+        height: 8.6px;
+        border-radius: 4.3px;
+        border-width: 2.6px;
+        background: transparent;
+        border-color: root.tooth-color;
+    }
+    // 正轴齿 ×4（N/S 长条 2.7×3.4 居中 x=6.15；N 顶 1.3、S 底 13.9 → 对称 7.6。
+    // E/W 长条 3.4×2.7 居中 y=6.15；W 左 1.3、E 右 13.9 → 对称 7.6）。
+    Rectangle { x: 6.15px; y: 1.3px; width: 2.7px; height: 3.4px; border-radius: 1px; background: root.tooth-color; }
+    Rectangle { x: 6.15px; y: 10.3px; width: 2.7px; height: 3.4px; border-radius: 1px; background: root.tooth-color; }
+    Rectangle { x: 1.3px; y: 6.15px; width: 3.4px; height: 2.7px; border-radius: 1px; background: root.tooth-color; }
+    Rectangle { x: 10.3px; y: 6.15px; width: 3.4px; height: 2.7px; border-radius: 1px; background: root.tooth-color; }
+    // 对角齿 ×4（2.7px 方块，中心落 45° 半径 5.66px：角心 (11.5,3.5)/(3.5,3.5)/
+    // (3.5,11.5)/(11.5,11.5)，顶左角 2.15 → 对侧 10.15 严格对称）。
+    Rectangle { x: 10.15px; y: 2.15px; width: 2.7px; height: 2.7px; border-radius: 0.9px; background: root.tooth-color; }
+    Rectangle { x: 2.15px; y: 2.15px; width: 2.7px; height: 2.7px; border-radius: 0.9px; background: root.tooth-color; }
+    Rectangle { x: 2.15px; y: 10.15px; width: 2.7px; height: 2.7px; border-radius: 0.9px; background: root.tooth-color; }
+    Rectangle { x: 10.15px; y: 10.15px; width: 2.7px; height: 2.7px; border-radius: 0.9px; background: root.tooth-color; }
+}
+
 /// 自绘药丸按钮（原版 .launcher-home-actions button / 横幅按钮 / 设置齿轮的
 /// 圆角 999px 样式；std-widgets Button 无法定制外形故弃用）。
 /// icon-kind 非空时显示 24px 图标圆片 + 纯矢量小图标（UI 修复 9：字符图标
@@ -116,138 +152,47 @@ component PillButton inherits Rectangle {
         height: parent.height;
         clicked => { root.clicked(); }
     }
-    HorizontalLayout {
-        padding-left: root.text == "" ? 0px : 6px;
-        padding-right: 12px;
-        padding-top: 5px;
-        padding-bottom: 5px;
-        spacing: 7px;
-        alignment: root.text == "" ? center : start;
-        if root.icon-kind != "": Rectangle {
-            width: 24px;
-            height: 24px;
-            border-radius: 12px;
-            border-width: 1px;
-            border-color: #ffffffdb;
-            background: root.icon-background;
-            HorizontalLayout {
-                padding: 0px;
-                alignment: center;
-                VerticalLayout {
-                    padding: 0px;
-                    alignment: center;
-                    // ---- 设置入口：齿轮（圆环 + 8 齿，全矢量零字体依赖。
-                    // 字符齿轮 ⚙/⊕ 经字体 fallback 渲染不可控——实测 emoji
-                    // 彩底/错位/偏心点，故禁止回归字符方案；Slint 1.17 无
-                    // Rectangle 旋转，齿用 4 正轴长条 + 4 对角方块手动定位）----
-                    if root.icon-kind == "settings": Rectangle {
-                        width: 15px;
-                        height: 15px;
-                        background: transparent;
-                        // 齿圈：8.6px 圆环、环宽 2.6px，中心与 15px 盒同心。
-                        Rectangle {
-                            x: 3.2px;
-                            y: 3.2px;
-                            width: 8.6px;
-                            height: 8.6px;
-                            border-radius: 4.3px;
-                            border-width: 2.6px;
-                            background: transparent;
-                            border-color: root.icon-color;
-                        }
-                        // 正轴齿 ×4（N/E/S/W：2.7px 宽长条从环面伸向盒缘）。
-                        Rectangle {
-                            x: 6.15px;
-                            y: 0.2px;
-                            width: 2.7px;
-                            height: 3.4px;
-                            border-radius: 1px;
-                            background: root.icon-color;
-                        }
-                        Rectangle {
-                            x: 6.15px;
-                            y: 11.4px;
-                            width: 2.7px;
-                            height: 3.4px;
-                            border-radius: 1px;
-                            background: root.icon-color;
-                        }
-                        Rectangle {
-                            x: 0.2px;
-                            y: 6.15px;
-                            width: 3.4px;
-                            height: 2.7px;
-                            border-radius: 1px;
-                            background: root.icon-color;
-                        }
-                        Rectangle {
-                            x: 11.4px;
-                            y: 6.15px;
-                            width: 3.4px;
-                            height: 2.7px;
-                            border-radius: 1px;
-                            background: root.icon-color;
-                        }
-                        // 对角齿 ×4（NE/NW/SW/SE：2.7px 方块中心落在 45° 半径上，
-                        // 距中心 ~5.65px ≈ (11.5, 3.5) 等四点）。
-                        Rectangle {
-                            x: 10.15px;
-                            y: 2.15px;
-                            width: 2.7px;
-                            height: 2.7px;
-                            border-radius: 0.9px;
-                            background: root.icon-color;
-                        }
-                        Rectangle {
-                            x: 2.15px;
-                            y: 2.15px;
-                            width: 2.7px;
-                            height: 2.7px;
-                            border-radius: 0.9px;
-                            background: root.icon-color;
-                        }
-                        Rectangle {
-                            x: 2.15px;
-                            y: 10.15px;
-                            width: 2.7px;
-                            height: 2.7px;
-                            border-radius: 0.9px;
-                            background: root.icon-color;
-                        }
-                        Rectangle {
-                            x: 10.15px;
-                            y: 10.15px;
-                            width: 2.7px;
-                            height: 2.7px;
-                            border-radius: 0.9px;
-                            background: root.icon-color;
-                        }
-                    }
-                    // ---- 截图入口：四角取景框 ----
-                    if root.icon-kind == "screenshot": Rectangle {
-                        width: 15px;
-                        height: 15px;
-                        // 四个 L 形角（横臂 + 竖臂）。
-                        Rectangle { x: 0px; y: 0px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
-                        Rectangle { x: 0px; y: 0px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
-                        Rectangle { x: 9.5px; y: 0px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
-                        Rectangle { x: 12.8px; y: 0px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
-                        Rectangle { x: 0px; y: 12.8px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
-                        Rectangle { x: 0px; y: 9.5px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
-                        Rectangle { x: 9.5px; y: 12.8px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
-                        Rectangle { x: 12.8px; y: 9.5px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
-                    }
-                }
-            }
+    // 内容完全绝对定位（弃用 HorizontalLayout）：图标-only 按钮的嵌套布局
+    // 曾把图标挤偏左上（实测 -12,-3px）。图标圆片固定在按钮正中央。
+    if root.icon-kind != "": Rectangle {
+        x: (root.width - 24px) / 2;
+        y: (root.height - 24px) / 2;
+        width: 24px;
+        height: 24px;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: #ffffffdb;
+        background: root.icon-background;
+        if root.icon-kind == "settings": GearIcon {
+            x: 4.5px;
+            y: 4.5px;
+            tooth-color: root.icon-color;
         }
-        if root.text != "": Text {
-            text: root.text;
-            font-size: 12px;
-            font-weight: 700;
-            color: root.label-color;
-            vertical-alignment: center;
-            overflow: elide;
+        if root.icon-kind == "screenshot": Rectangle {
+            x: 4.5px;
+            y: 4.5px;
+            width: 15px;
+            height: 15px;
+            background: transparent;
+            Rectangle { x: 0px; y: 0px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
+            Rectangle { x: 0px; y: 0px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
+            Rectangle { x: 9.5px; y: 0px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
+            Rectangle { x: 12.8px; y: 0px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
+            Rectangle { x: 0px; y: 12.8px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
+            Rectangle { x: 0px; y: 9.5px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
+            Rectangle { x: 9.5px; y: 12.8px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
+            Rectangle { x: 12.8px; y: 9.5px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
         }
+    }
+    if root.text != "": Text {
+        x: root.icon-kind == "" ? 12px : 36px;
+        y: (root.height - self.preferred-height) / 2;
+        text: root.text;
+        font-size: 12px;
+        font-weight: 700;
+        color: root.label-color;
+        vertical-alignment: center;
+        overflow: elide;
     }
 }
 

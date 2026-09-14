@@ -1,6 +1,7 @@
 export const PLUGIN_BRIDGE_CHANNEL = 'command-cabin:plugin-bridge';
 export const PLUGIN_BRIDGE_VERSION = 1;
 export const PLUGIN_BRIDGE_METHODS = Object.freeze(['close', 'reportError'] as const);
+export const PLUGIN_BRIDGE_MAX_ERROR_MESSAGE_LENGTH = 4096;
 
 export type PluginBridgeMethod = (typeof PLUGIN_BRIDGE_METHODS)[number];
 export type PluginBridgeCloseReason = 'user' | 'plugin';
@@ -101,8 +102,16 @@ function parseReportErrorParams(value: unknown): PluginBridgeReportErrorParams {
     throw new Error('Bridge error message must be a non-empty string.');
   }
 
+  const trimmedMessage = message.trim();
+
+  if (trimmedMessage.length > PLUGIN_BRIDGE_MAX_ERROR_MESSAGE_LENGTH) {
+    throw new Error(
+      `Bridge error message must be at most ${PLUGIN_BRIDGE_MAX_ERROR_MESSAGE_LENGTH} characters.`,
+    );
+  }
+
   return {
-    message: message.trim(),
+    message: trimmedMessage,
   };
 }
 

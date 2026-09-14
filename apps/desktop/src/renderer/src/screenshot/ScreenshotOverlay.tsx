@@ -397,6 +397,7 @@ export function ScreenshotOverlayView({
   >(undefined);
   const textPromptControllerRef = useRef<PendingTextAnnotationController | undefined>(undefined);
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const decodedImagesRef = useRef(new Map<string, HTMLImageElement>());
   const saveFormat: ScreenshotSaveFormat = 'png';
   const [status, setStatus] = useState<ScreenshotOverlayStatus | undefined>();
   const [ocrPanel, setOcrPanel] = useState<OcrPanelState | undefined>();
@@ -520,6 +521,7 @@ export function ScreenshotOverlayView({
 
       return composeScreenshotSelection({
         annotations: visibleAnnotations,
+        decodedImages: decodedImagesRef.current,
         format,
         launchState,
         selection: state.selection,
@@ -888,7 +890,8 @@ export function ScreenshotOverlayView({
             data-source-id={display.sourceId}
             draggable={false}
             key={display.sourceId}
-            onLoad={() => {
+            onLoad={(event) => {
+              decodedImagesRef.current.set(display.imageDataUrl, event.currentTarget);
               setLoadedDisplaySourceIds((sourceIds) =>
                 getNextLoadedDisplaySourceIds(sourceIds, display.sourceId),
               );

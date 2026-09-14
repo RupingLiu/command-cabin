@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { rankSearchCandidate } from './ranking.js';
 import type { SearchMatchedBy, SearchRankingContext } from './ranking.js';
-import { normalizeSearchKeywords, tokenizeSearchText } from './tokenize.js';
+import { normalizeSearchKeywords, normalizeSearchText, tokenizeSearchText } from './tokenize.js';
 import type { Command } from '../command/types.js';
 
 function createCommand(overrides: Partial<Command> = {}): Command {
@@ -193,6 +193,28 @@ describe('search ranking', () => {
 
     expect(rank.explanation.components.history).toBeGreaterThan(0);
     expect(rank.explanation.components.recent).toBe(0);
+  });
+
+  it('produces identical results when normalized fields are passed explicitly', () => {
+    const command = createCommand({ id: 'explicit', title: '  Café   SETTINGS  ' });
+    const query = '  café   settings  ';
+    const automatic = rankSearchCandidate({
+      command,
+      query,
+      fuseScore: 0.1,
+      matchedBy: [match('title', 'Café SETTINGS')],
+    });
+    const explicit = rankSearchCandidate({
+      command,
+      query,
+      normalizedQuery: normalizeSearchText(query),
+      normalizedTitle: normalizeSearchText(command.title),
+      fuseScore: 0.1,
+      matchedBy: [match('title', 'Café SETTINGS')],
+    });
+
+    expect(explicit.score).toBe(automatic.score);
+    expect(explicit.explanation).toEqual(automatic.explanation);
   });
 });
 

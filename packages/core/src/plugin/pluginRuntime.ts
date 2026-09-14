@@ -54,6 +54,7 @@ export type PluginRuntimeErrorCode =
   | 'invalid-manifest'
   | 'main-path-error'
   | 'load-error'
+  | 'module-load-timeout'
   | 'command-registration-error'
   | 'activate-error'
   | 'deactivate-error'
@@ -237,10 +238,17 @@ function runWithTimeout<T>(
   operation: () => T | Promise<T>,
   timeoutMs: number,
   description: string,
+  timeoutCode?: string,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timeoutId = setTimeout(() => {
-      reject(new Error(`${description} timed out after ${timeoutMs} ms.`));
+      const error = new Error(`${description} timed out after ${timeoutMs} ms.`);
+
+      if (timeoutCode !== undefined) {
+        (error as Error & { code: string }).code = timeoutCode;
+      }
+
+      reject(error);
     }, timeoutMs);
 
     Promise.resolve()
@@ -248,6 +256,16 @@ function runWithTimeout<T>(
       .then(resolve, reject)
       .finally(() => clearTimeout(timeoutId));
   });
+}
+
+function readErrorCode(error: unknown): string | undefined {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+
+    return typeof code === 'string' ? code : undefined;
+  }
+
+  return undefined;
 }
 
 function freezeRecursively<T>(value: T): T {
@@ -648,6 +666,7 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
           }),
         moduleLoadTimeoutMs,
         `Plugin "${manifest.id}" module load`,
+        'module-load-timeout',
       );
       const plugin = normalizePluginModule(moduleValue);
 
@@ -663,10 +682,18 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
       revokePluginRegistration(state);
 
       const message = formatPluginThrownValue(error);
+      const isModuleLoadTimeout = readErrorCode(error) === 'module-load-timeout';
+      const resolvedMessage = isModuleLoadTimeout
+        ? `${message} Module load timed out; the module may still be loading. Restart the application before retrying this plugin.`
+        : message;
 
-      logPluginError(logStore, manifest.id, `Plugin module load failed: ${message}`, error);
+      logPluginError(logStore, manifest.id, `Plugin module load failed: ${resolvedMessage}`, error);
 
-      return createFailure('load-error', message, manifest.id);
+      return createFailure(
+        isModuleLoadTimeout ? 'module-load-timeout' : 'load-error',
+        resolvedMessage,
+        manifest.id,
+      );
     }
 
     pluginsById.set(manifest.id, state);
@@ -674,7 +701,7 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
     return createSuccess(getPublicPlugin(state));
   };
 
-  const enablePlugin = async (
+  const enablePluginInternal = async (
     pluginRoot: string,
   ): Promise<PluginRuntimeResult<PluginRuntimePlugin>> => {
     const loadResult = await loadPlugin(pluginRoot);
@@ -763,6 +790,26 @@ export function createPluginRuntime(options: PluginRuntimeOptions): PluginRuntim
     state.status = 'enabled';
 
     return createSuccess(getPublicPlugin(state));
+  };
+
+  const enablePluginInFlight = new Map<string, Promise<PluginRuntimeResult<PluginRuntimePlugin>>>();
+
+  const enablePlugin = async (
+    pluginRoot: string,
+  ): Promise<PluginRuntimeResult<PluginRuntimePlugin>> => {
+    const inFlight = enablePluginInFlight.get(pluginRoot);
+
+    if (inFlight !== undefined) {
+      return inFlight;
+    }
+
+    const enablePromise = enablePluginInternal(pluginRoot).finally(() => {
+      enablePluginInFlight.delete(pluginRoot);
+    });
+
+    enablePluginInFlight.set(pluginRoot, enablePromise);
+
+    return enablePromise;
   };
 
   const disablePlugin = async (

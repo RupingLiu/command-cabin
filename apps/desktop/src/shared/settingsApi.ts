@@ -7,6 +7,16 @@ import type {
   PluginRecord,
 } from '@command-cabin/core';
 
+import {
+  isRecord,
+  parseBoolean,
+  parseFiniteNumber,
+  parseIsoDateString,
+  parseNonEmptyString,
+  parseString,
+  parseStringArray,
+} from './parsers.js';
+
 export type SettingsReadResponse = CommandCabinSettings;
 export type SettingsUpdateRequest = CommandCabinSettingsPatch;
 export type SettingsUpdateResponse = CommandCabinSettings;
@@ -72,33 +82,6 @@ const hotkeyNamedKeys = new Set([
   'Minus',
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function parseString(value: unknown, context: string): string {
-  if (typeof value !== 'string') {
-    throw new Error(`${context} must be a string.`);
-  }
-
-  return value;
-}
-
-function parseNonEmptyString(value: unknown, context: string): string {
-  const stringValue = parseString(value, context).trim();
-
-  if (stringValue.length === 0) {
-    throw new Error(`${context} must be a non-empty string.`);
-  }
-
-  return stringValue;
-}
-
 export function parseHotkeyAccelerator(value: unknown, context = 'Hotkey'): string {
   const accelerator = parseNonEmptyString(value, context);
   const parts = accelerator.split('+').map((part) => part.trim());
@@ -140,22 +123,6 @@ export function parseHotkeyAccelerator(value: unknown, context = 'Hotkey'): stri
   }
 
   throw new Error(`${context} contains unsupported key "${key}".`);
-}
-
-function parseBoolean(value: unknown, context: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new Error(`${context} must be a boolean.`);
-  }
-
-  return value;
-}
-
-function parseFiniteNumber(value: unknown, context: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${context} must be a finite number.`);
-  }
-
-  return value;
 }
 
 function parseNonNegativeInteger(value: unknown, context: string): number {
@@ -233,24 +200,6 @@ function parseSearchSettingsPatch(
   }
 
   return patch;
-}
-
-function parseIsoDateString(value: unknown, context: string): string {
-  const dateString = parseString(value, context);
-
-  if (!Number.isFinite(new Date(dateString).getTime())) {
-    throw new Error(`${context} must be a valid ISO date string.`);
-  }
-
-  return dateString;
-}
-
-function parseStringArray(value: unknown, context: string): string[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${context} must be an array.`);
-  }
-
-  return value.map((item, index) => parseString(item, `${context}[${index}]`));
 }
 
 export function parseSettings(value: unknown): CommandCabinSettings {

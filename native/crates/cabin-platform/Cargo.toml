@@ -1,0 +1,12 @@
+[package]
+name = "cabin-platform"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+cabin-core = { path = "../cabin-core" }
+thiserror = "2"
+
+[lints]
+workspace = true

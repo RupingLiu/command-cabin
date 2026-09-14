@@ -1327,4 +1327,121 @@ describe('launcher command service', () => {
       status: 'success',
     });
   });
+
+  it('skips re-registering app commands when the app commands version is unchanged', async () => {
+    const appCommands = vi.fn(() => [
+      {
+        id: 'app.notepad',
+        source: 'app' as const,
+        title: 'Notepad',
+        keywords: ['notepad'],
+        action: {
+          type: 'open-app' as const,
+          payload: { shortcutPath: 'C:\\Shortcuts\\Notepad.lnk' },
+        },
+      },
+    ]);
+    const service = createLauncherCommandService({
+      appCommands,
+      appCommandsVersion: () => 1,
+      commands: [],
+    });
+
+    await service.searchCommands('notepad');
+    await service.searchCommands('notepad');
+    await service.searchCommands('note');
+
+    // Once for the initial refresh; the unchanged version must not re-register on every search.
+    expect(appCommands).toHaveBeenCalledTimes(1);
+    await expect(service.searchCommands('notepad')).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'app.notepad',
+          source: 'app',
+        }),
+      ]),
+    );
+  });
+
+  it('re-registers app commands when the app commands version changes', async () => {
+    let version = 1;
+    const appCommands = vi.fn(() => [
+      {
+        id: `app.command-${version}`,
+        source: 'app' as const,
+        title: `Indexed Command ${version}`,
+        keywords: [`indexed-${version}`],
+        action: {
+          type: 'open-app' as const,
+          payload: { shortcutPath: `C:\\Shortcuts\\Command-${version}.lnk` },
+        },
+      },
+    ]);
+    const service = createLauncherCommandService({
+      appCommands,
+      appCommandsVersion: () => version,
+      commands: [],
+    });
+
+    await expect(service.searchCommands('indexed-1')).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'app.command-1',
+        }),
+      ]),
+    );
+
+    version = 2;
+
+    await expect(service.searchCommands('indexed-2')).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'app.command-2',
+        }),
+      ]),
+    );
+    const staleResults = await service.searchCommands('indexed-1');
+
+    expect(staleResults.map((result) => result.id)).not.toContain('app.command-1');
+    expect(appCommands).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips re-listing clipboard history commands when the clipboard version is unchanged', async () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const clipboardHistoryRepository = createClipboardHistoryRepository(database);
+      clipboardHistoryRepository.saveText('clipboard entry text');
+      let clipboardVersion = 1;
+      const listRecentSpy = vi.spyOn(clipboardHistoryRepository, 'listRecent');
+      const service = createLauncherCommandService({
+        clipboardHistoryRepository,
+        clipboardHistoryVersion: () => clipboardVersion,
+        commands: [],
+      });
+
+      await service.searchCommands('clipboard');
+      await service.searchCommands('clipboard');
+      await service.searchCommands('entry');
+
+      // Once for the initial refresh; the unchanged version must not re-list on every search.
+      expect(listRecentSpy).toHaveBeenCalledTimes(1);
+
+      clipboardVersion = 2;
+
+      await service.searchCommands('clipboard');
+
+      expect(listRecentSpy).toHaveBeenCalledTimes(2);
+      await expect(service.searchCommands('clipboard')).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: expect.stringMatching(/^clipboard-history\.entry\./),
+          }),
+        ]),
+      );
+    } finally {
+      database.close();
+    }
+  });
 });

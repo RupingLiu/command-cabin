@@ -374,6 +374,77 @@ describe('search engine', () => {
     );
   });
 
+  it('upserts a new command without dropping existing documents', () => {
+    const engine = createSearchEngine([
+      createCommand({ id: 'app.notepad', title: 'Notepad', keywords: [] }),
+    ]);
+
+    engine.upsert(createCommand({ id: 'app.calculator', title: 'Calculator', keywords: [] }));
+
+    expect(engine.search('notepad').map((result) => result.command.id)).toEqual(['app.notepad']);
+    expect(engine.search('calculator').map((result) => result.command.id)).toEqual([
+      'app.calculator',
+    ]);
+  });
+
+  it('upsert replaces an existing command document incrementally', () => {
+    const engine = createSearchEngine([
+      createCommand({ id: 'app.calculator', title: 'Calculator', keywords: [] }),
+      createCommand({ id: 'app.notepad', title: 'Notepad', keywords: [] }),
+    ]);
+
+    engine.upsert(
+      createCommand({
+        id: 'app.calculator',
+        title: '1 + 2 = 3',
+        keywords: [],
+      }),
+    );
+
+    expect(engine.search('calculator')).toEqual([]);
+    expect(engine.search('1 + 2 = 3').map((result) => result.command.id)).toEqual([
+      'app.calculator',
+    ]);
+    expect(engine.search('notepad').map((result) => result.command.id)).toEqual(['app.notepad']);
+  });
+
+  it('invalidates cached fuzzy results when a command is upserted', () => {
+    const engine = createSearchEngine([
+      createCommand({ id: 'app.calendar', title: 'Calendar', keywords: [] }),
+    ]);
+
+    expect(engine.search('calendr').map((result) => result.command.id)).toEqual(['app.calendar']);
+
+    engine.upsert(createCommand({ id: 'app.calendar', title: 'Schedule Board', keywords: [] }));
+
+    expect(engine.search('calendr')).toEqual([]);
+    expect(engine.search('schedule').map((result) => result.command.id)).toEqual(['app.calendar']);
+  });
+
+  it('removes commands incrementally and keeps other documents searchable', () => {
+    const engine = createSearchEngine([
+      createCommand({ id: 'app.notepad', title: 'Notepad', keywords: [] }),
+      createCommand({ id: 'app.paint', title: 'Paint', keywords: [] }),
+    ]);
+
+    expect(engine.remove('app.notepad')).toBe(true);
+    expect(engine.remove('app.notepad')).toBe(false);
+    expect(engine.search('notepad')).toEqual([]);
+    expect(engine.search('paint').map((result) => result.command.id)).toEqual(['app.paint']);
+  });
+
+  it('invalidates cached fuzzy results when a command is removed', () => {
+    const engine = createSearchEngine([
+      createCommand({ id: 'app.calendar', title: 'Calendar', keywords: [] }),
+    ]);
+
+    expect(engine.search('calendr').map((result) => result.command.id)).toEqual(['app.calendar']);
+
+    expect(engine.remove('app.calendar')).toBe(true);
+
+    expect(engine.search('calendr')).toEqual([]);
+  });
+
   it('searches 5000 commands within the interactive budget', () => {
     const commands = Array.from({ length: 5_000 }, (_value, index) =>
       createCommand({
@@ -425,5 +496,84 @@ describe('search engine', () => {
         ).toBeLessThan(strictBudgetMs);
       }
     }
+  });
+
+  it('rebuilds the index for 2000 commands within the batch update budget', () => {
+    const commands = Array.from({ length: 2_000 }, (_value, index) =>
+      createCommand({
+        id: `command.${index.toString().padStart(4, '0')}`,
+        title: `Command ${index}`,
+        subtitle: 'Workspace command',
+        keywords: [`command-${index}`],
+      }),
+    );
+    const engine = createSearchEngine([]);
+
+    const ciBudgetMs = 1_500;
+    const strictBudgetMs = 750;
+    const startedAt = performance.now();
+
+    for (let index = 0; index < 3; index += 1) {
+      engine.update(commands);
+    }
+
+    const averageUpdateMs = (performance.now() - startedAt) / 3;
+
+    expect(
+      averageUpdateMs,
+      `2000-command index update averaged ${averageUpdateMs.toFixed(2)}ms; CI budget is ${ciBudgetMs}ms`,
+    ).toBeLessThan(ciBudgetMs);
+
+    if (process.env.COMMAND_CABIN_STRICT_PERF === '1') {
+      expect(
+        averageUpdateMs,
+        `2000-command index update strict local target is ${strictBudgetMs}ms; averaged ${averageUpdateMs.toFixed(2)}ms`,
+      ).toBeLessThan(strictBudgetMs);
+    }
+  });
+
+  it('upserts a single command into a 2000-command index within the incremental budget', () => {
+    const commands = Array.from({ length: 2_000 }, (_value, index) =>
+      createCommand({
+        id: `command.${index.toString().padStart(4, '0')}`,
+        title: `Command ${index}`,
+        subtitle: 'Workspace command',
+        keywords: [`command-${index}`],
+      }),
+    );
+    const engine = createSearchEngine(commands);
+    const upsertCommand = createCommand({
+      id: 'command.dynamic',
+      title: 'Dynamic result',
+      keywords: ['dynamic'],
+    });
+
+    // An incremental upsert must not scale with the command count; a regression back to
+    // full-index rebuilds would exceed this budget by an order of magnitude.
+    const ciBudgetMs = 500;
+    const strictBudgetMs = 200;
+    const startedAt = performance.now();
+
+    for (let index = 0; index < 100; index += 1) {
+      engine.upsert(upsertCommand);
+    }
+
+    const totalUpsertMs = performance.now() - startedAt;
+
+    expect(
+      totalUpsertMs,
+      `100 upserts into a 2000-command index took ${totalUpsertMs.toFixed(2)}ms; CI budget is ${ciBudgetMs}ms`,
+    ).toBeLessThan(ciBudgetMs);
+
+    if (process.env.COMMAND_CABIN_STRICT_PERF === '1') {
+      expect(
+        totalUpsertMs,
+        `100 upserts strict local target is ${strictBudgetMs}ms; took ${totalUpsertMs.toFixed(2)}ms`,
+      ).toBeLessThan(strictBudgetMs);
+    }
+
+    expect(engine.search('dynamic').map((result) => result.command.id)).toEqual([
+      'command.dynamic',
+    ]);
   });
 });

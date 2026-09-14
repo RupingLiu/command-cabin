@@ -89,6 +89,42 @@ describe('unit conversion model', () => {
     );
   });
 
+  it('rejects non-finite conversion values', () => {
+    expect(() =>
+      convertUnitValue({ category: 'weight', from: 'kg', to: 'lb', value: Number.NaN }),
+    ).toThrow('Cannot convert non-finite value: NaN.');
+    expect(() =>
+      convertUnitValue({
+        category: 'length',
+        from: 'cm',
+        to: 'inch',
+        value: Number.POSITIVE_INFINITY,
+      }),
+    ).toThrow('Cannot convert non-finite value: Infinity.');
+    expect(() =>
+      convertUnitValue({
+        category: 'weight',
+        from: 'kg',
+        to: 'lb',
+        value: Number.NEGATIVE_INFINITY,
+      }),
+    ).toThrow('Cannot convert non-finite value: -Infinity.');
+  });
+
+  it('looks up every unit within each category', () => {
+    for (const unit of getUnitsForCategory('weight')) {
+      expect(convertUnitValue({ category: 'weight', from: unit.id, to: unit.id, value: 42 })).toBe(
+        42,
+      );
+    }
+
+    for (const unit of getUnitsForCategory('length')) {
+      expect(convertUnitValue({ category: 'length', from: unit.id, to: unit.id, value: 42 })).toBe(
+        42,
+      );
+    }
+  });
+
   it('formats values with six significant digits and normalizes negative zero', () => {
     expect(formatUnitConversionValue(1.0000000000000002)).toBe('1');
     expect(formatUnitConversionValue(1 / 3)).toBe('0.333333');

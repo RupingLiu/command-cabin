@@ -44,6 +44,11 @@ const UNITS_BY_CATEGORY = {
   length: LENGTH_UNITS,
 } as const satisfies Record<UnitConversionCategory, readonly UnitDefinition[]>;
 
+const UNITS_BY_ID: Record<UnitConversionCategory, ReadonlyMap<UnitId, UnitDefinition>> = {
+  weight: new Map(WEIGHT_UNITS.map((unit) => [unit.id, unit])),
+  length: new Map(LENGTH_UNITS.map((unit) => [unit.id, unit])),
+};
+
 const DEFAULT_UNIT_PAIRS = {
   weight: { from: 'kg', to: 'lb' },
   length: { from: 'cm', to: 'inch' },
@@ -58,6 +63,10 @@ export function getUnitsForCategory(category: UnitConversionCategory): readonly 
 }
 
 export function convertUnitValue(input: UnitConversionInput): number {
+  if (!Number.isFinite(input.value)) {
+    throw new Error(`Cannot convert non-finite value: ${input.value}.`);
+  }
+
   const fromUnit = findUnitInCategory(input.category, input.from);
   const toUnit = findUnitInCategory(input.category, input.to);
 
@@ -71,7 +80,7 @@ export function formatUnitConversionValue(value: number): string {
 }
 
 function findUnitInCategory(category: UnitConversionCategory, unitId: UnitId): UnitDefinition {
-  const unit = getUnitsForCategory(category).find((candidate) => candidate.id === unitId);
+  const unit = UNITS_BY_ID[category].get(unitId);
 
   if (!unit) {
     throw new Error(

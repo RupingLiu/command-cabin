@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { composeScreenshotSelection } from './screenshotCanvas.js';
+import { composeScreenshotSelection, loadBrowserImage } from './screenshotCanvas.js';
 import type { ScreenshotAnnotation } from './screenshotState.js';
 import type { ScreenshotLaunchState } from '../../../shared/screenshotApi.js';
 
@@ -170,6 +170,62 @@ describe('composeScreenshotSelection', () => {
 
     expect(mock.operations).toContain('fillText:first:4:8');
     expect(mock.operations).toContain('fillText:second:4:29.6');
+  });
+
+  it('draws a display image already decoded in the DOM without decoding it again', async () => {
+    const mock = createMockCanvas();
+    const existing = { complete: true, src: 'data:image/png;base64,AAAA' };
+
+    const result = await composeScreenshotSelection({
+      createCanvas: () => mock.canvas,
+      decodedImages: new Map<string, unknown>([['data:image/png;base64,AAAA', existing]]),
+      format: 'png',
+      launchState,
+      selection: { height: 50, width: 80, x: -20, y: 30 },
+    });
+
+    expect(result).toBe('image/png:none');
+    expect(mock.drawImageCalls[0]?.args[0]).toBe(existing);
+  });
+});
+
+describe('loadBrowserImage', () => {
+  it('reuses a complete image element whose source already matches', async () => {
+    const existing = { complete: true, src: 'data:image/png;base64,AAAA' };
+    const createImage = vi.fn();
+
+    const result = await loadBrowserImage(
+      'data:image/png;base64,AAAA',
+      existing as unknown as HTMLImageElement,
+      createImage as unknown as () => HTMLImageElement,
+    );
+
+    expect(result).toBe(existing);
+    expect(createImage).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a fresh decode when the existing image is incomplete or mismatched', async () => {
+    for (const existing of [
+      { complete: false, src: 'data:image/png;base64,AAAA' },
+      { complete: true, src: 'data:image/png;base64,BBBB' },
+    ]) {
+      const created = {} as unknown as HTMLImageElement;
+      const createImage = vi.fn(() => {
+        queueMicrotask(() => {
+          (created as { onload?: () => void }).onload?.();
+        });
+        return created;
+      });
+
+      const result = await loadBrowserImage(
+        'data:image/png;base64,AAAA',
+        existing as unknown as HTMLImageElement,
+        createImage as unknown as () => HTMLImageElement,
+      );
+
+      expect(result).toBe(created);
+      expect(createImage).toHaveBeenCalledTimes(1);
+    }
   });
 });
 

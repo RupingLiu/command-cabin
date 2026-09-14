@@ -1,0 +1,10 @@
+pub mod command;
+pub mod favorites;
+pub mod features;
+pub mod home;
+pub mod icons;
+pub mod indexer;
+pub mod screenshot;
+pub mod search;
+pub mod settings;
+pub mod updater;

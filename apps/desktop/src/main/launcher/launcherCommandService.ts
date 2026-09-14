@@ -59,6 +59,7 @@ export interface LauncherCommandService {
   clearClipboardHistory: () => number;
   executeCommand: (commandId: string) => Promise<CommandExecutionResult>;
   listFavorites: () => FavoriteRecord[];
+  refreshCommands: () => void;
   removeFavorite: (id: string) => boolean;
   removeRecentApp: (commandId: string) => boolean;
   searchCommands: (query: string) => Promise<LauncherCommandSearchResult[]>;
@@ -80,7 +81,9 @@ export interface LauncherCommandServiceOptions {
   actionHandlers?: CommandActionHandlers;
   appVersion?: string | undefined;
   appCommands?: () => readonly Command[];
+  appCommandsVersion?: (() => string | number | undefined) | undefined;
   clipboardHistoryRepository?: ClipboardHistoryRepository;
+  clipboardHistoryVersion?: (() => string | number | undefined) | undefined;
   commandRegistry?: CommandRegistry;
   commands?: readonly Command[];
   exchangeRateProvider?: ExchangeRateProvider;
@@ -391,6 +394,9 @@ export function createLauncherCommandService(
   let calculatorCommandRegistered = false;
   let quickConverterCommandRegistered = false;
   let quickConverterGeneration = 0;
+  let lastAppCommandsVersion: string | number | undefined;
+  let lastClipboardHistoryVersion: string | number | undefined;
+  let searchIndexDirty = true;
 
   assertNoReservedCalculatorCommandIds(commands);
   assertNoReservedQuickConverterCommandIds(commands);
@@ -543,7 +549,16 @@ export function createLauncherCommandService(
   });
 
   function refreshSearchIndex(): void {
+    searchIndexDirty = true;
+  }
+
+  function flushSearchIndex(): void {
+    if (!searchIndexDirty) {
+      return;
+    }
+
     searchEngine.update(registry.list());
+    searchIndexDirty = false;
   }
 
   function refreshFavoriteCommands(): void {
@@ -567,6 +582,14 @@ export function createLauncherCommandService(
   }
 
   function refreshAppCommands(): void {
+    const commandsVersion = options.appCommandsVersion?.();
+
+    if (commandsVersion !== undefined && commandsVersion === lastAppCommandsVersion) {
+      return;
+    }
+
+    lastAppCommandsVersion = commandsVersion;
+
     for (const commandId of appCommandIds) {
       registry.unregister(commandId);
     }
@@ -587,6 +610,17 @@ export function createLauncherCommandService(
   }
 
   function refreshClipboardHistoryCommands(): void {
+    const clipboardHistoryVersion = options.clipboardHistoryVersion?.();
+
+    if (
+      clipboardHistoryVersion !== undefined &&
+      clipboardHistoryVersion === lastClipboardHistoryVersion
+    ) {
+      return;
+    }
+
+    lastClipboardHistoryVersion = clipboardHistoryVersion;
+
     for (const commandId of clipboardHistoryCommandIds) {
       registry.unregister(commandId);
     }
@@ -609,11 +643,6 @@ export function createLauncherCommandService(
   }
 
   function refreshCalculatorCommand(query: string): void {
-    if (calculatorCommandRegistered) {
-      registry.unregister(CALCULATOR_RESULT_COMMAND_ID);
-      calculatorCommandRegistered = false;
-    }
-
     const calculatorCommand = createCalculatorResultCommand(query);
 
     if (calculatorCommand) {
@@ -624,11 +653,21 @@ export function createLauncherCommandService(
         throw new Error('Invalid calculator command registration.');
       }
 
+      if (calculatorCommandRegistered) {
+        registry.unregister(CALCULATOR_RESULT_COMMAND_ID);
+      }
+
       registry.register(calculatorCommand);
       calculatorCommandRegistered = true;
-    }
+      searchEngine.upsert(calculatorCommand);
+    } else {
+      if (calculatorCommandRegistered) {
+        registry.unregister(CALCULATOR_RESULT_COMMAND_ID);
+        calculatorCommandRegistered = false;
+      }
 
-    refreshSearchIndex();
+      searchEngine.remove(CALCULATOR_RESULT_COMMAND_ID);
+    }
   }
 
   async function refreshQuickConverterCommand(query: string): Promise<void> {
@@ -638,6 +677,8 @@ export function createLauncherCommandService(
       registry.unregister(QUICK_CONVERTER_RESULT_COMMAND_ID);
       quickConverterCommandRegistered = false;
     }
+
+    searchEngine.remove(QUICK_CONVERTER_RESULT_COMMAND_ID);
 
     const quickConverterCommand = await createQuickConverterCommand(query, {
       exchangeRateProvider: options.exchangeRateProvider,
@@ -657,9 +698,8 @@ export function createLauncherCommandService(
 
       registry.register(quickConverterCommand);
       quickConverterCommandRegistered = true;
+      searchEngine.upsert(quickConverterCommand);
     }
-
-    refreshSearchIndex();
   }
 
   function createRankingContext(
@@ -675,7 +715,7 @@ export function createLauncherCommandService(
 
     if (options.historyRepository) {
       context.history = new Map(
-        options.historyRepository.listRecent(100).map((entry) => [
+        options.historyRepository.listRecentForRanking(100).map((entry) => [
           entry.commandId,
           {
             executionCount: entry.executionCount,
@@ -704,7 +744,7 @@ export function createLauncherCommandService(
 
     const results: LauncherCommandSearchResult[] = [];
 
-    for (const entry of options.historyRepository.listRecent(100)) {
+    for (const entry of options.historyRepository.listRecentForRanking(100)) {
       if (entry.source !== 'app') {
         continue;
       }
@@ -783,6 +823,7 @@ export function createLauncherCommandService(
   refreshFavoriteCommands();
   refreshClipboardHistoryCommands();
   refreshAppCommands();
+  flushSearchIndex();
 
   return {
     addFavorite: (input) => {
@@ -868,6 +909,9 @@ export function createLauncherCommandService(
       return result;
     },
     listFavorites: () => options.favoritesRepository?.listFavorites() ?? [],
+    refreshCommands: () => {
+      refreshSearchIndex();
+    },
     removeFavorite: (id) => {
       if (!options.favoritesRepository) {
         throw new Error('Favorites repository is not configured.');
@@ -892,12 +936,14 @@ export function createLauncherCommandService(
       refreshAppCommands();
 
       if (isBlankQuery(query)) {
+        flushSearchIndex();
         return listHomeAppSearchResults(SEARCH_RESULT_LIMIT);
       }
 
       refreshCalculatorCommand(query);
       await refreshQuickConverterCommand(query);
       refreshClipboardHistoryCommands();
+      flushSearchIndex();
 
       const searchSettings = options.getSearchSettings?.();
       const limit =

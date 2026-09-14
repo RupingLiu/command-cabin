@@ -34,6 +34,9 @@ export interface AppCandidateServiceOptions {
   favorites: () => readonly FavoriteRecord[];
   listDesktopShortcuts: () => Promise<string[]>;
   resolveShortcut: (shortcutPath: string) => Promise<ResolvedAppShortcut>;
+  resolveShortcuts?: (
+    shortcutPaths: readonly string[],
+  ) => Promise<Array<ResolvedAppShortcut | undefined>>;
 }
 
 const EXECUTABLE_EXTENSIONS = new Set(['.bat', '.cmd', '.com', '.exe']);
@@ -170,22 +173,11 @@ function createStartMenuCandidate(
   return candidate;
 }
 
-async function createDesktopCandidate(
+function buildDesktopCandidate(
   shortcutPath: string,
   pinnedIdentities: ReadonlySet<string>,
-  resolveShortcut: (shortcutPath: string) => Promise<ResolvedAppShortcut>,
-  resolveShortcutMetadata: boolean,
-): Promise<InternalAppCandidate | undefined> {
-  let resolvedShortcut: ResolvedAppShortcut | undefined;
-
-  if (resolveShortcutMetadata) {
-    try {
-      resolvedShortcut = await resolveShortcut(shortcutPath);
-    } catch {
-      resolvedShortcut = undefined;
-    }
-  }
-
+  resolvedShortcut: ResolvedAppShortcut | undefined,
+): InternalAppCandidate | undefined {
   const executablePath = isExecutablePath(resolvedShortcut?.targetPath)
     ? resolvedShortcut?.targetPath
     : undefined;
@@ -229,6 +221,55 @@ async function createDesktopCandidate(
 
   candidate.alreadyPinned = isAlreadyPinned(pinnedIdentities, candidate);
   return candidate;
+}
+
+async function createDesktopCandidate(
+  shortcutPath: string,
+  pinnedIdentities: ReadonlySet<string>,
+  resolveShortcut: (shortcutPath: string) => Promise<ResolvedAppShortcut>,
+  resolveShortcutMetadata: boolean,
+): Promise<InternalAppCandidate | undefined> {
+  let resolvedShortcut: ResolvedAppShortcut | undefined;
+
+  if (resolveShortcutMetadata) {
+    try {
+      resolvedShortcut = await resolveShortcut(shortcutPath);
+    } catch {
+      resolvedShortcut = undefined;
+    }
+  }
+
+  return buildDesktopCandidate(shortcutPath, pinnedIdentities, resolvedShortcut);
+}
+
+async function createBatchDesktopCandidates(
+  shortcutPaths: readonly string[],
+  pinnedIdentities: ReadonlySet<string>,
+  resolveShortcuts: (
+    shortcutPaths: readonly string[],
+  ) => Promise<Array<ResolvedAppShortcut | undefined>>,
+  resolveShortcutMetadata: boolean,
+): Promise<InternalAppCandidate[]> {
+  const resolvedShortcuts =
+    resolveShortcutMetadata && shortcutPaths.length > 0
+      ? await resolveShortcuts(shortcutPaths)
+      : [];
+  const candidates: InternalAppCandidate[] = [];
+
+  for (let index = 0; index < shortcutPaths.length; index += 1) {
+    const shortcutPath = shortcutPaths[index]!;
+    const candidate = buildDesktopCandidate(
+      shortcutPath,
+      pinnedIdentities,
+      resolvedShortcuts[index],
+    );
+
+    if (candidate !== undefined) {
+      candidates.push(candidate);
+    }
+  }
+
+  return candidates;
 }
 
 function candidateMatchesQuery(candidate: InternalAppCandidate, query: string): boolean {
@@ -301,6 +342,7 @@ export function createAppCandidateService({
   favorites,
   listDesktopShortcuts,
   resolveShortcut,
+  resolveShortcuts,
 }: AppCandidateServiceOptions): AppCandidateService {
   return {
     createPinnedAppInput: (candidate) => ({
@@ -319,16 +361,24 @@ export function createAppCandidateService({
           normalizeText(createDesktopShortcutTitle(shortcutPath)).includes(normalizedQuery) ||
           normalizeText(shortcutPath).includes(normalizedQuery),
       );
-      const desktopCandidates = await Promise.all(
-        desktopShortcutPaths.map((shortcutPath) =>
-          createDesktopCandidate(
-            shortcutPath,
-            pinnedIdentities,
-            resolveShortcut,
-            shouldResolveDesktopShortcuts,
-          ),
-        ),
-      );
+      const desktopCandidates =
+        resolveShortcuts === undefined
+          ? await Promise.all(
+              desktopShortcutPaths.map((shortcutPath) =>
+                createDesktopCandidate(
+                  shortcutPath,
+                  pinnedIdentities,
+                  resolveShortcut,
+                  shouldResolveDesktopShortcuts,
+                ),
+              ),
+            )
+          : await createBatchDesktopCandidates(
+              desktopShortcutPaths,
+              pinnedIdentities,
+              resolveShortcuts,
+              shouldResolveDesktopShortcuts,
+            );
       const startMenuCandidates = appCommands()
         .map((command) => createStartMenuCandidate(command, pinnedIdentities))
         .filter((candidate): candidate is InternalAppCandidate => candidate !== undefined);

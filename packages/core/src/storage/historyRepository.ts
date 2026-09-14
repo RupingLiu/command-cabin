@@ -32,6 +32,13 @@ export interface CommandHistoryEntry {
   subtitle?: string;
 }
 
+export interface CommandHistoryRankingEntry {
+  commandId: string;
+  source: string;
+  executionCount: number;
+  executedAt: string;
+}
+
 interface CommandHistoryRow {
   id: number;
   command_id: string;
@@ -41,6 +48,13 @@ interface CommandHistoryRow {
   execution_count: number;
   executed_at: string;
   metadata: string;
+}
+
+interface CommandHistoryRankingRow {
+  command_id: string;
+  source: string;
+  execution_count: number;
+  executed_at: string;
 }
 
 function mapCommandHistoryRow(row: CommandHistoryRow): CommandHistoryEntry {
@@ -104,6 +118,7 @@ export interface HistoryRepository {
   recordExecution: (input: RecordCommandExecutionInput) => CommandHistoryEntry;
   getByCommandId: (commandId: string) => CommandHistoryEntry | undefined;
   listRecent: (limit?: number) => CommandHistoryEntry[];
+  listRecentForRanking: (limit?: number) => CommandHistoryRankingEntry[];
   removeByCommandId: (commandId: string) => boolean;
   clear: () => void;
 }
@@ -124,14 +139,25 @@ export function createHistoryRepository(database: CommandCabinDatabase): History
       LIMIT ?
     `,
   );
-  const upsertExecution = database.prepare<{
-    commandId: string;
-    title: string;
-    subtitle: string | null;
-    source: string;
-    executedAt: string;
-    metadata: string;
-  }>(
+  const selectRecentForRanking = database.prepare<[number], CommandHistoryRankingRow>(
+    `
+      SELECT command_id, source, execution_count, executed_at
+      FROM command_history
+      ORDER BY executed_at DESC, id DESC
+      LIMIT ?
+    `,
+  );
+  const upsertExecution = database.prepare<
+    {
+      commandId: string;
+      title: string;
+      subtitle: string | null;
+      source: string;
+      executedAt: string;
+      metadata: string;
+    },
+    CommandHistoryRow
+  >(
     `
       INSERT INTO command_history (
         command_id,
@@ -158,6 +184,7 @@ export function createHistoryRepository(database: CommandCabinDatabase): History
         execution_count = command_history.execution_count + 1,
         executed_at = excluded.executed_at,
         metadata = excluded.metadata
+      RETURNING id, command_id, title, subtitle, source, execution_count, executed_at, metadata
     `,
   );
   const clearHistory = database.prepare('DELETE FROM command_history');
@@ -169,7 +196,7 @@ export function createHistoryRepository(database: CommandCabinDatabase): History
     recordExecution: (input) => {
       const metadata = validateCommandHistoryMetadata(input.metadata ?? {}, input.commandId);
 
-      upsertExecution.run({
+      const row = upsertExecution.get({
         commandId: input.commandId,
         title: input.title,
         subtitle: input.subtitle ?? null,
@@ -185,8 +212,6 @@ export function createHistoryRepository(database: CommandCabinDatabase): History
         }),
       });
 
-      const row = selectByCommandId.get(input.commandId);
-
       if (!row) {
         throw new Error(`Command history entry was not saved: ${input.commandId}`);
       }
@@ -199,6 +224,13 @@ export function createHistoryRepository(database: CommandCabinDatabase): History
     },
     listRecent: (limit = DEFAULT_RECENT_HISTORY_LIMIT) =>
       selectRecent.all(normalizeRecentHistoryLimit(limit)).map(mapCommandHistoryRow),
+    listRecentForRanking: (limit = DEFAULT_RECENT_HISTORY_LIMIT) =>
+      selectRecentForRanking.all(normalizeRecentHistoryLimit(limit)).map((row) => ({
+        commandId: row.command_id,
+        source: row.source,
+        executionCount: row.execution_count,
+        executedAt: row.executed_at,
+      })),
     removeByCommandId: (commandId) => deleteByCommandId.run(commandId).changes > 0,
     clear: () => {
       clearHistory.run();

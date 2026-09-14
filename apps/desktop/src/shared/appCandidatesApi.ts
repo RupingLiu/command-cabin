@@ -1,5 +1,13 @@
 import type { FavoriteListRecord } from './favoritesApi.js';
 
+import {
+  isRecord,
+  parseBoolean,
+  parseNonEmptyString,
+  parseOptionalNonEmptyString,
+  parseString,
+} from './parsers.js';
+
 export type AppCandidateSource = 'desktop' | 'start-menu';
 export type AppCandidateResolutionStatus = 'resolved' | 'unresolved-shortcut';
 
@@ -24,49 +32,6 @@ const appCandidateResolutionStatuses = new Set<AppCandidateResolutionStatus>([
   'resolved',
   'unresolved-shortcut',
 ]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function parseString(value: unknown, context: string): string {
-  if (typeof value !== 'string') {
-    throw new Error(`${context} must be a string.`);
-  }
-
-  return value;
-}
-
-function parseNonEmptyString(value: unknown, context: string): string {
-  const stringValue = parseString(value, context).trim();
-
-  if (stringValue.length === 0) {
-    throw new Error(`${context} must be a non-empty string.`);
-  }
-
-  return stringValue;
-}
-
-function parseOptionalNonEmptyString(value: unknown, context: string): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  return parseNonEmptyString(value, context);
-}
-
-function parseBoolean(value: unknown, context: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new Error(`${context} must be a boolean.`);
-  }
-
-  return value;
-}
 
 function parseSource(value: unknown, context: string): AppCandidateSource {
   const source = parseString(value, context);

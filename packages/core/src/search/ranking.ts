@@ -56,6 +56,16 @@ export interface SearchRankingInput {
   command: Command;
   query: string;
   /**
+   * Pre-normalized query text. When omitted, `rankSearchCandidate` normalizes `query` itself;
+   * search engines pass this to avoid per-candidate normalization work.
+   */
+  normalizedQuery?: string | undefined;
+  /**
+   * Pre-normalized command title. When omitted, `rankSearchCandidate` normalizes
+   * `command.title` itself; search engines pass this from the cached document.
+   */
+  normalizedTitle?: string | undefined;
+  /**
    * Raw Fuse.js score. Lower values are better, with 0 representing an exact match.
    */
   fuseScore: number;
@@ -243,8 +253,8 @@ function getHistoryDebug(
 }
 
 export function rankSearchCandidate(input: SearchRankingInput): SearchRankingResult {
-  const normalizedQuery = normalizeSearchText(input.query);
-  const normalizedTitle = normalizeSearchText(input.command.title);
+  const normalizedQuery = input.normalizedQuery ?? normalizeSearchText(input.query);
+  const normalizedTitle = input.normalizedTitle ?? normalizeSearchText(input.command.title);
   const historyEntry = getHistoryEntry(input.context, input.command.id);
   const executionCount = normalizeExecutionCount(historyEntry?.executionCount);
   const historyWeight = normalizeScoreWeight(input.context?.historyWeight, 1);

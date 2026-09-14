@@ -413,4 +413,213 @@ describe('Windows start menu scanner', () => {
     expect(maximumActiveResolutions).toBe(2);
     expect(result.shortcuts.map((shortcut) => shortcut.name)).toEqual(['A', 'B', 'C']);
   });
+
+  it('resolves multiple shortcuts with a single PowerShell invocation', async () => {
+    const shortcutPaths = [
+      'C:\\Start Menu\\Programs\\Sample App.lnk',
+      'C:\\Start Menu\\Programs\\Another App.lnk',
+    ];
+    const execFileCalls: Array<{
+      file: string;
+      args: readonly string[];
+      options: { windowsHide: true; timeout: number; encoding: 'utf8' };
+    }> = [];
+    const resolver = createWindowsShortcutResolver({
+      platform: 'win32',
+      timeoutMs: 12_345,
+      execFile: async (file, args, options) => {
+        execFileCalls.push({ file, args, options });
+
+        return {
+          stdout: JSON.stringify([
+            {
+              shortcutPath: shortcutPaths[0],
+              targetPath: 'C:\\Program Files\\Sample\\sample.exe',
+              arguments: '--new-window',
+              workingDirectory: 'C:\\Program Files\\Sample',
+              iconPath: 'C:\\Program Files\\Sample\\sample.exe,0',
+              appUserModelId: 'Sample.App_abc123!App',
+            },
+            {
+              shortcutPath: shortcutPaths[1],
+              targetPath: 'C:\\Program Files\\Another\\another.exe',
+            },
+          ]),
+        };
+      },
+    });
+
+    const shortcuts = await resolver.resolveMany(shortcutPaths);
+
+    expect(shortcuts).toEqual([
+      {
+        targetPath: 'C:\\Program Files\\Sample\\sample.exe',
+        arguments: '--new-window',
+        workingDirectory: 'C:\\Program Files\\Sample',
+        iconPath: 'C:\\Program Files\\Sample\\sample.exe,0',
+        appUserModelId: 'Sample.App_abc123!App',
+      },
+      {
+        targetPath: 'C:\\Program Files\\Another\\another.exe',
+      },
+    ]);
+    expect(execFileCalls).toHaveLength(1);
+    expect(execFileCalls[0]?.file).toBe('powershell.exe');
+    expect(execFileCalls[0]?.options).toEqual({
+      windowsHide: true,
+      timeout: 12_345,
+      encoding: 'utf8',
+    });
+    expect(execFileCalls[0]?.args.slice(0, 5)).toEqual([
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-EncodedCommand',
+    ]);
+    expect(execFileCalls[0]?.args).toHaveLength(6);
+    const encodedCommand = execFileCalls[0]?.args[5];
+    expect(encodedCommand).toEqual(expect.any(String));
+
+    const commandScript = Buffer.from(encodedCommand ?? '', 'base64').toString('utf16le');
+    expect(commandScript).toContain(
+      '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
+    );
+    expect(commandScript).toContain('[System.Convert]::FromBase64String(');
+    const embeddedPaths = commandScript.match(/FromBase64String\('([^']+)'\)/)?.[1];
+    expect(embeddedPaths).toEqual(expect.any(String));
+    expect(JSON.parse(Buffer.from(embeddedPaths ?? '', 'base64').toString('utf8'))).toEqual(
+      shortcutPaths,
+    );
+    expect(commandScript).toContain('foreach ($ShortcutPath in $ShortcutPaths)');
+    expect(commandScript).toContain('$results | ConvertTo-Json -Compress');
+    expect(commandScript).not.toContain(shortcutPaths[0]!);
+  });
+
+  it('keeps batch results aligned and turns individual failures into undefined', async () => {
+    const shortcutPaths = ['C:\\A.lnk', 'C:\\B.lnk', 'C:\\C.lnk'];
+    const resolver = createWindowsShortcutResolver({
+      platform: 'win32',
+      execFile: async () => ({
+        stdout: JSON.stringify([
+          { shortcutPath: shortcutPaths[0], targetPath: 'C:\\A\\a.exe' },
+          { shortcutPath: shortcutPaths[1], error: 'cannot parse shortcut' },
+          { shortcutPath: shortcutPaths[2], targetPath: 'C:\\C\\c.exe' },
+        ]),
+      }),
+    });
+
+    await expect(resolver.resolveMany(shortcutPaths)).resolves.toEqual([
+      { targetPath: 'C:\\A\\a.exe' },
+      undefined,
+      { targetPath: 'C:\\C\\c.exe' },
+    ]);
+  });
+
+  it('does not start PowerShell for an empty shortcut list', async () => {
+    const execFile = vi.fn(async () => ({ stdout: '' }));
+    const resolver = createWindowsShortcutResolver({
+      platform: 'win32',
+      execFile,
+    });
+
+    await expect(resolver.resolveMany([])).resolves.toEqual([]);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it('turns malformed batch output into failures without throwing', async () => {
+    const resolver = createWindowsShortcutResolver({
+      platform: 'win32',
+      execFile: async () => ({
+        stdout: 'this is not json',
+      }),
+    });
+
+    await expect(resolver.resolveMany(['C:\\A.lnk', 'C:\\B.lnk'])).resolves.toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it('resolves all shortcuts in a directory with one batch call when supported', async () => {
+    const resolve = vi.fn(async () => ({}));
+    const resolveMany = vi.fn(async (shortcutPaths: readonly string[]) =>
+      shortcutPaths.map((shortcutPath) => ({ targetPath: `${shortcutPath}.exe` })),
+    );
+    const scanner = createWindowsStartMenuScanner({
+      appsFolderScanner: emptyAppsFolderScanner,
+      startMenuDirectories: ['C:\\StartMenu'],
+      fileSystem: createFileSystem({
+        'C:\\StartMenu': [
+          { name: 'A.lnk', kind: 'file' },
+          { name: 'B.lnk', kind: 'file' },
+        ],
+      }),
+      shortcutResolver: {
+        resolve,
+        resolveMany,
+      },
+    });
+
+    const result = await scanner.scan();
+
+    expect(resolveMany).toHaveBeenCalledTimes(1);
+    expect(resolveMany).toHaveBeenCalledWith(['C:\\StartMenu\\A.lnk', 'C:\\StartMenu\\B.lnk']);
+    expect(resolve).not.toHaveBeenCalled();
+    expect(result.shortcuts).toEqual([
+      {
+        name: 'A',
+        shortcutPath: 'C:\\StartMenu\\A.lnk',
+        targetPath: 'C:\\StartMenu\\A.lnk.exe',
+      },
+      {
+        name: 'B',
+        shortcutPath: 'C:\\StartMenu\\B.lnk',
+        targetPath: 'C:\\StartMenu\\B.lnk.exe',
+      },
+    ]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it('records batch resolution failures and keeps unresolved desktop shortcuts', async () => {
+    const scanner = createWindowsStartMenuScanner({
+      appsFolderScanner: emptyAppsFolderScanner,
+      desktopDirectories: ['C:\\Users\\Ada\\Desktop'],
+      startMenuDirectories: ['C:\\StartMenu'],
+      fileSystem: createFileSystem({
+        'C:\\StartMenu': [{ name: 'Notepad.lnk', kind: 'file' }],
+        'C:\\Users\\Ada\\Desktop': [{ name: 'Codex.lnk', kind: 'file' }],
+      }),
+      shortcutResolver: {
+        resolve: async () => ({}),
+        resolveMany: async (shortcutPaths: readonly string[]) =>
+          shortcutPaths.map((shortcutPath) =>
+            shortcutPath.endsWith('Codex.lnk')
+              ? undefined
+              : { targetPath: 'C:\\Windows\\System32\\notepad.exe' },
+          ),
+      },
+    });
+
+    const result = await scanner.scan();
+
+    expect(result.shortcuts).toEqual([
+      {
+        name: 'Notepad',
+        shortcutPath: 'C:\\StartMenu\\Notepad.lnk',
+        targetPath: 'C:\\Windows\\System32\\notepad.exe',
+      },
+      {
+        name: 'Codex',
+        opensApplication: true,
+        shortcutPath: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+      },
+    ]);
+    expect(result.failures).toEqual([
+      {
+        shortcutPath: 'C:\\Users\\Ada\\Desktop\\Codex.lnk',
+        message: 'Failed to resolve shortcut.',
+      },
+    ]);
+  });
 });

@@ -950,4 +950,98 @@ describe('plugin runtime', () => {
       },
     });
   });
+
+  it('deduplicates concurrent enable calls for the same plugin root', async () => {
+    const readManifest = vi.fn(() => createManifest());
+    const { registry, runtime, moduleLoader } = createRuntime({ readManifest });
+    const registerSpy = vi.spyOn(registry, 'register');
+    const pluginRoot = resolve('plugins', 'text-tools');
+
+    const [firstResult, secondResult] = await Promise.all([
+      runtime.enablePlugin(pluginRoot),
+      runtime.enablePlugin(pluginRoot),
+    ]);
+
+    expect(firstResult).toEqual(secondResult);
+    expect(firstResult).toMatchObject({
+      ok: true,
+      value: {
+        pluginId: 'com.example.text-tools',
+        status: 'enabled',
+      },
+    });
+    expect(readManifest).toHaveBeenCalledTimes(1);
+    expect(moduleLoader).toHaveBeenCalledTimes(1);
+    expect(registerSpy).toHaveBeenCalledTimes(1);
+    expect(runtime.getPlugin('com.example.text-tools')?.status).toBe('enabled');
+    expect(registry.list().map((command) => command.id)).toEqual([
+      'com.example.text-tools.uppercase',
+    ]);
+  });
+
+  it('clears the in-flight dedup after a failed enable so a later retry re-runs loading', async () => {
+    let loadCalls = 0;
+    const moduleLoader = vi.fn(() => {
+      loadCalls += 1;
+
+      if (loadCalls === 1) {
+        throw new Error('module exploded');
+      }
+
+      return {
+        activate: vi.fn(),
+        deactivate: vi.fn(),
+      };
+    });
+    const { registry, runtime } = createRuntime({ moduleLoader });
+    const pluginRoot = resolve('plugins', 'text-tools');
+
+    await expect(runtime.enablePlugin(pluginRoot)).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'load-error',
+        message: 'module exploded',
+      },
+    });
+
+    await expect(runtime.enablePlugin(pluginRoot)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        pluginId: 'com.example.text-tools',
+        status: 'enabled',
+      },
+    });
+
+    expect(moduleLoader).toHaveBeenCalledTimes(2);
+    expect(runtime.getPlugin('com.example.text-tools')?.status).toBe('enabled');
+    expect(registry.list().map((command) => command.id)).toEqual([
+      'com.example.text-tools.uppercase',
+    ]);
+  });
+
+  it('reports module load timeouts with a restart hint and a dedicated error code', async () => {
+    const { registry, runtime, logSink } = createRuntime({
+      moduleLoadTimeoutMs: 5,
+      moduleLoader: vi.fn(() => new Promise(() => undefined)),
+    });
+
+    const failure = expectFailure(await runtime.loadPlugin(resolve('plugins', 'text-tools')));
+
+    expect(failure.error).toMatchObject({
+      code: 'module-load-timeout',
+      pluginId: 'com.example.text-tools',
+    });
+    expect(failure.error.message).toContain('timed out after 5 ms');
+    expect(failure.error.message).toContain('may still be loading');
+    expect(failure.error.message).toContain('Restart the application before retrying this plugin');
+    expect(registry.list()).toEqual([]);
+    expect(runtime.getPlugin('com.example.text-tools')).toBeUndefined();
+    expect(logSink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pluginId: 'com.example.text-tools',
+        level: 'error',
+        message: expect.stringContaining('Restart the application before retrying this plugin'),
+      }),
+    );
+  });
 });

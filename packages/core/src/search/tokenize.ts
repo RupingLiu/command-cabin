@@ -199,14 +199,17 @@ export function normalizeSearchText(value: string): string {
 }
 
 export function normalizeSearchTextWithMapping(value: string): NormalizedSearchTextMapping {
-  const normalizedText = normalizeSearchTextValue(value);
+  // The mapping pipeline runs the exact same normalization steps as normalizeSearchTextValue
+  // (NFKD -> diacritic removal -> lowercase -> trim/collapse whitespace), so its .text is the
+  // normalized text and each stage keeps sourceRanges.length === text.length — no final
+  // alignment pass is needed.
   const mappedText = collapseMappedWhitespace(
     lowercaseMappedText(removeDiacritics(createDecomposedMappedText(value))),
   );
 
   return {
-    normalizedText,
-    sourceRanges: alignSourceRanges(mappedText.sourceRanges, normalizedText.length, value.length),
+    normalizedText: mappedText.text,
+    sourceRanges: mappedText.sourceRanges,
   };
 }
 

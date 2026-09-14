@@ -7,6 +7,7 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_APP_USER_MODEL_ICON_TIMEOUT_MS = 3_000;
 const DEFAULT_MEMORY_CACHE_MAX_ENTRIES = 96;
 const IMAGE_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i;
+const PACKAGE_LIST_LINE_PATTERN = /^PACKAGE\t([^\t]+)\t(.*)$/;
 
 export interface WindowsAppUserModelIconResolverExecFileOptions {
   windowsHide: true;
@@ -35,8 +36,13 @@ export interface WindowsAppUserModelIconResolver {
   resolve: (appUserModelId: string) => Promise<string | undefined>;
 }
 
-function createPowerShellScript(appUserModelId: string): string {
+function createPowerShellScript(
+  appUserModelId: string,
+  installLocation: string | undefined,
+): string {
   const encodedAppUserModelId = Buffer.from(appUserModelId, 'utf8').toString('base64');
+  const encodedInstallLocation =
+    installLocation === undefined ? '' : Buffer.from(installLocation, 'utf8').toString('base64');
 
   return `
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -48,9 +54,22 @@ if ($parts.Count -ne 2) {
 
 $packageFamilyName = $parts[0]
 $applicationId = $parts[1]
-$package = Get-AppxPackage | Where-Object { $_.PackageFamilyName -eq $packageFamilyName } | Select-Object -First 1
-if ($null -eq $package) {
-  exit 0
+$encodedInstallLocation = '${encodedInstallLocation}'
+$installLocation = ''
+if ($encodedInstallLocation.Length -gt 0) {
+  $installLocation = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($encodedInstallLocation))
+}
+if ($installLocation.Length -eq 0) {
+  $packages = @(Get-AppxPackage)
+  foreach ($pkg in $packages) {
+    Write-Output ("PACKAGE\`t{0}\`t{1}" -f $pkg.PackageFamilyName, $pkg.InstallLocation)
+  }
+  $package = $packages | Where-Object { $_.PackageFamilyName -eq $packageFamilyName } | Select-Object -First 1
+  if ($null -eq $package) {
+    exit 0
+  }
+} else {
+  $package = [pscustomobject]@{ InstallLocation = $installLocation }
 }
 
 $manifestPath = Join-Path $package.InstallLocation 'AppxManifest.xml'
@@ -114,6 +133,48 @@ function createEncodedPowerShellCommand(script: string): string {
   return Buffer.from(script, 'utf16le').toString('base64');
 }
 
+function getPackageFamilyName(appUserModelId: string): string {
+  const separatorIndex = appUserModelId.indexOf('!');
+
+  return separatorIndex > 0 ? appUserModelId.slice(0, separatorIndex) : '';
+}
+
+function parseIconResolutionOutput(stdout: string): {
+  iconDataUrl: string | undefined;
+  packageInstallLocations: Map<string, string>;
+} {
+  const packageInstallLocations = new Map<string, string>();
+  let iconLine = '';
+
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+
+    if (line.length === 0) {
+      continue;
+    }
+
+    const packageMatch = PACKAGE_LIST_LINE_PATTERN.exec(line);
+
+    if (packageMatch !== null) {
+      const familyName = packageMatch[1];
+      const installLocation = packageMatch[2];
+
+      if (familyName !== undefined && installLocation !== undefined && installLocation.length > 0) {
+        packageInstallLocations.set(familyName, installLocation);
+      }
+
+      continue;
+    }
+
+    iconLine = line;
+  }
+
+  return {
+    iconDataUrl: IMAGE_DATA_URL_PATTERN.test(iconLine) ? iconLine : undefined,
+    packageInstallLocations,
+  };
+}
+
 function isValidAppUserModelId(appUserModelId: string): boolean {
   const trimmedAppUserModelId = appUserModelId.trim();
   const separatorIndex = trimmedAppUserModelId.indexOf('!');
@@ -140,6 +201,37 @@ export function createWindowsAppUserModelIconResolver({
   timeoutMs = DEFAULT_APP_USER_MODEL_ICON_TIMEOUT_MS,
 }: WindowsAppUserModelIconResolverOptions = {}): WindowsAppUserModelIconResolver {
   const iconCache = new Map<string, string | undefined>();
+  let packageInstallLocations: Map<string, string> | undefined;
+
+  async function runIconResolution(
+    appUserModelId: string,
+    installLocation: string | undefined,
+  ): Promise<string | undefined> {
+    const { stdout } = await execFile(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        createEncodedPowerShellCommand(createPowerShellScript(appUserModelId, installLocation)),
+      ],
+      {
+        windowsHide: true,
+        timeout: timeoutMs,
+        encoding: 'utf8',
+      },
+    );
+    const { iconDataUrl, packageInstallLocations: parsedPackageInstallLocations } =
+      parseIconResolutionOutput(stdout);
+
+    if (parsedPackageInstallLocations.size > 0) {
+      packageInstallLocations = parsedPackageInstallLocations;
+    }
+
+    return iconDataUrl;
+  }
 
   return {
     resolve: async (appUserModelId) => {
@@ -153,25 +245,17 @@ export function createWindowsAppUserModelIconResolver({
         return iconCache.get(trimmedAppUserModelId);
       }
 
+      const packageFamilyName = getPackageFamilyName(trimmedAppUserModelId);
+      const installLocation = packageInstallLocations?.get(packageFamilyName);
+
+      if (packageInstallLocations !== undefined && installLocation === undefined) {
+        setBoundedMapEntry(iconCache, trimmedAppUserModelId, undefined, memoryCacheMaxEntries);
+
+        return undefined;
+      }
+
       try {
-        const { stdout } = await execFile(
-          'powershell.exe',
-          [
-            '-NoProfile',
-            '-NonInteractive',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-EncodedCommand',
-            createEncodedPowerShellCommand(createPowerShellScript(trimmedAppUserModelId)),
-          ],
-          {
-            windowsHide: true,
-            timeout: timeoutMs,
-            encoding: 'utf8',
-          },
-        );
-        const dataUrl = stdout.trim();
-        const resolvedIcon = IMAGE_DATA_URL_PATTERN.test(dataUrl) ? dataUrl : undefined;
+        const resolvedIcon = await runIconResolution(trimmedAppUserModelId, installLocation);
 
         setBoundedMapEntry(iconCache, trimmedAppUserModelId, resolvedIcon, memoryCacheMaxEntries);
         return resolvedIcon;

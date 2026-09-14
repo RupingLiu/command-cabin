@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { act, createElement } from 'react';
+import type { Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DesktopApi } from '../../../preload/index.js';
 import {
   HOME_APP_GRID_LIMIT,
   getExecutableSelectedResult,
@@ -12,6 +15,7 @@ import {
   isHorizontalLauncherNavigation,
   openPluginPageFromExecutionResult,
   launcherReducer,
+  useLauncherController,
   type LauncherResultItem,
   type LauncherState,
 } from './useLauncherController.js';
@@ -623,6 +627,512 @@ describe('launcher screenshot capture action', () => {
     expect(dispatch).toHaveBeenCalledWith({
       errorMessage: 'Capture failed.',
       type: 'execution-failed',
+    });
+  });
+});
+
+// --- Minimal DOM shim so the debounced search effect can be mounted in the
+// node-only Vitest environment (react-dom/client requires a DOM host). ---
+
+interface FakeNodeLike {
+  nodeType: number;
+  nodeName: string;
+  nodeValue: string | null;
+  ownerDocument: FakeDocumentLike | null;
+  parentNode: FakeNodeLike | null;
+  childNodes: FakeNodeLike[];
+  firstChild: FakeNodeLike | null;
+  lastChild: FakeNodeLike | null;
+  nextSibling: FakeNodeLike | null;
+  previousSibling: FakeNodeLike | null;
+  textContent: string;
+  appendChild(child: FakeNodeLike): FakeNodeLike;
+  insertBefore(child: FakeNodeLike, ref: FakeNodeLike | null): FakeNodeLike;
+  removeChild(child: FakeNodeLike): FakeNodeLike;
+  addEventListener(): void;
+  removeEventListener(): void;
+  dispatchEvent(): boolean;
+  getRootNode(): FakeNodeLike;
+  contains(): boolean;
+}
+
+interface FakeElementLike extends FakeNodeLike {
+  tagName: string;
+  style: Record<string, unknown>;
+  attributes: Record<string, string>;
+  setAttribute(name: string, value: unknown): void;
+  getAttribute(name: string): string | null;
+  removeAttribute(name: string): void;
+  hasAttribute(name: string): boolean;
+  focus(): void;
+  blur(): void;
+  click(): void;
+}
+
+interface FakeDocumentLike extends FakeNodeLike {
+  documentElement: FakeElementLike;
+  body: FakeElementLike;
+  head: FakeElementLike;
+  activeElement: FakeElementLike | null;
+  createElement(tag: string): FakeElementLike;
+  createTextNode(text: string): FakeNodeLike;
+  createComment(text: string): FakeNodeLike;
+}
+
+interface FakeDom {
+  document: FakeDocumentLike;
+  window: Record<string, unknown>;
+}
+
+let installedFakeDom: FakeDom | undefined;
+
+function installFakeDom(): FakeDom {
+  if (installedFakeDom !== undefined) {
+    return installedFakeDom;
+  }
+
+  const g = globalThis as Record<string, unknown>;
+
+  function detachChild(node: FakeNodeLike): void {
+    if (node.parentNode !== null) {
+      node.parentNode.removeChild(node);
+    }
+  }
+
+  class FakeNode implements FakeNodeLike {
+    nodeType = 0;
+    nodeName = '';
+    nodeValue: string | null = null;
+    ownerDocument: FakeDocumentLike | null = null;
+    parentNode: FakeNodeLike | null = null;
+    childNodes: FakeNodeLike[] = [];
+    firstChild: FakeNodeLike | null = null;
+    lastChild: FakeNodeLike | null = null;
+    nextSibling: FakeNodeLike | null = null;
+    previousSibling: FakeNodeLike | null = null;
+    textContent = '';
+
+    appendChild(child: FakeNodeLike): FakeNodeLike {
+      detachChild(child);
+      child.parentNode = this;
+      this.childNodes.push(child);
+      if (this.firstChild === null) {
+        this.firstChild = child;
+      }
+      if (this.lastChild !== null) {
+        this.lastChild.nextSibling = child;
+        child.previousSibling = this.lastChild;
+      }
+      this.lastChild = child;
+      return child;
+    }
+
+    insertBefore(child: FakeNodeLike, ref: FakeNodeLike | null): FakeNodeLike {
+      detachChild(child);
+      child.parentNode = this;
+      if (ref === null) {
+        return this.appendChild(child);
+      }
+      const index = this.childNodes.indexOf(ref);
+      if (index < 0) {
+        return this.appendChild(child);
+      }
+      this.childNodes.splice(index, 0, child);
+      child.nextSibling = ref;
+      child.previousSibling = ref.previousSibling;
+      if (ref.previousSibling !== null) {
+        ref.previousSibling.nextSibling = child;
+      }
+      ref.previousSibling = child;
+      if (this.firstChild === ref) {
+        this.firstChild = child;
+      }
+      return child;
+    }
+
+    removeChild(child: FakeNodeLike): FakeNodeLike {
+      const index = this.childNodes.indexOf(child);
+      if (index < 0) {
+        return child;
+      }
+      this.childNodes.splice(index, 1);
+      if (child.previousSibling !== null) {
+        child.previousSibling.nextSibling = child.nextSibling;
+      }
+      if (child.nextSibling !== null) {
+        child.nextSibling.previousSibling = child.previousSibling;
+      }
+      if (this.firstChild === child) {
+        this.firstChild = child.nextSibling;
+      }
+      if (this.lastChild === child) {
+        this.lastChild = child.previousSibling;
+      }
+      child.parentNode = null;
+      child.previousSibling = null;
+      child.nextSibling = null;
+      return child;
+    }
+
+    addEventListener(): void {}
+    removeEventListener(): void {}
+    dispatchEvent(): boolean {
+      return false;
+    }
+    getRootNode(): FakeNodeLike {
+      return this.ownerDocument ?? this;
+    }
+    contains(): boolean {
+      return true;
+    }
+  }
+
+  class FakeTextNode extends FakeNode {
+    nodeType = 3;
+    nodeName = '#text';
+    nodeValue: string;
+    textContent: string;
+
+    constructor(text: string) {
+      super();
+      this.nodeValue = text;
+      this.textContent = text;
+    }
+  }
+
+  class FakeCommentNode extends FakeNode {
+    nodeType = 8;
+    nodeName = '#comment';
+    nodeValue: string;
+    textContent: string;
+
+    constructor(text: string) {
+      super();
+      this.nodeValue = text;
+      this.textContent = text;
+    }
+  }
+
+  class FakeElement extends FakeNode implements FakeElementLike {
+    nodeType = 1;
+    nodeName: string;
+    tagName: string;
+    style: Record<string, unknown> = {};
+    attributes: Record<string, string> = {};
+
+    constructor(tag: string) {
+      super();
+      this.nodeName = tag.toUpperCase();
+      this.tagName = this.nodeName;
+    }
+
+    setAttribute(name: string, value: unknown): void {
+      this.attributes[name] = String(value);
+    }
+
+    getAttribute(name: string): string | null {
+      return this.attributes[name] ?? null;
+    }
+
+    removeAttribute(name: string): void {
+      delete this.attributes[name];
+    }
+
+    hasAttribute(name: string): boolean {
+      return name in this.attributes;
+    }
+
+    focus(): void {}
+    blur(): void {}
+    click(): void {}
+  }
+
+  const documentElement = new FakeElement('html');
+  const fakeDocument = new FakeNode() as FakeDocumentLike;
+  fakeDocument.nodeType = 9;
+  fakeDocument.nodeName = '#document';
+  fakeDocument.documentElement = documentElement;
+  fakeDocument.body = new FakeElement('body');
+  fakeDocument.head = new FakeElement('head');
+  fakeDocument.activeElement = null;
+  fakeDocument.createElement = (tag: string) => {
+    const element = new FakeElement(tag);
+    element.ownerDocument = fakeDocument;
+    return element;
+  };
+  fakeDocument.createTextNode = (text: string) => {
+    const node = new FakeTextNode(text);
+    node.ownerDocument = fakeDocument;
+    return node;
+  };
+  fakeDocument.createComment = (text: string) => {
+    const node = new FakeCommentNode(text);
+    node.ownerDocument = fakeDocument;
+    return node;
+  };
+  documentElement.ownerDocument = fakeDocument;
+  fakeDocument.body.ownerDocument = fakeDocument;
+  fakeDocument.head.ownerDocument = fakeDocument;
+
+  class FakeHTMLElement {}
+  class FakeSVGElement {}
+  class FakeHTMLIFrameElement {}
+
+  const fakeWindow = {
+    addEventListener(): void {},
+    removeEventListener(): void {},
+    dispatchEvent(): boolean {
+      return false;
+    },
+    document: fakeDocument,
+    HTMLIFrameElement: FakeHTMLIFrameElement,
+    navigator: {
+      userAgent: 'node',
+      platform: 'linux',
+    },
+    devicePixelRatio: 1,
+    innerWidth: 1024,
+    innerHeight: 768,
+  };
+
+  const htmlElementNames = [
+    'HTMLAnchorElement',
+    'HTMLButtonElement',
+    'HTMLCanvasElement',
+    'HTMLDivElement',
+    'HTMLFormElement',
+    'HTMLHeadingElement',
+    'HTMLIFrameElement',
+    'HTMLImageElement',
+    'HTMLLIElement',
+    'HTMLLabelElement',
+    'HTMLOptionElement',
+    'HTMLParagraphElement',
+    'HTMLSelectElement',
+    'HTMLSpanElement',
+    'HTMLTextAreaElement',
+    'HTMLUListElement',
+    'HTMLUnknownElement',
+    'HTMLInputElement',
+    'HTMLVideoElement',
+    'HTMLAudioElement',
+  ];
+
+  g.window = fakeWindow;
+  g.document = fakeDocument;
+  g.HTMLElement = FakeHTMLElement;
+  g.SVGElement = FakeSVGElement;
+  for (const name of htmlElementNames) {
+    g[name] = name === 'HTMLIFrameElement' ? FakeHTMLIFrameElement : FakeHTMLElement;
+  }
+  g.IS_REACT_ACT_ENVIRONMENT = true;
+
+  installedFakeDom = {
+    document: fakeDocument,
+    window: fakeWindow,
+  };
+  return installedFakeDom;
+}
+
+function createSearchCommandsMock() {
+  return vi.fn(async (query: string): Promise<LauncherResultItem[]> => {
+    return query.trim().length === 0 ? [] : [createResult(`result.${query}`)];
+  });
+}
+
+function createLauncherDesktopApiMock(
+  searchCommands: ReturnType<typeof createSearchCommandsMock>,
+): DesktopApi {
+  const desktopApi = {
+    addFavorite: async () => undefined,
+    addPinnedApp: async () => undefined,
+    addPinnedAppCandidate: async () => undefined,
+    checkForUpdates: async () => undefined,
+    clearClipboardHistory: async () => 0,
+    executeCommand: async () => undefined,
+    getAppInfo: () => ({
+      name: 'CommandCabin',
+      version: '0.0.0',
+      versions: {
+        chrome: 'Chromium',
+        electron: 'Electron',
+        node: 'Node',
+      },
+    }),
+    getDataDirectory: async () => ({ path: '' }),
+    getSettings: async () => ({ preserveSearchQuery: false }),
+    getUpdateStatus: async () => undefined,
+    hideLauncher: async () => undefined,
+    installPlugin: async () => undefined,
+    installUpdate: async () => undefined,
+    listAppCandidates: async () => [],
+    listFavorites: async () => [],
+    listPlugins: async () => [],
+    onFocusSearchInput: () => () => undefined,
+    onHotkeyInputCapture: () => () => undefined,
+    onOpenSettings: () => () => undefined,
+    onSearchResultIconsUpdated: () => () => undefined,
+    onUpdateStatusChanged: () => () => undefined,
+    openDataDirectory: async () => ({ path: '' }),
+    openRepository: async () => false,
+    pluginHost: {
+      createEntry: async () => undefined,
+      getBridgeInfo: () => ({ channel: '', methods: [] }),
+      getPluginBridgePreloadPath: () => '',
+      releaseEntry: async () => false,
+    },
+    removeFavorite: async () => false,
+    removePlugin: async () => false,
+    removeRecentApp: async () => false,
+    searchCommands,
+    setPluginEnabled: async () => undefined,
+    startHotkeyInputCapture: async () => false,
+    stopHotkeyInputCapture: async () => true,
+    updatePinnedApp: async () => undefined,
+    updateFavorite: async () => undefined,
+    updateSettings: async () => undefined,
+  };
+
+  return desktopApi as unknown as DesktopApi;
+}
+
+describe('launcher search debounce', () => {
+  let container: FakeElementLike;
+  let root: Root;
+  let searchCommands: ReturnType<typeof createSearchCommandsMock>;
+  let harnessController: ReturnType<typeof useLauncherController> | undefined;
+
+  function LauncherControllerHarness(): null {
+    harnessController = useLauncherController();
+    return null;
+  }
+
+  beforeEach(async () => {
+    const dom = installFakeDom();
+    searchCommands = createSearchCommandsMock();
+    dom.window.desktopApi = createLauncherDesktopApiMock(searchCommands);
+    const { createRoot } = await import('react-dom/client');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    container = dom.document.createElement('div');
+    root = createRoot(container as unknown as Element);
+    await act(async () => {
+      root.render(createElement(LauncherControllerHarness));
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('enters the loading state immediately but does not search within 150ms of a query change', async () => {
+    await act(async () => {
+      harnessController!.setQuery('wps');
+    });
+
+    expect(harnessController!.state).toMatchObject({
+      query: 'wps',
+      status: 'loading',
+    });
+    expect(searchCommands).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(149);
+    });
+    expect(searchCommands).not.toHaveBeenCalled();
+  });
+
+  it('calls searchCommands once after the 150ms debounce window', async () => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+
+    expect(searchCommands).toHaveBeenCalledTimes(1);
+    expect(searchCommands).toHaveBeenCalledWith('');
+  });
+
+  it('coalesces rapid query changes into a single search for the final query', async () => {
+    await act(async () => {
+      harnessController!.setQuery('a');
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+    });
+    await act(async () => {
+      harnessController!.setQuery('ab');
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+    });
+    await act(async () => {
+      harnessController!.setQuery('abc');
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(149);
+    });
+    expect(searchCommands).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(searchCommands).toHaveBeenCalledTimes(1);
+    expect(searchCommands).toHaveBeenCalledWith('abc');
+  });
+
+  it('cancels the pending debounced search when the launcher unmounts', async () => {
+    await act(async () => {
+      vi.advanceTimersByTime(100);
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(searchCommands).not.toHaveBeenCalled();
+  });
+
+  it('still ignores stale search results after the debounce window', async () => {
+    const pending: Array<{ query: string; resolve: (results: LauncherResultItem[]) => void }> = [];
+    searchCommands.mockImplementation(
+      (query: string) =>
+        new Promise<LauncherResultItem[]>((resolve) => {
+          pending.push({ query, resolve });
+        }),
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(searchCommands).toHaveBeenCalledTimes(1);
+    expect(searchCommands).toHaveBeenCalledWith('');
+
+    await act(async () => {
+      harnessController!.setQuery('alpha');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(searchCommands).toHaveBeenCalledTimes(2);
+    expect(searchCommands).toHaveBeenCalledWith('alpha');
+
+    await act(async () => {
+      pending[0]!.resolve([createResult('stale.alpha')]);
+    });
+    expect(harnessController!.state).toMatchObject({
+      query: 'alpha',
+      results: [],
+      status: 'loading',
+    });
+
+    await act(async () => {
+      pending[1]!.resolve([createResult('alpha')]);
+    });
+    expect(harnessController!.state).toMatchObject({
+      query: 'alpha',
+      results: [{ id: 'alpha' }],
+      status: 'ready',
     });
   });
 });

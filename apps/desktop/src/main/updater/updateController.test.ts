@@ -347,4 +347,92 @@ describe('createUpdateController', () => {
     expect(controller.installUpdate()).toEqual({ ok: true });
     expect(updater.quitAndInstall).toHaveBeenCalledOnce();
   });
+
+  it('throttles a second manual check within the cooldown window', async () => {
+    vi.useFakeTimers();
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    await controller.checkForUpdates();
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+
+    const publishesBefore = sender.send.mock.calls.length;
+
+    await expect(controller.checkForUpdates()).resolves.toMatchObject({
+      canCheck: true,
+      phase: 'up-to-date',
+    });
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+    expect(sender.send).toHaveBeenCalledTimes(publishesBefore);
+  });
+
+  it('starts a new manual check after the cooldown window elapses', async () => {
+    vi.useFakeTimers();
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    await controller.checkForUpdates();
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 1);
+
+    await controller.checkForUpdates();
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not throttle automatic checks', async () => {
+    vi.useFakeTimers();
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      automaticCheckIntervalMs: 1_000,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    await controller.checkForUpdates();
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+
+    controller.startAutomaticCheck();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry a failed manual check within the cooldown window', async () => {
+    vi.useFakeTimers();
+    updater.checkForUpdates = vi.fn(async () => {
+      throw new Error('Network down');
+    });
+    const controller = createUpdateController({
+      autoUpdater: updater,
+      getWindows: () => [sender],
+      isPackaged: true,
+      logger: console,
+    });
+
+    await expect(controller.checkForUpdates()).resolves.toMatchObject({
+      error: 'Network down',
+      phase: 'error',
+    });
+
+    await controller.checkForUpdates();
+
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+  });
 });

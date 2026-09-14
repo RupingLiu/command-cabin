@@ -35,7 +35,10 @@ export interface PluginLifecycleClock {
 export interface CreatePluginLogStoreOptions {
   sink?: PluginLogSink;
   clock?: PluginLifecycleClock;
+  maxEntries?: number;
 }
+
+const DEFAULT_MAX_PLUGIN_LOG_ENTRIES = 1000;
 
 export interface CreatePluginContextOptions {
   manifest: PluginManifest;
@@ -116,7 +119,10 @@ function normalizePluginLogMessage(message: unknown): string {
 }
 
 export function createPluginLogStore(options: CreatePluginLogStoreOptions = {}): PluginLogStore {
-  const entries: PluginLogEntry[] = [];
+  const maxEntries = Math.max(1, Math.floor(options.maxEntries ?? DEFAULT_MAX_PLUGIN_LOG_ENTRIES));
+  const entries = new Array<PluginLogEntry | undefined>(maxEntries);
+  let head = 0;
+  let size = 0;
   const clock = options.clock ?? (() => new Date());
 
   return {
@@ -140,15 +146,36 @@ export function createPluginLogStore(options: CreatePluginLogStoreOptions = {}):
         logEntry.details = details;
       }
 
-      entries.push(logEntry);
-      options.sink?.(clonePluginLogEntry(logEntry));
+      entries[(head + size) % maxEntries] = logEntry;
 
-      return clonePluginLogEntry(logEntry);
+      if (size < maxEntries) {
+        size += 1;
+      } else {
+        head = (head + 1) % maxEntries;
+      }
+
+      const exposedEntry: PluginLogEntry = { ...logEntry };
+      options.sink?.(exposedEntry);
+
+      return exposedEntry;
     },
-    list: (pluginId) =>
-      entries
-        .filter((entry) => pluginId === undefined || entry.pluginId === pluginId)
-        .map(clonePluginLogEntry),
+    list: (pluginId) => {
+      const listedEntries: PluginLogEntry[] = [];
+
+      for (let index = 0; index < size; index += 1) {
+        const entry = entries[(head + index) % maxEntries];
+
+        if (entry === undefined) {
+          continue;
+        }
+
+        if (pluginId === undefined || entry.pluginId === pluginId) {
+          listedEntries.push(clonePluginLogEntry(entry));
+        }
+      }
+
+      return listedEntries;
+    },
   };
 }
 

@@ -1,11 +1,17 @@
 import type {
   CommandActionType,
   CommandExecutionFailure,
-  CommandExecutionMetadata,
   CommandExecutionResult,
   CommandSource,
-  CommandJsonValue,
 } from '@command-cabin/core';
+
+import {
+  isRecord,
+  parseFiniteNumber,
+  parseOptionalString,
+  parseString,
+  sanitizeJsonObject,
+} from './parsers.js';
 
 export interface LauncherCommandSearchResult {
   id: string;
@@ -36,39 +42,6 @@ const commandExecutionFailureCodes = new Set<CommandExecutionFailure['error']['c
   'invalid-result',
 ]);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function parseString(value: unknown, context: string): string {
-  if (typeof value !== 'string') {
-    throw new Error(`${context} must be a string.`);
-  }
-
-  return value;
-}
-
-function parseOptionalString(value: unknown, context: string): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  return parseString(value, context);
-}
-
-function parseFiniteNumber(value: unknown, context: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${context} must be a finite number.`);
-  }
-
-  return value;
-}
-
 function parseCommandSource(value: unknown, context: string): CommandSource {
   const source = parseString(value, context);
 
@@ -87,41 +60,6 @@ function parseCommandActionType(value: unknown, context: string): CommandActionT
   }
 
   return actionType as CommandActionType;
-}
-
-function sanitizeJsonValue(value: unknown, context: string): CommandJsonValue {
-  if (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'boolean' ||
-    (typeof value === 'number' && Number.isFinite(value))
-  ) {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item, index) => sanitizeJsonValue(item, `${context}[${index}]`));
-  }
-
-  if (isRecord(value)) {
-    return sanitizeJsonObject(value, context);
-  }
-
-  throw new Error(`${context} must be JSON-compatible.`);
-}
-
-function sanitizeJsonObject(value: unknown, context: string): CommandExecutionMetadata {
-  if (!isRecord(value)) {
-    throw new Error(`${context} must be a plain object.`);
-  }
-
-  const sanitized: CommandExecutionMetadata = {};
-
-  for (const [key, nestedValue] of Object.entries(value)) {
-    sanitized[key] = sanitizeJsonValue(nestedValue, `${context}.${key}`);
-  }
-
-  return sanitized;
 }
 
 function parseSearchResult(value: unknown, index: number): LauncherCommandSearchResult {

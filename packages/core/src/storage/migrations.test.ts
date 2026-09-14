@@ -11,7 +11,7 @@ describe('storage migrations', () => {
       const firstRun = runMigrations(database);
       const secondRun = runMigrations(database);
 
-      expect(firstRun.appliedMigrationIds).toEqual([1, 2, 3, 4]);
+      expect(firstRun.appliedMigrationIds).toEqual([1, 2, 3, 4, 5]);
       expect(secondRun.appliedMigrationIds).toEqual([]);
 
       const tableRows = database
@@ -53,7 +53,96 @@ describe('storage migrations', () => {
         { id: 2, name: '002_favorites' },
         { id: 3, name: '003_clipboard_history' },
         { id: 4, name: '004_plugin_root' },
+        { id: 5, name: '005_clipboard_history_normalized_text' },
       ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('adds the normalized_text column and index to clipboard_history', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+
+      const clipboardHistoryColumns = database.pragma('table_info(clipboard_history)') as Array<{
+        name: string;
+        type: string;
+        notnull: number;
+        dflt_value: string | null;
+      }>;
+
+      expect(clipboardHistoryColumns.map((column) => column.name)).toEqual([
+        'id',
+        'text',
+        'copied_at',
+        'normalized_text',
+      ]);
+
+      const normalizedTextColumn = clipboardHistoryColumns.find(
+        (column) => column.name === 'normalized_text',
+      );
+
+      expect(normalizedTextColumn).toEqual(
+        expect.objectContaining({
+          type: 'TEXT',
+          notnull: 1,
+          dflt_value: "''",
+        }),
+      );
+
+      const indexRows = database
+        .prepare(
+          `
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'index'
+              AND name = 'idx_clipboard_history_normalized_text'
+          `,
+        )
+        .all() as Array<{ name: string }>;
+
+      expect(indexRows).toEqual([{ name: 'idx_clipboard_history_normalized_text' }]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('applies migration 4 idempotently when plugin_root already exists', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      database.exec(`
+        CREATE TABLE migrations (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          applied_at TEXT NOT NULL
+        );
+
+        INSERT INTO migrations (id, name, applied_at)
+        VALUES
+          (1, '001_initial_storage', '2026-05-15T10:00:00.000Z'),
+          (2, '002_favorites', '2026-05-15T10:00:00.000Z');
+
+        CREATE TABLE plugins (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          version TEXT NOT NULL,
+          description TEXT,
+          main TEXT NOT NULL,
+          ui TEXT,
+          enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+          permissions TEXT NOT NULL DEFAULT '[]',
+          installed_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          plugin_root TEXT
+        );
+      `);
+
+      const result = runMigrations(database);
+
+      expect(result.appliedMigrationIds).toEqual([3, 4, 5]);
     } finally {
       database.close();
     }

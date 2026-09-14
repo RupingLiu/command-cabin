@@ -36,6 +36,7 @@ export interface AppIndexer {
   load: () => Promise<AppIndexSnapshot | undefined>;
   refresh: () => Promise<AppIndexSnapshot>;
   getCommands: () => Command[];
+  getCommandsVersion: () => number;
   startAutoRefresh: () => void;
   stopAutoRefresh: () => void;
 }
@@ -276,10 +277,16 @@ export function createAppIndexer(options: AppIndexerOptions = {}): AppIndexer {
   const now = options.now ?? (() => new Date());
   const refreshIntervalMs = options.refreshIntervalMs;
   let commands: Command[] = [];
+  let commandsVersion = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
   let refreshInFlight: Promise<AppIndexSnapshot> | undefined;
   let mutationGeneration = 0;
   let latestSnapshot: AppIndexSnapshot | undefined;
+
+  function setCommands(nextCommands: Command[]): void {
+    commands = nextCommands;
+    commandsVersion += 1;
+  }
 
   function cloneSnapshot(snapshot: AppIndexSnapshot): AppIndexSnapshot {
     return {
@@ -292,17 +299,20 @@ export function createAppIndexer(options: AppIndexerOptions = {}): AppIndexer {
   async function performRefresh(): Promise<AppIndexSnapshot> {
     mutationGeneration += 1;
     const scanResult = await scanner.scan();
+    // dedupeAppCommands already produces fresh command clones; reuse them directly.
     const nextCommands = createAppCommandsFromShortcuts(scanResult.shortcuts);
     const cacheSnapshot = await options.cache?.write(nextCommands);
     const snapshot: AppIndexSnapshot = {
-      commands: cloneSnapshotCommands(nextCommands),
+      commands: nextCommands,
       failures: [...scanResult.failures],
       scannedAt: cacheSnapshot?.scannedAt ?? now().toISOString(),
       source: 'scan',
     };
 
-    commands = cloneSnapshotCommands(snapshot.commands);
-    latestSnapshot = cloneSnapshot(snapshot);
+    // Internal state shares the snapshot's arrays/object; getCommands() re-clones at the
+    // boundary, and the returned snapshot below is the single external clone.
+    setCommands(snapshot.commands);
+    latestSnapshot = snapshot;
 
     return cloneSnapshot(snapshot);
   }
@@ -360,14 +370,17 @@ export function createAppIndexer(options: AppIndexerOptions = {}): AppIndexer {
         return refresh();
       }
 
+      // createSnapshotFromCache already clones cache commands (dedupeAppCommands), isolating
+      // snapshot.commands from the cache's internal data; share it from here on.
       const snapshot = createSnapshotFromCache(cacheSnapshot);
-      commands = cloneSnapshotCommands(snapshot.commands);
-      latestSnapshot = cloneSnapshot(snapshot);
+      setCommands(snapshot.commands);
+      latestSnapshot = snapshot;
 
       return cloneSnapshot(snapshot);
     },
     refresh,
     getCommands: () => cloneSnapshotCommands(commands),
+    getCommandsVersion: () => commandsVersion,
     startAutoRefresh: () => {
       if (timer !== undefined || refreshIntervalMs === undefined || refreshIntervalMs <= 0) {
         return;

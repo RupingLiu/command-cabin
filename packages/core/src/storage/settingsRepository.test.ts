@@ -390,4 +390,183 @@ describe('SQLite settings repository', () => {
       database.close();
     }
   });
+
+  it('serves cached settings when the settings row is tampered with after the first read', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      database
+        .prepare(
+          `
+            INSERT INTO settings (key, value, updated_at)
+            VALUES (
+              'command-cabin',
+              '{"hotkey":"Ctrl+Space","theme":"dark","search":{"maxResults":12}}',
+              '2026-05-15T10:00:00.000Z'
+            )
+          `,
+        )
+        .run();
+      const repository = createSettingsRepository(database);
+
+      expect(repository.getSettings()).toMatchObject({
+        hotkey: 'Ctrl+Space',
+        search: {
+          maxResults: 12,
+        },
+      });
+
+      database
+        .prepare(
+          `
+            UPDATE settings
+            SET value = '{"hotkey":"Tampered+Space","search":{"maxResults":1}}'
+            WHERE key = 'command-cabin'
+          `,
+        )
+        .run();
+
+      expect(repository.getSettings()).toMatchObject({
+        hotkey: 'Ctrl+Space',
+        search: {
+          maxResults: 12,
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('serves cached settings when the settings row is deleted after the first read', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      database
+        .prepare(
+          `
+            INSERT INTO settings (key, value, updated_at)
+            VALUES (
+              'command-cabin',
+              '{"hotkey":"Ctrl+Space","theme":"dark","search":{"maxResults":12}}',
+              '2026-05-15T10:00:00.000Z'
+            )
+          `,
+        )
+        .run();
+      const repository = createSettingsRepository(database);
+
+      expect(repository.getSettings().hotkey).toBe('Ctrl+Space');
+
+      database.prepare(`DELETE FROM settings WHERE key = 'command-cabin'`).run();
+
+      expect(repository.getSettings()).toMatchObject({
+        hotkey: 'Ctrl+Space',
+        search: {
+          maxResults: 12,
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('refreshes the cache on updateSettings and ignores later direct database changes', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createSettingsRepository(database);
+
+      repository.updateSettings({
+        hotkey: 'Ctrl+Shift+Space',
+        search: {
+          maxResults: 8,
+        },
+      });
+
+      expect(repository.getSettings()).toMatchObject({
+        hotkey: 'Ctrl+Shift+Space',
+        search: {
+          maxResults: 8,
+        },
+      });
+
+      database
+        .prepare(
+          `
+            UPDATE settings
+            SET value = '{"hotkey":"Tampered+Space","search":{"maxResults":1}}'
+            WHERE key = 'command-cabin'
+          `,
+        )
+        .run();
+
+      expect(repository.getSettings()).toMatchObject({
+        hotkey: 'Ctrl+Shift+Space',
+        search: {
+          maxResults: 8,
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('resets the cache to defaults and ignores later database tampering', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createSettingsRepository(database);
+
+      repository.updateSettings({ hotkey: 'Ctrl+Alt+Space', launchAtLogin: true });
+      repository.resetSettings();
+
+      database
+        .prepare(
+          `
+            UPDATE settings
+            SET value = '{"hotkey":"Tampered+Space","search":{"maxResults":1}}'
+            WHERE key = 'command-cabin'
+          `,
+        )
+        .run();
+
+      expect(repository.getSettings()).toMatchObject({
+        hotkey: 'Alt+Space',
+        launchAtLogin: false,
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it('returns independent objects from repeated getSettings calls', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createSettingsRepository(database);
+
+      const first = repository.getSettings();
+      const second = repository.getSettings();
+
+      expect(second).not.toBe(first);
+      expect(second.search).not.toBe(first.search);
+
+      first.hotkey = 'Mutated+Space';
+      first.search.maxResults = 99;
+
+      expect(second).toMatchObject({
+        hotkey: 'Alt+Space',
+        search: {
+          maxResults: 20,
+        },
+      });
+    } finally {
+      database.close();
+    }
+  });
 });

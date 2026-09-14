@@ -115,6 +115,7 @@ command-cabin/
 ├─ docs/
 │  ├─ product/                 产品策略、版本策略和发布检查清单
 │  └─ assets/screenshots/      README 和文档使用的截图资源
+├─ native/                     原生版（Rust + Slint）Cargo 工作区，开发中
 └─ release/                    本地打包产物
 ```
 
@@ -194,6 +195,20 @@ CommandCabin 使用严格的 `x.y.z` 版本号：
 | `z`  | Bug 修复、协议规则修正、文案或体验优化、测试补强等不新增功能的改动。 |
 
 详细规则见 [docs/product/versioning-policy.md](./docs/product/versioning-policy.md)。
+
+## 原生版本（开发中）
+
+CommandCabin 正在开发原生（Rust + Slint）版本，目标是更小的安装包与更低的常驻内存，
+功能对齐现有 Windows 版本后作为长期发行形态。当前处于 v1.0 发布前收尾阶段，尚不随
+常规 Release 分发。
+
+- 代码位置：`native/`（Cargo 工作区：核心逻辑、存储、平台抽象、Windows 实现、应用壳）。
+- 本地构建：`powershell native/scripts/build.ps1 -Release`（产物输出到 `native/artifacts/`）。
+- Windows 安装包：`powershell native/scripts/build-installer.ps1`（产出
+  `CommandCabin-Setup-{version}.exe` 与 `.sha512` 校验文件）。
+- 测试与静态检查：`powershell native/scripts/build.ps1 -Test`、
+  `cargo clippy --workspace -- -D warnings`（在 `native/` 目录执行，工具链为
+  GNU stable Rust）。
 
 ## 当前状态
 

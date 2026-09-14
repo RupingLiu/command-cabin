@@ -2,6 +2,8 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 const CACHE_VERSION = 2;
+const DEFAULT_FLUSH_DELAY_MS = 500;
+const DEFAULT_FLUSH_MAX_WAIT_MS = 1_500;
 const DEFAULT_MAX_ENTRIES = 256;
 let temporaryFileSequence = 0;
 
@@ -12,9 +14,21 @@ export interface IconDataUrlCache {
 
 export interface IconDataUrlCacheOptions {
   cacheFilePath: string;
+  cancelFlush?: ((handle: unknown) => void) | undefined;
   clock?: (() => Date) | undefined;
+  flushDelayMs?: number | undefined;
+  flushMaxWaitMs?: number | undefined;
   logger?: Pick<Console, 'warn'> | undefined;
   maxEntries?: number | undefined;
+  scheduleFlush?: ((callback: () => void, delayMs: number) => unknown) | undefined;
+}
+
+function defaultScheduleFlush(callback: () => void, delayMs: number): unknown {
+  return setTimeout(callback, delayMs);
+}
+
+function defaultCancelFlush(handle: unknown): void {
+  clearTimeout(handle as ReturnType<typeof setTimeout>);
 }
 
 interface CachedIconEntry {
@@ -118,12 +132,19 @@ async function writeCacheFile({
 
 export function createIconDataUrlCache({
   cacheFilePath,
+  cancelFlush = defaultCancelFlush,
   clock = () => new Date(),
+  flushDelayMs = DEFAULT_FLUSH_DELAY_MS,
+  flushMaxWaitMs = DEFAULT_FLUSH_MAX_WAIT_MS,
   logger,
   maxEntries = DEFAULT_MAX_ENTRIES,
+  scheduleFlush = defaultScheduleFlush,
 }: IconDataUrlCacheOptions): IconDataUrlCache {
   let entriesPromise: Promise<Map<string, CachedIconEntry>> | undefined;
-  let writeQueue = Promise.resolve();
+  let firstDirtyAt: number | undefined;
+  let flushQueue = Promise.resolve();
+  let flushTimer: unknown | undefined;
+  let isDirty = false;
 
   async function getEntries(): Promise<Map<string, CachedIconEntry>> {
     entriesPromise ??= readCacheFile({
@@ -132,6 +153,40 @@ export function createIconDataUrlCache({
     });
 
     return entriesPromise;
+  }
+
+  async function flushEntries(): Promise<void> {
+    if (!isDirty) {
+      return;
+    }
+
+    isDirty = false;
+
+    try {
+      const entries = await getEntries();
+      await writeCacheFile({
+        cacheFilePath,
+        entries,
+      });
+    } catch (error) {
+      logger?.warn('Failed to write app icon cache.', error);
+    }
+  }
+
+  function queueFlush(): void {
+    flushQueue = flushQueue.then(() => flushEntries()).catch(() => undefined);
+  }
+
+  function scheduleFlushOnce(delayMs: number): void {
+    if (flushTimer !== undefined) {
+      cancelFlush(flushTimer);
+      flushTimer = undefined;
+    }
+
+    flushTimer = scheduleFlush(() => {
+      flushTimer = undefined;
+      queueFlush();
+    }, delayMs);
   }
 
   return {
@@ -145,21 +200,26 @@ export function createIconDataUrlCache({
         return;
       }
 
-      const writeOperation = writeQueue.then(async () => {
-        const entries = await getEntries();
+      const entries = await getEntries();
 
-        entries.set(key, {
-          cachedAt: clock().toISOString(),
-          dataUrl,
-        });
-        trimEntries(entries, maxEntries);
-        await writeCacheFile({
-          cacheFilePath,
-          entries,
-        });
+      entries.set(key, {
+        cachedAt: clock().toISOString(),
+        dataUrl,
       });
-      writeQueue = writeOperation.catch(() => undefined);
-      await writeOperation;
+      trimEntries(entries, maxEntries);
+      isDirty = true;
+
+      const now = clock().getTime();
+
+      if (firstDirtyAt === undefined) {
+        firstDirtyAt = now;
+        scheduleFlushOnce(flushDelayMs);
+      } else if (now - firstDirtyAt >= flushMaxWaitMs) {
+        firstDirtyAt = undefined;
+        scheduleFlushOnce(0);
+      } else {
+        scheduleFlushOnce(flushDelayMs);
+      }
     },
   };
 }

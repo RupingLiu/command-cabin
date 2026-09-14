@@ -43,10 +43,6 @@ function createSettingsFromPatch(settingsPatch: CommandCabinSettingsPatch): Comm
   return createInMemorySettingsStore(settingsPatch).getSettings();
 }
 
-function cloneSettings(settings: CommandCabinSettings): CommandCabinSettings {
-  return createInMemorySettingsStore(settings).getSettings();
-}
-
 function throwInvalidSettings(reason: string): never {
   throw new Error(`Invalid settings in ${formatStorageValueContext(SETTINGS_CONTEXT)}: ${reason}`);
 }
@@ -175,6 +171,24 @@ export function createSettingsRepository(
     `,
   );
 
+  let cachedSettings: CommandCabinSettings | undefined;
+
+  function loadCachedSettings(): CommandCabinSettings {
+    if (cachedSettings === undefined) {
+      const row = selectSettings.get({ key: SETTINGS_KEY });
+
+      if (!row) {
+        cachedSettings = createDefaultCommandCabinSettings();
+      } else {
+        cachedSettings = createSettingsFromPatch(
+          validateSettingsPatch(parseStorageJson<StorageJsonValue>(row.value, SETTINGS_CONTEXT)),
+        );
+      }
+    }
+
+    return cachedSettings;
+  }
+
   function saveSettings(settings: CommandCabinSettings): void {
     const validSettings = validateSettings(settings);
 
@@ -186,15 +200,7 @@ export function createSettingsRepository(
   }
 
   function getSettings(): CommandCabinSettings {
-    const row = selectSettings.get({ key: SETTINGS_KEY });
-
-    if (!row) {
-      return createDefaultCommandCabinSettings();
-    }
-
-    return createSettingsFromPatch(
-      validateSettingsPatch(parseStorageJson<StorageJsonValue>(row.value, SETTINGS_CONTEXT)),
-    );
+    return structuredClone(loadCachedSettings());
   }
 
   return {
@@ -202,14 +208,16 @@ export function createSettingsRepository(
     updateSettings: (settingsPatch) => {
       validateSettingsPatch(settingsPatch);
       const updatedSettings =
-        createInMemorySettingsStore(getSettings()).updateSettings(settingsPatch);
+        createInMemorySettingsStore(loadCachedSettings()).updateSettings(settingsPatch);
       saveSettings(updatedSettings);
-      return cloneSettings(updatedSettings);
+      cachedSettings = updatedSettings;
+      return structuredClone(updatedSettings);
     },
     resetSettings: () => {
       const defaultSettings = createDefaultCommandCabinSettings();
       saveSettings(defaultSettings);
-      return cloneSettings(defaultSettings);
+      cachedSettings = defaultSettings;
+      return structuredClone(defaultSettings);
     },
   };
 }

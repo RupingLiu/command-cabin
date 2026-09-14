@@ -217,6 +217,106 @@ describe('app indexer', () => {
     ).toBe(1);
   });
 
+  it('returns snapshot clones that callers may mutate without affecting internal state', async () => {
+    const scanner: AppIndexerScanner = {
+      scan: vi.fn(async () => ({
+        shortcuts: [
+          {
+            name: 'Calculator',
+            shortcutPath: 'C:\\StartMenu\\Calculator.lnk',
+            targetPath: 'C:\\Windows\\System32\\calc.exe',
+          },
+        ],
+        failures: [{ message: 'skipped one shortcut' }],
+      })),
+    };
+    const indexer = createAppIndexer({ scanner, cache: createCache() });
+
+    const snapshot = await indexer.refresh();
+    snapshot.commands[0]!.title = 'Mutated by caller';
+    snapshot.commands.push({
+      id: 'app.caller-injected',
+      source: 'app',
+      title: 'Injected',
+      keywords: [],
+      action: { type: 'open-app', payload: { executablePath: 'C:\\injected.exe' } },
+    });
+    snapshot.failures.push({ message: 'injected failure' });
+
+    expect(indexer.getCommands()).toHaveLength(1);
+    expect(indexer.getCommands()[0]).toMatchObject({ title: 'Calculator' });
+
+    // A later refresh still reflects the scanned (unmutated) data.
+    const secondSnapshot = await indexer.refresh();
+
+    expect(secondSnapshot.commands).toHaveLength(1);
+    expect(secondSnapshot.commands[0]).toMatchObject({ title: 'Calculator' });
+    expect(secondSnapshot.failures).toEqual([{ message: 'skipped one shortcut' }]);
+    expect(indexer.getCommands()).toHaveLength(1);
+  });
+
+  it('bumps the commands version whenever the in-memory commands change', async () => {
+    const scanner: AppIndexerScanner = {
+      scan: vi.fn(async () => ({
+        shortcuts: [
+          {
+            name: 'Calculator',
+            shortcutPath: 'C:\\StartMenu\\Calculator.lnk',
+            targetPath: 'C:\\Windows\\System32\\calc.exe',
+          },
+        ],
+        failures: [],
+      })),
+    };
+    const cache = createCache();
+    const indexer = createAppIndexer({ scanner, cache });
+
+    expect(indexer.getCommandsVersion()).toBe(0);
+
+    await indexer.refresh();
+
+    expect(indexer.getCommandsVersion()).toBe(1);
+
+    await indexer.refresh();
+
+    expect(indexer.getCommandsVersion()).toBe(2);
+  });
+
+  it('bumps the commands version when commands are loaded from cache', async () => {
+    const scanner: AppIndexerScanner = {
+      scan: async () => ({ shortcuts: [], failures: [] }),
+    };
+    const cachedSnapshot: AppIndexCacheSnapshot = {
+      version: 2,
+      scannedAt: '2026-05-16T01:00:00.000Z',
+      commands: [
+        {
+          id: 'app.cached',
+          source: 'app',
+          title: 'Cached',
+          keywords: [],
+          action: { type: 'open-app', payload: { executablePath: 'C:\\cached.exe' } },
+        },
+      ],
+    };
+    const cache: AppIndexCache = {
+      read: async () => cachedSnapshot,
+      write: async (commands) => ({
+        version: 2,
+        scannedAt: '2026-05-16T01:00:00.000Z',
+        commands: [...commands],
+      }),
+      isStale: () => false,
+    };
+    const indexer = createAppIndexer({ scanner, cache });
+
+    expect(indexer.getCommandsVersion()).toBe(0);
+
+    await indexer.load();
+
+    expect(indexer.getCommandsVersion()).toBe(1);
+  });
+
   it('shares one in-flight scan across concurrent manual refreshes', async () => {
     let finishScan: (() => void) | undefined;
     const scanner: AppIndexerScanner = {

@@ -1,0 +1,23 @@
+[package]
+name = "cabin-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+# preserve_order：serde_json::Map 改为插入序（IndexMap），对齐 JS 对象的
+# 键插入序——format-json 必须与 TS JSON.stringify(input, null, 2) 的键序一致。
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+unicode-normalization = "0.1"
+nucleo-matcher = "0.3"
+sha2 = "0.10"
+uuid = { version = "1", default-features = false, features = ["v4"] }
+
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+fontdue = "0.9"
+
+[lints]
+workspace = true

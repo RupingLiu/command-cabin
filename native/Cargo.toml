@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cabin-core",
+    "crates/cabin-storage",
+    "crates/cabin-platform",
+    "crates/cabin-platform-windows",
+    "crates/cabin-app",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "1.0.0"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

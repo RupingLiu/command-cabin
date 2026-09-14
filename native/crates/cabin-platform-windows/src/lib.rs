@@ -1,0 +1,15 @@
+pub mod autostart;
+pub mod capture;
+pub mod clipboard;
+pub mod exchange_rate;
+pub mod hotkey;
+pub mod icons;
+pub mod indexer;
+pub mod launcher;
+pub mod ocr;
+pub mod packaged_apps;
+pub mod save_dialog;
+pub mod single_instance;
+pub mod translate;
+pub mod tray;
+pub mod updater;

@@ -50,6 +50,12 @@ interface PluginRow {
   updated_at: string;
 }
 
+interface LeanPluginRow {
+  plugin_root: string | null;
+  enabled: 0 | 1;
+  installed_at: string;
+}
+
 interface PluginDataRow {
   key: string;
   value: string;
@@ -176,6 +182,13 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
       WHERE id = ?
     `,
   );
+  const selectPluginDefaults = database.prepare<[string], LeanPluginRow>(
+    `
+      SELECT plugin_root, enabled, installed_at
+      FROM plugins
+      WHERE id = ?
+    `,
+  );
   const selectPlugins = database.prepare<[], PluginRow>(
     `
       SELECT id, name, version, description, main, plugin_root, ui, enabled, permissions, installed_at, updated_at
@@ -183,19 +196,22 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
       ORDER BY name COLLATE NOCASE, id
     `,
   );
-  const upsertPlugin = database.prepare<{
-    id: string;
-    name: string;
-    version: string;
-    description: string | null;
-    main: string;
-    pluginRoot: string | null;
-    ui: string | null;
-    enabled: 0 | 1;
-    permissions: string;
-    installedAt: string;
-    updatedAt: string;
-  }>(
+  const upsertPlugin = database.prepare<
+    {
+      id: string;
+      name: string;
+      version: string;
+      description: string | null;
+      main: string;
+      pluginRoot: string | null;
+      ui: string | null;
+      enabled: 0 | 1;
+      permissions: string;
+      installedAt: string;
+      updatedAt: string;
+    },
+    PluginRow
+  >(
     `
       INSERT INTO plugins (
         id,
@@ -233,6 +249,18 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
         enabled = excluded.enabled,
         permissions = excluded.permissions,
         updated_at = excluded.updated_at
+      RETURNING
+        id,
+        name,
+        version,
+        description,
+        main,
+        plugin_root,
+        ui,
+        enabled,
+        permissions,
+        installed_at,
+        updated_at
     `,
   );
   const updateEnabled = database.prepare<{ id: string; enabled: 0 | 1; updatedAt: string }>(
@@ -305,21 +333,21 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
         input.permissions ?? [],
         permissionsContext,
       );
-      const existingPlugin = getPlugin(input.id);
+      const existingPlugin = selectPluginDefaults.get(input.id);
       const installedAt =
         input.installedAt === undefined
-          ? (existingPlugin?.installedAt ?? normalizePluginDate(new Date(), 'installedAt'))
+          ? (existingPlugin?.installed_at ?? normalizePluginDate(new Date(), 'installedAt'))
           : normalizePluginDate(input.installedAt, 'installedAt');
       const updatedAt = normalizePluginDate(input.updatedAt ?? new Date(), 'updatedAt');
-      const enabled = input.enabled ?? existingPlugin?.enabled ?? true;
+      const enabled = input.enabled ?? (existingPlugin ? existingPlugin.enabled === 1 : true);
 
-      upsertPlugin.run({
+      const plugin = upsertPlugin.get({
         id: input.id,
         name: input.name,
         version: input.version,
         description: input.description ?? null,
         main: input.main,
-        pluginRoot: input.pluginRoot ?? existingPlugin?.pluginRoot ?? null,
+        pluginRoot: input.pluginRoot ?? existingPlugin?.plugin_root ?? null,
         ui: input.ui ?? null,
         enabled: enabled ? 1 : 0,
         permissions: stringifyStorageJson(permissionValues, permissionsContext),
@@ -327,13 +355,11 @@ export function createPluginRepository(database: CommandCabinDatabase): PluginRe
         updatedAt,
       });
 
-      const plugin = getPlugin(input.id);
-
       if (!plugin) {
         throw new Error(`Plugin was not saved: ${input.id}`);
       }
 
-      return plugin;
+      return mapPluginRow(plugin);
     },
     getPlugin,
     listPlugins: () => selectPlugins.all().map(mapPluginRow),

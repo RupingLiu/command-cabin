@@ -17,9 +17,10 @@ export { createClipboardWatcher, type ClipboardWatcher } from './clipboardWatche
 export const CLIPBOARD_HISTORY_PLUGIN_ID = 'clipboard-history';
 export const CLIPBOARD_HISTORY_COMMAND_PREFIX = 'clipboard-history.entry.';
 const MAX_CLIPBOARD_PREVIEW_LENGTH = 93;
+const MAX_CLIPBOARD_PREVIEW_WINDOW = 200;
 
 function truncatePreview(text: string): string {
-  const singleLineText = text.replace(/\s+/g, ' ').trim();
+  const singleLineText = text.slice(0, MAX_CLIPBOARD_PREVIEW_WINDOW).replace(/\s+/g, ' ').trim();
 
   if (singleLineText.length <= MAX_CLIPBOARD_PREVIEW_LENGTH) {
     return singleLineText;
@@ -35,20 +36,24 @@ export function createClipboardHistoryCommandId(entryId: number): string {
 export function createClipboardHistoryCommands(
   entries: readonly ClipboardHistoryEntry[],
 ): Command[] {
-  return entries.map((entry) => ({
-    id: createClipboardHistoryCommandId(entry.id),
-    source: 'plugin',
-    title: 'Clipboard History',
-    subtitle: truncatePreview(entry.text),
-    keywords: ['clip', 'clipboard', 'history', truncatePreview(entry.text)],
-    pluginId: CLIPBOARD_HISTORY_PLUGIN_ID,
-    action: {
-      type: 'copy-text',
-      payload: {
-        text: entry.text,
+  return entries.map((entry) => {
+    const preview = truncatePreview(entry.text);
+
+    return {
+      id: createClipboardHistoryCommandId(entry.id),
+      source: 'plugin',
+      title: 'Clipboard History',
+      subtitle: preview,
+      keywords: ['clip', 'clipboard', 'history', preview],
+      pluginId: CLIPBOARD_HISTORY_PLUGIN_ID,
+      action: {
+        type: 'copy-text',
+        payload: {
+          text: entry.text,
+        },
       },
-    },
-  }));
+    };
+  });
 }
 
 export function isClipboardHistoryCommandId(commandId: string): boolean {

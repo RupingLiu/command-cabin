@@ -62,16 +62,20 @@ export interface ImageDataLike {
 export interface ComposeScreenshotSelectionOptions {
   annotations?: ScreenshotAnnotation[] | undefined;
   createCanvas?: (() => ScreenshotCanvasLike) | undefined;
+  decodedImages?: ReadonlyMap<string, CanvasImageSourceLike> | undefined;
   format: ScreenshotSaveFormat;
   jpegQuality?: number | undefined;
   launchState: ScreenshotLaunchState;
-  loadImage?: ((source: string) => Promise<CanvasImageSourceLike>) | undefined;
+  loadImage?:
+    | ((source: string, existingImage?: CanvasImageSourceLike) => Promise<CanvasImageSourceLike>)
+    | undefined;
   selection: ScreenshotRect;
 }
 
 export async function composeScreenshotSelection({
   annotations = [],
   createCanvas = createBrowserCanvas,
+  decodedImages,
   format,
   jpegQuality = 0.92,
   launchState,
@@ -93,7 +97,7 @@ export async function composeScreenshotSelection({
       continue;
     }
 
-    const image = await loadImage(display.imageDataUrl);
+    const image = await loadImage(display.imageDataUrl, decodedImages?.get(display.imageDataUrl));
     drawDisplayImage(context, image, display, selection, outputScale);
   }
 
@@ -363,12 +367,36 @@ function createBrowserCanvas(): ScreenshotCanvasLike {
   return document.createElement('canvas') as ScreenshotCanvasLike;
 }
 
-function loadBrowserImage(source: string): Promise<CanvasImageSourceLike> {
+export function loadBrowserImage(
+  source: string,
+  existingImage?: CanvasImageSourceLike,
+  createImage: () => HTMLImageElement = () => new Image(),
+): Promise<CanvasImageSourceLike> {
+  if (isLoadedImageForSource(existingImage, source)) {
+    return Promise.resolve(existingImage);
+  }
+
   return new Promise((resolve, reject) => {
-    const image = new Image();
+    const image = createImage();
 
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error('Unable to load screenshot display image.'));
     image.src = source;
   });
+}
+
+function isLoadedImageForSource(existingImage: unknown, source: string): boolean {
+  if (typeof existingImage !== 'object' || existingImage === null) {
+    return false;
+  }
+
+  const candidate = existingImage as {
+    complete?: unknown;
+    currentSrc?: unknown;
+    src?: unknown;
+  };
+
+  return (
+    candidate.complete === true && (candidate.src === source || candidate.currentSrc === source)
+  );
 }

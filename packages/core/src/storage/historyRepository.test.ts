@@ -269,4 +269,143 @@ describe('SQLite command history repository', () => {
       database.close();
     }
   });
+
+  it('returns lightweight ranking entries without parsing metadata', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createHistoryRepository(database);
+
+      repository.recordExecution({
+        commandId: 'app.notepad',
+        title: 'Notepad',
+        source: 'app',
+        executedAt: new Date('2026-05-15T10:00:00.000Z'),
+      });
+      database
+        .prepare(
+          `
+            INSERT INTO command_history (
+              command_id,
+              title,
+              source,
+              execution_count,
+              executed_at,
+              metadata
+            )
+            VALUES (
+              'app.broken',
+              'Broken',
+              'app',
+              1,
+              '2026-05-15T11:00:00.000Z',
+              '{bad-json'
+            )
+          `,
+        )
+        .run();
+
+      expect(repository.listRecentForRanking()).toEqual([
+        {
+          commandId: 'app.broken',
+          source: 'app',
+          executionCount: 1,
+          executedAt: '2026-05-15T11:00:00.000Z',
+        },
+        {
+          commandId: 'app.notepad',
+          source: 'app',
+          executionCount: 1,
+          executedAt: '2026-05-15T10:00:00.000Z',
+        },
+      ]);
+      expect(() => repository.getByCommandId('app.broken')).toThrow(
+        /Invalid JSON in command_history metadata for command "app.broken"/,
+      );
+      expect(() => repository.listRecent()).toThrow(
+        /Invalid JSON in command_history metadata for command "app.broken"/,
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  it('respects the ranking limit, including zero and the 100 cap', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createHistoryRepository(database);
+
+      for (let index = 0; index < 105; index += 1) {
+        repository.recordExecution({
+          commandId: `command.${index}`,
+          title: `Command ${index}`,
+          source: 'system',
+          executedAt: new Date(Date.UTC(2026, 4, 15, 10, index, 0)),
+        });
+      }
+
+      expect(repository.listRecentForRanking(0)).toEqual([]);
+      expect(repository.listRecentForRanking(10_000)).toHaveLength(100);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('repairs damaged metadata rows and returns the new entry via RETURNING', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createHistoryRepository(database);
+
+      database
+        .prepare(
+          `
+            INSERT INTO command_history (
+              command_id,
+              title,
+              source,
+              execution_count,
+              executed_at,
+              metadata
+            )
+            VALUES (
+              'app.notepad',
+              'Notepad',
+              'app',
+              1,
+              '2026-05-15T10:00:00.000Z',
+              '{bad-json'
+            )
+          `,
+        )
+        .run();
+
+      const entry = repository.recordExecution({
+        commandId: 'app.notepad',
+        title: 'Notepad',
+        source: 'app',
+        executedAt: new Date('2026-05-15T10:01:00.000Z'),
+        metadata: { matchedBy: 'hotkey' },
+      });
+
+      expect(entry).toMatchObject({
+        commandId: 'app.notepad',
+        title: 'Notepad',
+        source: 'app',
+        executionCount: 2,
+        executedAt: '2026-05-15T10:01:00.000Z',
+        metadata: { matchedBy: 'hotkey' },
+      });
+      expect(repository.getByCommandId('app.notepad')).toMatchObject({
+        executionCount: 2,
+        metadata: { matchedBy: 'hotkey' },
+      });
+    } finally {
+      database.close();
+    }
+  });
 });

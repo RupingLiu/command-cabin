@@ -1,0 +1,619 @@
+// CommandCabin 截图覆盖窗口（M3 Task 7）。
+//
+// 两阶段（对齐 TS ScreenshotOverlay 的派生 ready 语义）：
+// - Phase capture：显示捕获图像（选区外 22% 暗化对齐 TS box-shadow），拖拽画选区
+//   （1px 强调色边框 + 尺寸徽标；TS 边框为实线，非任务简报所述虚线）。
+// - Phase ready：选区非空即 ready（TS isScreenshotReadyToComplete 派生），
+//   显示六工具工具栏 + 样式组 + 撤销/重做 + OCR/翻译/置顶/保存 + 取消/完成。
+//
+// 键盘（对齐 TS getScreenshotGlobalKeyboardAction：TS 只有 Esc/Enter 两个全局键）：
+// - Esc → 取消整个会话（焦点在 key-scope 时）；文本输入框持有焦点时由输入框
+//   先行消费（对齐 TS target-owns-escape）。
+// - Enter → ready 时完成（对齐 TS target-owns-enter：焦点在输入框时不触发；
+//   本窗口内除文本输入框外均不持有焦点，语义等价）。
+// - 工具/撤销重做无 TS 快捷键（任务简报的 1-6/ctrl+z/y 在 TS 中不存在，不移植）。
+//
+// 指针：单个全窗 TouchArea（stage）以 pointer-event(kind) 分发 down/move/up/cancel，
+// 坐标为窗口本地逻辑 px（= 虚拟桌面逻辑坐标 - virtual_bounds 原点），换算在 Rust 侧。
+// prompt-input 声明在 stage 之后（Slint 后声明者输入层级更高），点击输入框不会
+// 落到 stage 上（否则会触发 CommitText 关闭提示、输入框永远无法获得焦点）。
+// 双击 → finish（对齐 TS onDoubleClick；TS event.detail>1 的拖拽抑制在 Rust 控制器
+// 以双击时间窗判定，Slint pointer-event 不携带 click count）。
+//
+// 标注渲染：栅格工具（矩形/椭圆/箭头/画笔/马赛克）由 Rust 侧栅格化进
+// annotation-layer（含选区底图像素，马赛克采样依赖它）；文字标注为矢量 Text
+// 元素叠加（Task 2 决策）。文本提示用 LineEdit（TS 为 textarea 多行：单行化 +
+// Enter 即提交为既定简化差异）。
+import { LineEdit } from "std-widgets.slint";
+
+/// 单个显示器的底图（Rust 侧已解码为位图；坐标为窗口本地逻辑 px）。
+export struct ScreenshotDisplayImage {
+    image: image,
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+}
+
+/// 文字标注矢量叠加（选区本地锚点 → 窗口坐标由 Rust 换算）。
+export struct ScreenshotTextAnnotation {
+    text: string,
+    x: length,
+    y: length,
+    font-size: length,
+    color: color,
+}
+
+/// 工具栏/提示文案（Rust 侧 i18n 按设置语言推送；键名对齐 TS screenshot.*）。
+export struct ScreenshotTexts {
+    tool-rectangle: string,
+    tool-ellipse: string,
+    tool-arrow: string,
+    tool-pen: string,
+    tool-mosaic: string,
+    tool-text: string,
+    undo: string,
+    redo: string,
+    ocr: string,
+    translate: string,
+    pin: string,
+    save: string,
+    cancel: string,
+    done: string,
+    prompt-placeholder: string,
+    /// M3 Task 8：screenshot.ocr.recognizing / screenshot.ocr.copyAll。
+    ocr-running: string,
+    ocr-copy-all: string,
+}
+
+/// 工具栏紧凑按钮（iconless：文字标签；accent = 完成按钮）。
+component tool-button inherits Rectangle {
+    in property <string> label;
+    in property <bool> accent: false;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 32px;
+    min-width: 44px;
+    border-radius: 6px;
+    background: accent ? #ff375f : (button-area.has-hover ? #ffffff33 : #ffffff22);
+    opacity: enabled ? 1.0 : 0.4;
+    button-area := TouchArea {
+        enabled: parent.enabled;
+        clicked => {
+            parent.clicked();
+        }
+    }
+    Text {
+        text: parent.label;
+        font-size: 11px;
+        color: #f9fafb;
+        overflow: elide;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component ScreenshotWindow inherits Window {
+    // 窗口尺寸/位置由 Rust 侧按虚拟桌面边界设置（set_position + 本属性）。
+    in-out property <length> bounds-width: 800px;
+    in-out property <length> bounds-height: 600px;
+    in property <[ScreenshotDisplayImage]> displays: [];
+    /// 标注层（含选区底图 + 栅格标注 + 草稿），Rust 侧整层重绘推送。
+    in property <image> annotation-layer;
+    in property <bool> has-selection: false;
+    in property <length> selection-x: 0px;
+    in property <length> selection-y: 0px;
+    in property <length> selection-width: 0px;
+    in property <length> selection-height: 0px;
+    in property <[ScreenshotTextAnnotation]> text-annotations: [];
+    /// 文本提示（TS pendingTextAnnotation + TextAnnotationInput）。
+    in-out property <bool> prompt-visible: false;
+    in-out property <string> prompt-value: "";
+    in property <length> prompt-x: 0px;
+    in property <length> prompt-y: 0px;
+    in property <length> prompt-font-size: 18px;
+    /// 活动工具（0 矩形 1 椭圆 2 箭头 3 画笔 4 马赛克 5 文字，TS toolOrder 序）。
+    in property <int> active-tool: 0;
+    in property <color> active-color: #ff3355;
+    in property <float> line-width: 3.0;
+    in property <float> font-size: 18.0;
+    in property <bool> can-undo: false;
+    in property <bool> can-redo: false;
+    in property <ScreenshotTexts> texts;
+    /// 工具栏位置（TS getScreenshotToolbarPlacement 移植值，窗口本地逻辑 px）。
+    in property <length> toolbar-x: 0px;
+    in property <length> toolbar-y: 0px;
+
+    // ---- M3 Task 8：OCR 结果面板 + 状态行（TS ScreenshotOverlay 的
+    // OcrPanel / screenshot-status，均显示在工具栏上方）----
+    in-out property <bool> ocr-visible: false;
+    in-out property <bool> ocr-running: false;
+    /// 复制全部按钮可用（TS copyOcrText：success 且非空文本才可复制）。
+    in-out property <bool> ocr-copyable: false;
+    in-out property <string> ocr-text: "";
+    /// unavailable/error 提示（TS data-tone 面板的消息行）。
+    in-out property <string> ocr-message: "";
+    /// 一次性状态提示（保存/置顶结果；TS screenshot-status）。
+    in-out property <string> status-message: "";
+
+    callback pointer-down(length, length);
+    callback pointer-move(length, length);
+    callback pointer-up(length, length);
+    callback pointer-cancel();
+    callback tool-selected(int);
+    callback color-selected(color);
+    callback line-width-selected(float);
+    callback font-size-selected(float);
+    callback undo-requested();
+    callback redo-requested();
+    callback ocr-requested();
+    callback translate-requested();
+    callback pin-requested();
+    callback save-requested();
+    callback finish-requested();
+    callback cancel-requested();
+    callback commit-text(string);
+    callback cancel-prompt();
+    callback ocr-copy-all-requested();
+
+    // TS 预设（ScreenshotOverlay.tsx:40-42）：色板/线宽/字号逐字。
+    property <[color]> swatches: [#ff3355, #f5c542, #60d394, #4aa3ff, #ffffff];
+    property <[float]> line-widths: [2.0, 4.0, 6.0];
+    property <[float]> font-sizes: [16.0, 22.0, 30.0];
+    // 线宽组对 lineStyleTools（矩形/椭圆/箭头/画笔）可见；字号组对文字工具可见。
+    property <bool> show-line-group: root.active-tool <= 3;
+    property <bool> show-font-group: root.active-tool == 5;
+
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    width: root.bounds-width;
+    height: root.bounds-height;
+    forward-focus: key-scope;
+    title: "CommandCabin Screenshot";
+
+    // 全局键盘（焦点持有者；文本提示打开时焦点交给 prompt-input）。
+    key-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.cancel-requested();
+                return accept;
+            }
+            if (event.text == Key.Return) {
+                root.finish-requested();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    // Rust 侧在会话显示/文本提示关闭后调用，把键盘焦点交还全局键处理
+    // （对齐 launcher.slint 的 focus-input 模式；forward-focus 仅首次隐式生效）。
+    public function refocus-scope() {
+        key-scope.focus();
+    }
+
+    // Rust 侧在文本提示打开时调用，把键盘焦点交给输入框
+    // （TS target-owns-escape/enter：提示打开期间 Esc/Enter 归输入框先行消费）。
+    public function focus-prompt() {
+        prompt-input.focus();
+    }
+
+    // 底图（各显示器，窗口本地逻辑坐标；先声明 = 输入层级最低）。
+    for display in root.displays: Image {
+        source: display.image;
+        x: display.x;
+        y: display.y;
+        width: display.width;
+        height: display.height;
+    }
+
+    // 选区外暗化（TS box-shadow 0 0 0 9999px rgba(15,17,23,.22) 的四矩形近似）。
+    if root.has-selection: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: max(0px, root.selection-y);
+        background: #0f111738;
+    }
+    if root.has-selection: Rectangle {
+        x: 0;
+        y: root.selection-y + root.selection-height;
+        width: root.width;
+        height: max(0px, root.height - root.selection-y - root.selection-height);
+        background: #0f111738;
+    }
+    if root.has-selection: Rectangle {
+        x: 0;
+        y: root.selection-y;
+        width: max(0px, root.selection-x);
+        height: root.selection-height;
+        background: #0f111738;
+    }
+    if root.has-selection: Rectangle {
+        x: root.selection-x + root.selection-width;
+        y: root.selection-y;
+        width: max(0px, root.width - root.selection-x - root.selection-width);
+        height: root.selection-height;
+        background: #0f111738;
+    }
+
+    // 标注层（含底图像素；马赛克在 Rust 侧采样本层底图内容）。
+    if root.has-selection: Image {
+        source: root.annotation-layer;
+        x: root.selection-x;
+        y: root.selection-y;
+        width: root.selection-width;
+        height: root.selection-height;
+    }
+
+    // 文字标注矢量叠加（锚点在选区左上，窗口坐标由 Rust 换算）。
+    for annotation in root.text-annotations: Text {
+        text: annotation.text;
+        x: annotation.x;
+        y: annotation.y;
+        font-size: annotation.font-size;
+        color: annotation.color;
+        wrap: no-wrap;
+    }
+
+    // 选区边框（TS 实线 1px 强调色）+ 尺寸徽标。
+    if root.has-selection: Rectangle {
+        x: root.selection-x;
+        y: root.selection-y;
+        width: root.selection-width;
+        height: root.selection-height;
+        border-width: 1px;
+        border-color: #ff375f;
+    }
+    if root.has-selection: Rectangle {
+        x: root.selection-x;
+        y: min(root.selection-y + root.selection-height + 4px, root.height - 22px);
+        width: size-label.preferred-width + 12px;
+        height: 20px;
+        border-radius: 10px;
+        background: #121826ad;
+        size-label := Text {
+            x: 6px;
+            y: 0;
+            height: 20px;
+            text: "\{Math.round(root.selection-width / 1px)} x \{Math.round(root.selection-height / 1px)}";
+            font-size: 11px;
+            color: #f9fafb;
+            vertical-alignment: center;
+        }
+    }
+
+    // 指针事件舞台（声明在文本提示输入之前：提示可见时输入框点击优先于舞台；
+    // 声明在工具栏之前 → 工具栏输入优先）。
+    stage := TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        mouse-cursor: MouseCursor.crosshair;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.pointer-down(self.mouse-x, self.mouse-y);
+            } else if (event.kind == PointerEventKind.up && event.button == PointerEventButton.left) {
+                root.pointer-up(self.mouse-x, self.mouse-y);
+            } else if (event.kind == PointerEventKind.move) {
+                root.pointer-move(self.mouse-x, self.mouse-y);
+            } else if (event.kind == PointerEventKind.cancel) {
+                root.pointer-cancel();
+            } else if (event.kind == PointerEventKind.down && event.button == PointerEventButton.right) {
+                // 右键 = 取消会话（对齐 TS onContextMenu → cancel）。
+                root.cancel-requested();
+            }
+        }
+        double-clicked => {
+            root.finish-requested();
+        }
+    }
+
+    // 文本提示输入（TS TextAnnotationInput 简化：单行 LineEdit）。
+    // 声明在 stage 之后使其可点击聚焦；声明在工具栏之前使工具栏按钮保持
+    // 最高输入优先级（点击工具栏经 Rust 侧 blur-commit 提交挂起文本）。
+    prompt-input := LineEdit {
+        visible: root.prompt-visible;
+        x: root.prompt-x;
+        y: root.prompt-y;
+        width: 220px;
+        height: root.prompt-font-size + 18px;
+        font-size: root.prompt-font-size;
+        placeholder-text: root.texts.prompt-placeholder;
+        text <=> root.prompt-value;
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.cancel-prompt();
+                // 回调同步改写 prompt-visible；提示已关则焦点交还全局键处理。
+                if (!root.prompt-visible) {
+                    key-scope.focus();
+                }
+                return accept;
+            }
+            if (event.text == Key.Return) {
+                root.commit-text(self.text);
+                if (!root.prompt-visible) {
+                    key-scope.focus();
+                }
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    // 工具栏（ready 相位显示；尺寸固定，Rust 侧放置常量须同步
+    // TOOLBAR_WIDTH = 520 / TOOLBAR_HEIGHT = 88）。
+    if root.has-selection: Rectangle {
+        x: root.toolbar-x;
+        y: root.toolbar-y;
+        width: 520px;
+        height: 88px;
+        border-radius: 10px;
+        background: #121826ad;
+        border-width: 1px;
+        border-color: #ffffff24;
+
+        VerticalLayout {
+            padding: 6px;
+            spacing: 4px;
+
+            // 第一行：六工具（TS toolOrder：rectangle/ellipse/arrow/pen/mosaic/text）
+            // + 撤销/重做 + 取消/完成。
+            HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+
+                for entry in [
+                    { index: 0, label: root.texts.tool-rectangle },
+                    { index: 1, label: root.texts.tool-ellipse },
+                    { index: 2, label: root.texts.tool-arrow },
+                    { index: 3, label: root.texts.tool-pen },
+                    { index: 4, label: root.texts.tool-mosaic },
+                    { index: 5, label: root.texts.tool-text },
+                ]: Rectangle {
+                    width: 44px;
+                    height: 32px;
+                    border-radius: 6px;
+                    background: entry.index == root.active-tool ? #ff375f : tool-area.has-hover ? #ffffff33 : transparent;
+                    tool-area := TouchArea {
+                        clicked => {
+                            root.tool-selected(entry.index);
+                        }
+                    }
+                    Text {
+                        text: entry.label;
+                        font-size: 11px;
+                        color: #f9fafb;
+                        overflow: elide;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    width: 4px;
+                }
+
+                tool-button {
+                    label: root.texts.undo;
+                    enabled: root.can-undo;
+                    clicked => {
+                        root.undo-requested();
+                    }
+                }
+                tool-button {
+                    label: root.texts.redo;
+                    enabled: root.can-redo;
+                    clicked => {
+                        root.redo-requested();
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                tool-button {
+                    label: root.texts.cancel;
+                    clicked => {
+                        root.cancel-requested();
+                    }
+                }
+                tool-button {
+                    label: root.texts.done;
+                    accent: true;
+                    clicked => {
+                        root.finish-requested();
+                    }
+                }
+            }
+
+            // 第二行：色板 + 字号组（文字工具）+ 线宽组（线条工具）+ 输出动作。
+            // 字号/线宽组容器恒占位（TS 弹层按工具显隐 → 此处内容显隐、尺寸恒定）。
+            HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+
+                for swatch in root.swatches: Rectangle {
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 4px;
+                    background: swatch;
+                    border-width: root.active-color == swatch ? 2px : 1px;
+                    border-color: root.active-color == swatch ? #ff375f : #ffffff66;
+                    TouchArea {
+                        clicked => {
+                            root.color-selected(swatch);
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 4px;
+                }
+
+                Rectangle {
+                    width: 96px;
+                    height: 20px;
+                    clip: true;
+                    HorizontalLayout {
+                        spacing: 4px;
+                        for size in root.font-sizes: Rectangle {
+                            width: 28px;
+                            height: 20px;
+                            border-radius: 4px;
+                            visible: root.show-font-group;
+                            background: root.font-size == size ? #ffffff33 : #ffffff22;
+                            TouchArea {
+                                enabled: root.show-font-group;
+                                clicked => {
+                                    root.font-size-selected(size);
+                                }
+                            }
+                            Text {
+                                text: "\{Math.round(size)}";
+                                font-size: 10px;
+                                color: #f9fafb;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 96px;
+                    height: 20px;
+                    clip: true;
+                    HorizontalLayout {
+                        spacing: 4px;
+                        for width-value in root.line-widths: Rectangle {
+                            width: 28px;
+                            height: 20px;
+                            border-radius: 4px;
+                            visible: root.show-line-group;
+                            background: root.line-width == width-value ? #ffffff33 : #ffffff22;
+                            TouchArea {
+                                enabled: root.show-line-group;
+                                clicked => {
+                                    root.line-width-selected(width-value);
+                                }
+                            }
+                            Text {
+                                text: "\{Math.round(width-value)}";
+                                font-size: 10px;
+                                color: #f9fafb;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                tool-button {
+                    label: root.texts.ocr;
+                    clicked => {
+                        root.ocr-requested();
+                    }
+                }
+                tool-button {
+                    label: root.texts.translate;
+                    clicked => {
+                        root.translate-requested();
+                    }
+                }
+                tool-button {
+                    label: root.texts.pin;
+                    clicked => {
+                        root.pin-requested();
+                    }
+                }
+                tool-button {
+                    label: root.texts.save;
+                    clicked => {
+                        root.save-requested();
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- M3 Task 8：状态行 + OCR 面板（TS screenshot-controls 容器内、工具栏
+    // 上方；声明在工具栏之后 = 输入层级更高，按钮可点）。面板贴工具栏上方
+    // 12px；上方放不下时贴下方（TS 面板随容器布局，此处等价换算）。----
+    if root.ocr-visible: Rectangle {
+        property <length> panel-height: 176px;
+        x: root.toolbar-x;
+        y: root.toolbar-y >= self.panel-height + 12px
+            ? root.toolbar-y - self.panel-height - 12px
+            : root.toolbar-y + 88px + 12px;
+        width: 520px;
+        height: self.panel-height;
+        border-radius: 10px;
+        background: #121826f0;
+        border-width: 1px;
+        border-color: #ffffff24;
+
+        VerticalLayout {
+            padding: 10px;
+            spacing: 6px;
+
+            if root.ocr-running: Text {
+                text: root.texts.ocr-running;
+                color: #f9fafb;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+            if !root.ocr-running && root.ocr-message != "": Text {
+                text: root.ocr-message;
+                color: #ffb4a8;
+                font-size: 12px;
+                wrap: word-wrap;
+                overflow: elide;
+            }
+            if !root.ocr-running: Text {
+                text: root.ocr-text;
+                color: #f9fafb;
+                font-size: 13px;
+                wrap: word-wrap;
+                overflow: elide;
+                vertical-stretch: 1;
+            }
+            if !root.ocr-running && root.ocr-copyable: HorizontalLayout {
+                alignment: end;
+                tool-button {
+                    label: root.texts.ocr-copy-all;
+                    clicked => {
+                        root.ocr-copy-all-requested();
+                    }
+                }
+            }
+        }
+    }
+
+    if root.status-message != "": Rectangle {
+        x: root.toolbar-x;
+        y: root.toolbar-y >= 30px + 6px
+            ? root.toolbar-y - 30px - 6px
+            : root.toolbar-y + 88px + 6px;
+        width: status-label.preferred-width + 20px;
+        height: 30px;
+        border-radius: 8px;
+        background: #121826d9;
+        status-label := Text {
+            x: 10px;
+            height: 30px;
+            text: root.status-message;
+            color: #f9fafb;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}

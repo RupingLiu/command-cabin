@@ -332,27 +332,33 @@ export function AddAppPicker({ language, onClose, onPinnedAppAdded }: AddAppPick
     setStatus('loading');
     setErrorMessage(undefined);
 
-    desktopApi
-      .listAppCandidates(normalizedQuery)
-      .then((nextCandidates) => {
-        if (!isMountedRef.current || nextRequestIdRef.current !== requestId) {
-          return;
-        }
+    const candidateTimer = setTimeout(() => {
+      desktopApi
+        .listAppCandidates(normalizedQuery)
+        .then((nextCandidates) => {
+          if (!isMountedRef.current || nextRequestIdRef.current !== requestId) {
+            return;
+          }
 
-        setCandidates(nextCandidates);
-        setSelectedIndex(nextCandidates.length > 0 ? 0 : -1);
-        setStatus(nextCandidates.length > 0 ? 'ready' : 'empty');
-      })
-      .catch((error: unknown) => {
-        if (!isMountedRef.current || nextRequestIdRef.current !== requestId) {
-          return;
-        }
+          setCandidates(nextCandidates);
+          setSelectedIndex(nextCandidates.length > 0 ? 0 : -1);
+          setStatus(nextCandidates.length > 0 ? 'ready' : 'empty');
+        })
+        .catch((error: unknown) => {
+          if (!isMountedRef.current || nextRequestIdRef.current !== requestId) {
+            return;
+          }
 
-        setCandidates([]);
-        setSelectedIndex(-1);
-        setErrorMessage(formatUnknownError(error, 'Could not load application candidates.'));
-        setStatus('error');
-      });
+          setCandidates([]);
+          setSelectedIndex(-1);
+          setErrorMessage(formatUnknownError(error, 'Could not load application candidates.'));
+          setStatus('error');
+        });
+    }, 200);
+
+    return () => {
+      clearTimeout(candidateTimer);
+    };
   }, [desktopApi, query]);
 
   const addCandidate = useCallback(

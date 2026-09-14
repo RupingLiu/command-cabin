@@ -30,6 +30,7 @@ export interface ResolvedShortcut {
 
 export interface ShortcutResolver {
   resolve: (shortcutPath: string) => Promise<ResolvedShortcut>;
+  resolveMany?: (shortcutPaths: readonly string[]) => Promise<Array<ResolvedShortcut | undefined>>;
 }
 
 export interface WindowsShortcutResolverExecFileOptions {
@@ -108,6 +109,11 @@ interface PowerShellShortcutJson {
   appUserModelId?: unknown;
 }
 
+interface PowerShellShortcutBatchItemJson extends PowerShellShortcutJson {
+  shortcutPath?: unknown;
+  error?: unknown;
+}
+
 interface PowerShellAppsFolderAppJson {
   name?: unknown;
   appUserModelId?: unknown;
@@ -146,6 +152,57 @@ try {
   iconPath = $shortcut.IconLocation
   appUserModelId = $appUserModelId
 } | ConvertTo-Json -Compress
+`;
+}
+
+function createPowerShellShortcutBatchResolverScript(shortcutPaths: readonly string[]): string {
+  const encodedShortcutPaths = Buffer.from(JSON.stringify(shortcutPaths), 'utf8').toString(
+    'base64',
+  );
+
+  return `
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$ShortcutPathsJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encodedShortcutPaths}'))
+$ShortcutPaths = @($ShortcutPathsJson | ConvertFrom-Json)
+$results = New-Object System.Collections.Generic.List[object]
+foreach ($ShortcutPath in $ShortcutPaths) {
+  try {
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($ShortcutPath)
+    $appUserModelId = $null
+    try {
+      $shellApplication = New-Object -ComObject Shell.Application
+      $folderPath = [System.IO.Path]::GetDirectoryName($ShortcutPath)
+      $fileName = [System.IO.Path]::GetFileName($ShortcutPath)
+      $folder = $shellApplication.Namespace($folderPath)
+      if ($null -ne $folder) {
+        $item = $folder.ParseName($fileName)
+        if ($null -ne $item) {
+          $linkTarget = $folder.GetDetailsOf($item, 204)
+          if ($linkTarget -is [string] -and $linkTarget.Contains('!') -and -not $linkTarget.Contains('\\')) {
+            $appUserModelId = $linkTarget
+          }
+        }
+      }
+    } catch {
+      $appUserModelId = $null
+    }
+    [void]$results.Add([pscustomobject]@{
+      shortcutPath = $ShortcutPath
+      targetPath = $shortcut.TargetPath
+      arguments = $shortcut.Arguments
+      workingDirectory = $shortcut.WorkingDirectory
+      iconPath = $shortcut.IconLocation
+      appUserModelId = $appUserModelId
+    })
+  } catch {
+    [void]$results.Add([pscustomobject]@{
+      shortcutPath = $ShortcutPath
+      error = $_.Exception.Message
+    })
+  }
+}
+$results | ConvertTo-Json -Compress
 `;
 }
 
@@ -201,6 +258,53 @@ function normalizeJsonArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [value];
 }
 
+function createResolvedShortcutFromParsedJson(parsed: unknown): ResolvedShortcut {
+  const shortcut: ResolvedShortcut = {};
+
+  if (!parsed || typeof parsed !== 'object') {
+    return shortcut;
+  }
+
+  const json = parsed as PowerShellShortcutJson;
+  const targetPath = getOptionalString(json.targetPath);
+  const shortcutArguments = getOptionalString(json.arguments);
+  const workingDirectory = getOptionalString(json.workingDirectory);
+  const iconPath = getOptionalString(json.iconPath);
+  const appUserModelId = getOptionalString(json.appUserModelId);
+
+  if (targetPath !== undefined) {
+    shortcut.targetPath = targetPath;
+  }
+  if (shortcutArguments !== undefined) {
+    shortcut.arguments = shortcutArguments;
+  }
+  if (workingDirectory !== undefined) {
+    shortcut.workingDirectory = workingDirectory;
+  }
+  if (iconPath !== undefined) {
+    shortcut.iconPath = iconPath;
+  }
+  if (appUserModelId !== undefined) {
+    shortcut.appUserModelId = appUserModelId;
+  }
+
+  return shortcut;
+}
+
+function parsePowerShellShortcutBatchItem(parsed: unknown): ResolvedShortcut | undefined {
+  if (!parsed || typeof parsed !== 'object') {
+    return undefined;
+  }
+
+  const json = parsed as PowerShellShortcutBatchItemJson;
+
+  if (getOptionalString(json.error) !== undefined) {
+    return undefined;
+  }
+
+  return createResolvedShortcutFromParsedJson(json);
+}
+
 function isValidAppUserModelId(value: string): boolean {
   const trimmedValue = value.trim();
   const separatorIndex = trimmedValue.indexOf('!');
@@ -217,7 +321,17 @@ function parseAppsFolderScannerOutput(stdout: string): AppsFolderApp[] {
     return [];
   }
 
-  return normalizeJsonArray(JSON.parse(trimmedOutput))
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(trimmedOutput);
+  } catch (error) {
+    throw new Error(`Failed to parse AppsFolder scanner output: ${formatThrownValue(error)}`, {
+      cause: error,
+    });
+  }
+
+  return normalizeJsonArray(parsed)
     .map((entry): AppsFolderApp | undefined => {
       if (!entry || typeof entry !== 'object') {
         return undefined;
@@ -329,32 +443,71 @@ export function createWindowsShortcutResolver(
         throw error;
       }
 
-      const parsed = JSON.parse(stdout) as PowerShellShortcutJson;
-      const shortcut: ResolvedShortcut = {};
+      let parsed: unknown;
 
-      const targetPath = getOptionalString(parsed.targetPath);
-      const shortcutArguments = getOptionalString(parsed.arguments);
-      const workingDirectory = getOptionalString(parsed.workingDirectory);
-      const iconPath = getOptionalString(parsed.iconPath);
-      const appUserModelId = getOptionalString(parsed.appUserModelId);
-
-      if (targetPath !== undefined) {
-        shortcut.targetPath = targetPath;
-      }
-      if (shortcutArguments !== undefined) {
-        shortcut.arguments = shortcutArguments;
-      }
-      if (workingDirectory !== undefined) {
-        shortcut.workingDirectory = workingDirectory;
-      }
-      if (iconPath !== undefined) {
-        shortcut.iconPath = iconPath;
-      }
-      if (appUserModelId !== undefined) {
-        shortcut.appUserModelId = appUserModelId;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch (error) {
+        throw new Error(`Failed to parse shortcut resolution output: ${formatThrownValue(error)}`, {
+          cause: error,
+        });
       }
 
-      return shortcut;
+      return createResolvedShortcutFromParsedJson(parsed);
+    },
+    resolveMany: async (shortcutPaths) => {
+      if (platform !== 'win32') {
+        throw new Error('Default .lnk shortcut resolution is only available on Windows.');
+      }
+
+      if (shortcutPaths.length === 0) {
+        return [];
+      }
+
+      let stdout: string;
+
+      try {
+        ({ stdout } = await runExecFile(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-EncodedCommand',
+            createEncodedPowerShellCommand(
+              createPowerShellShortcutBatchResolverScript(shortcutPaths),
+            ),
+          ],
+          {
+            windowsHide: true,
+            timeout: timeoutMs,
+            encoding: 'utf8',
+          },
+        ));
+      } catch (error) {
+        if (isExecFileTimeoutError(error)) {
+          throw new Error(`Shortcut resolution timed out after ${timeoutMs} ms.`, {
+            cause: error,
+          });
+        }
+
+        throw error;
+      }
+
+      let parsed: unknown;
+
+      try {
+        parsed = JSON.parse(stdout);
+      } catch {
+        return shortcutPaths.map(() => undefined);
+      }
+
+      const parsedItems = normalizeJsonArray(parsed);
+
+      return shortcutPaths.map((_shortcutPath, index) =>
+        parsePowerShellShortcutBatchItem(parsedItems[index]),
+      );
     },
   };
 }
@@ -504,7 +657,7 @@ interface ScanDirectoryOptions {
   shortcutResolver: ShortcutResolver;
 }
 
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   values: readonly T[],
   concurrency: number,
   mapper: (value: T) => Promise<R>,
@@ -574,6 +727,48 @@ export function createWindowsStartMenuScanner(
       }
 
       shortcutPaths.push(entryPath);
+    }
+
+    if (shortcutPaths.length === 0) {
+      return;
+    }
+
+    const resolveMany = scanOptions.shortcutResolver.resolveMany;
+
+    if (resolveMany !== undefined) {
+      let resolvedShortcuts: Array<ResolvedShortcut | undefined>;
+
+      try {
+        resolvedShortcuts = await resolveMany(shortcutPaths);
+      } catch (error) {
+        const message = formatThrownValue(error);
+
+        for (const shortcutPath of shortcutPaths) {
+          result.failures.push({ shortcutPath, message });
+        }
+        return;
+      }
+
+      for (let index = 0; index < shortcutPaths.length; index += 1) {
+        const shortcutPath = shortcutPaths[index]!;
+        const resolvedShortcut = resolvedShortcuts[index];
+
+        if (resolvedShortcut === undefined) {
+          result.failures.push({
+            shortcutPath,
+            message: 'Failed to resolve shortcut.',
+          });
+          if (scanOptions.includeUnresolvedShortcuts) {
+            result.shortcuts.push(mergeShortcut(shortcutPath, {}, scanOptions.opensApplication));
+          }
+          continue;
+        }
+
+        result.shortcuts.push(
+          mergeShortcut(shortcutPath, resolvedShortcut, scanOptions.opensApplication),
+        );
+      }
+      return;
     }
 
     const resolvedShortcuts = await mapWithConcurrency(

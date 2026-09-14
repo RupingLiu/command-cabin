@@ -90,7 +90,6 @@ export function createTextToolCommands(): Command[] {
       type: 'run-system',
       payload: {
         command: definition.id,
-        transform: definition.kind,
       },
     },
   }));

@@ -98,4 +98,94 @@ describe('createWindowsAppUserModelIconResolver', () => {
       timeout: 3_000,
     });
   });
+
+  it('fetches the AppX package list once and serves repeat resolutions from cache', async () => {
+    const execFile = vi.fn(async () => ({
+      stdout: [
+        'PACKAGE\tOpenAI.Codex_2p2nqsd0c76g0\tC:\\Program Files\\WindowsApps\\OpenAI.Codex_2p2nqsd0c76g0',
+        'data:image/png;base64,CODEX',
+      ].join('\n'),
+    }));
+    const resolver = createWindowsAppUserModelIconResolver({ execFile });
+
+    await expect(resolver.resolve('OpenAI.Codex_2p2nqsd0c76g0!App')).resolves.toBe(
+      'data:image/png;base64,CODEX',
+    );
+    await expect(resolver.resolve('OpenAI.Codex_2p2nqsd0c76g0!App')).resolves.toBe(
+      'data:image/png;base64,CODEX',
+    );
+
+    expect(execFile).toHaveBeenCalledOnce();
+    const encodedCommand = execFile.mock.calls[0]?.[1][5];
+    const script = Buffer.from(encodedCommand ?? '', 'base64').toString('utf16le');
+    expect(script).toContain('PACKAGE');
+  });
+
+  it('reuses cached package install locations to skip package enumeration', async () => {
+    const installLocation = 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_2p2nqsd0c76g0';
+    const execFile = vi.fn(async () => ({
+      stdout: [`PACKAGE\tOpenAI.Codex_2p2nqsd0c76g0\t${installLocation}`, 'data:image/png;base64,CODEX'].join(
+        '\n',
+      ),
+    }));
+    const resolver = createWindowsAppUserModelIconResolver({ execFile });
+
+    await resolver.resolve('OpenAI.Codex_2p2nqsd0c76g0!App');
+    await expect(resolver.resolve('OpenAI.Codex_2p2nqsd0c76g0!OtherAppId')).resolves.toBe(
+      'data:image/png;base64,CODEX',
+    );
+
+    expect(execFile).toHaveBeenCalledTimes(2);
+    const encodedInstallLocation = Buffer.from(installLocation, 'utf8').toString('base64');
+    const firstCommand = execFile.mock.calls[0]?.[1][5];
+    const firstScript = Buffer.from(firstCommand ?? '', 'base64').toString('utf16le');
+    expect(firstScript).not.toContain(encodedInstallLocation);
+    const secondCommand = execFile.mock.calls[1]?.[1][5];
+    const secondScript = Buffer.from(secondCommand ?? '', 'base64').toString('utf16le');
+    expect(secondScript).toContain(encodedInstallLocation);
+  });
+
+  it('keeps the cached package list when a single icon resolution fails', async () => {
+    const logger = { warn: vi.fn() };
+    const execFile = vi
+      .fn()
+      .mockResolvedValueOnce({
+        stdout: [
+          'PACKAGE\tOpenAI.Codex_2p2nqsd0c76g0\tC:\\Program Files\\WindowsApps\\OpenAI.Codex_2p2nqsd0c76g0',
+          'PACKAGE\tVendor.Other_family\tC:\\Program Files\\WindowsApps\\Vendor.Other_family',
+          'data:image/png;base64,CODEX',
+        ].join('\n'),
+      })
+      .mockRejectedValueOnce(new Error('powershell failed'))
+      .mockResolvedValueOnce({
+        stdout: 'data:image/png;base64,OTHER',
+      });
+    const resolver = createWindowsAppUserModelIconResolver({ execFile, logger });
+
+    await expect(resolver.resolve('OpenAI.Codex_2p2nqsd0c76g0!App')).resolves.toBe(
+      'data:image/png;base64,CODEX',
+    );
+    await expect(resolver.resolve('OpenAI.Codex_2p2nqsd0c76g0!OtherAppId')).resolves.toBeUndefined();
+    await expect(resolver.resolve('Vendor.Other_family!App')).resolves.toBe(
+      'data:image/png;base64,OTHER',
+    );
+
+    expect(execFile).toHaveBeenCalledTimes(3);
+    expect(logger.warn).toHaveBeenCalledOnce();
+  });
+
+  it('skips icon resolution for packages missing from the cached list', async () => {
+    const execFile = vi.fn(async () => ({
+      stdout: [
+        'PACKAGE\tOpenAI.Codex_2p2nqsd0c76g0\tC:\\Program Files\\WindowsApps\\OpenAI.Codex_2p2nqsd0c76g0',
+        'data:image/png;base64,CODEX',
+      ].join('\n'),
+    }));
+    const resolver = createWindowsAppUserModelIconResolver({ execFile });
+
+    await resolver.resolve('OpenAI.Codex_2p2nqsd0c76g0!App');
+    await expect(resolver.resolve('Vendor.NotInstalled_family!App')).resolves.toBeUndefined();
+
+    expect(execFile).toHaveBeenCalledOnce();
+  });
 });

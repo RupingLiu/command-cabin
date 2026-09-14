@@ -73,6 +73,36 @@ describe('plugin bridge validation', () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it('rejects overlong error messages', () => {
+    expect(() =>
+      parsePluginBridgeRequest({
+        method: 'reportError',
+        params: {
+          message: 'x'.repeat(4097),
+        },
+        version: 1,
+      }),
+    ).toThrow('Bridge error message must be at most 4096 characters.');
+  });
+
+  it('accepts an error message at the maximum length', () => {
+    expect(
+      parsePluginBridgeRequest({
+        method: 'reportError',
+        params: {
+          message: 'x'.repeat(4096),
+        },
+        version: 1,
+      }),
+    ).toEqual({
+      method: 'reportError',
+      params: {
+        message: 'x'.repeat(4096),
+      },
+      version: 1,
+    });
+  });
 });
 
 describe('plugin page bridge', () => {

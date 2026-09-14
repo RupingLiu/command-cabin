@@ -1,3 +1,5 @@
+import { isRecord, parseBoolean, parseOptionalString } from './parsers.js';
+
 export type UpdateStatusPhase =
   | 'idle'
   | 'checking'
@@ -41,35 +43,6 @@ const phases = new Set<UpdateStatusPhase>([
   'error',
   'unavailable',
 ]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function parseBoolean(value: unknown, context: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new Error(`${context} must be a boolean.`);
-  }
-
-  return value;
-}
-
-function parseOptionalString(value: unknown, context: string): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (typeof value !== 'string') {
-    throw new Error(`${context} must be a string.`);
-  }
-
-  return value;
-}
 
 function parseOptionalPercent(value: unknown): number | undefined {
   if (value === undefined) {

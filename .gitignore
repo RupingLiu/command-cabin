@@ -37,3 +37,12 @@ Thumbs.db
 # Electron
 *.asar
 
+# Native Rust workspace
+native/target
+native/artifacts
+
+
+# Tool state
+.mimosa/
+.superpowers/
+.video_agent/

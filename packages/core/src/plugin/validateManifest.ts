@@ -26,6 +26,26 @@ export type ValidatePluginManifestResult =
 
 const PLUGIN_PERMISSION_VALUES = new Set<string>(PLUGIN_PERMISSIONS);
 
+const MAX_PLUGIN_ID_LENGTH = 100;
+const MAX_PLUGIN_NAME_LENGTH = 200;
+const MAX_PLUGIN_DESCRIPTION_LENGTH = 500;
+const MAX_PLUGIN_MAIN_LENGTH = 500;
+const MAX_PLUGIN_UI_LENGTH = 500;
+const MAX_PLUGIN_VERSION_LENGTH = 50;
+const MAX_PLUGIN_COMMANDS = 100;
+const MAX_COMMAND_TITLE_LENGTH = 200;
+const MAX_COMMAND_KEYWORDS = 20;
+const MAX_KEYWORD_LENGTH = 100;
+
+function addStringLengthError(
+  errors: PluginManifestValidationError[],
+  field: string,
+  label: string,
+  maxLength: number,
+): void {
+  addError(errors, field, `${label} must be at most ${maxLength} characters.`);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -76,6 +96,7 @@ function validateRequiredString(
   label: string,
   errors: PluginManifestValidationError[],
   errorField = field,
+  maxLength?: number,
 ): string | undefined {
   const fieldValue = readRecordField(manifest, field, label, errors, errorField);
 
@@ -95,6 +116,11 @@ function validateRequiredString(
     return undefined;
   }
 
+  if (maxLength !== undefined && value.length > maxLength) {
+    addStringLengthError(errors, errorField, label, maxLength);
+    return undefined;
+  }
+
   return value;
 }
 
@@ -103,6 +129,7 @@ function validateOptionalString(
   field: string,
   label: string,
   errors: PluginManifestValidationError[],
+  maxLength?: number,
 ): string | undefined {
   const fieldValue = readRecordField(manifest, field, label, errors);
 
@@ -118,6 +145,11 @@ function validateOptionalString(
 
   if (typeof value !== 'string') {
     addError(errors, field, `${label} must be a string.`);
+    return undefined;
+  }
+
+  if (maxLength !== undefined && value.length > maxLength) {
+    addStringLengthError(errors, field, label, maxLength);
     return undefined;
   }
 
@@ -193,6 +225,7 @@ function validatePermissions(
   }
 
   const validatedPermissions: PluginPermission[] = [];
+  const seenPermissions = new Set<PluginPermission>();
   const allowedPermissions = PLUGIN_PERMISSIONS.join(', ');
 
   for (const [index, permission] of permissions.entries()) {
@@ -217,7 +250,10 @@ function validatePermissions(
       continue;
     }
 
-    validatedPermissions.push(permission as PluginPermission);
+    if (!seenPermissions.has(permission as PluginPermission)) {
+      seenPermissions.add(permission as PluginPermission);
+      validatedPermissions.push(permission as PluginPermission);
+    }
   }
 
   return validatedPermissions;
@@ -261,6 +297,15 @@ function validateCommandKeywords(
     return undefined;
   }
 
+  if (keywords.length > MAX_COMMAND_KEYWORDS) {
+    addError(
+      errors,
+      field,
+      `Command keywords must contain at most ${MAX_COMMAND_KEYWORDS} keywords.`,
+    );
+    return undefined;
+  }
+
   const validatedKeywords: string[] = [];
 
   for (const [index, keyword] of keywords.entries()) {
@@ -273,6 +318,11 @@ function validateCommandKeywords(
 
     if (keyword.trim().length === 0) {
       addError(errors, keywordField, 'Command keyword cannot be empty.');
+      continue;
+    }
+
+    if (keyword.length > MAX_KEYWORD_LENGTH) {
+      addStringLengthError(errors, keywordField, 'Command keyword', MAX_KEYWORD_LENGTH);
       continue;
     }
 
@@ -299,7 +349,14 @@ function validateCommand(
   const id = commandIdValue.ok
     ? validateCommandId(commandIdValue.value, `${field}.id`, errors)
     : undefined;
-  const title = validateRequiredString(value, 'title', 'Command title', errors, `${field}.title`);
+  const title = validateRequiredString(
+    value,
+    'title',
+    'Command title',
+    errors,
+    `${field}.title`,
+    MAX_COMMAND_TITLE_LENGTH,
+  );
   const commandKeywordsValue = readRecordField(
     value,
     'keywords',
@@ -340,6 +397,15 @@ function validateCommands(
     return undefined;
   }
 
+  if (commands.length > MAX_PLUGIN_COMMANDS) {
+    addError(
+      errors,
+      'commands',
+      `Plugin commands must contain at most ${MAX_PLUGIN_COMMANDS} commands.`,
+    );
+    return undefined;
+  }
+
   const seenCommandIds = new Set<string>();
   const validatedCommands: PluginManifestCommand[] = [];
 
@@ -369,12 +435,46 @@ export function validatePluginManifest(value: unknown): ValidatePluginManifestRe
     };
   }
 
-  const id = validateRequiredString(value, 'id', 'Plugin ID', errors);
-  const name = validateRequiredString(value, 'name', 'Plugin name', errors);
-  const version = validateRequiredString(value, 'version', 'Plugin version', errors);
-  const description = validateRequiredString(value, 'description', 'Plugin description', errors);
-  const main = validateRequiredString(value, 'main', 'Plugin main entry file', errors);
-  const ui = validateOptionalString(value, 'ui', 'Plugin UI entry file', errors);
+  const id = validateRequiredString(value, 'id', 'Plugin ID', errors, 'id', MAX_PLUGIN_ID_LENGTH);
+  const name = validateRequiredString(
+    value,
+    'name',
+    'Plugin name',
+    errors,
+    'name',
+    MAX_PLUGIN_NAME_LENGTH,
+  );
+  const version = validateRequiredString(
+    value,
+    'version',
+    'Plugin version',
+    errors,
+    'version',
+    MAX_PLUGIN_VERSION_LENGTH,
+  );
+  const description = validateRequiredString(
+    value,
+    'description',
+    'Plugin description',
+    errors,
+    'description',
+    MAX_PLUGIN_DESCRIPTION_LENGTH,
+  );
+  const main = validateRequiredString(
+    value,
+    'main',
+    'Plugin main entry file',
+    errors,
+    'main',
+    MAX_PLUGIN_MAIN_LENGTH,
+  );
+  const ui = validateOptionalString(
+    value,
+    'ui',
+    'Plugin UI entry file',
+    errors,
+    MAX_PLUGIN_UI_LENGTH,
+  );
   const permissionValue = readRecordField(value, 'permissions', 'Plugin permissions', errors);
   const commandValue = readRecordField(value, 'commands', 'Plugin commands', errors);
   const permissions = permissionValue.ok

@@ -320,6 +320,7 @@ function compareRankedSearchCandidates(
 
 function createRankedSearchCandidate(
   query: string,
+  normalizedQuery: string,
   document: SearchDocument,
   fuseScore: number,
   matchedBy: SearchMatchedBy[],
@@ -328,6 +329,8 @@ function createRankedSearchCandidate(
   const rank = rankSearchCandidate({
     command: document.command,
     query,
+    normalizedQuery,
+    normalizedTitle: document.normalizedTitle,
     fuseScore,
     matchedBy,
     context,
@@ -402,25 +405,51 @@ export class SearchEngine {
     this.documentsById = new Map(
       this.documents.map((document) => [document.command.id, document] as const),
     );
-    this.fuse = new Fuse(this.documents, createFuseOptions(this.options.threshold));
+    // Fuse keeps a reference to the documents array and mutates it through add()/remove().
+    // Pass a shallow copy so incremental updates never alias this.documents.
+    this.fuse = new Fuse([...this.documents], createFuseOptions(this.options.threshold));
     this.fuseResultsCache.clear();
   }
 
   upsert(command: Command): void {
-    const nextDocuments = this.documents.filter((document) => document.command.id !== command.id);
-    nextDocuments.push(createSearchDocument(command));
-    this.update(nextDocuments.map((document) => document.command));
+    const document = createSearchDocument(command);
+    const existingDocument = this.documentsById.get(command.id);
+
+    if (existingDocument !== undefined) {
+      this.fuse.remove((candidate) => candidate.command.id === command.id);
+      const existingIndex = this.documents.indexOf(existingDocument);
+
+      if (existingIndex >= 0) {
+        this.documents[existingIndex] = document;
+      } else {
+        this.documents.push(document);
+      }
+    } else {
+      this.documents.push(document);
+    }
+
+    this.documentsById.set(command.id, document);
+    this.fuse.add(document);
+    this.fuseResultsCache.clear();
   }
 
   remove(commandId: string): boolean {
-    const nextDocuments = this.documents.filter((document) => document.command.id !== commandId);
-    const removed = nextDocuments.length !== this.documents.length;
+    const existingDocument = this.documentsById.get(commandId);
 
-    if (removed) {
-      this.update(nextDocuments.map((document) => document.command));
+    if (existingDocument === undefined) {
+      return false;
     }
 
-    return removed;
+    this.fuse.remove((candidate) => candidate.command.id === commandId);
+    const existingIndex = this.documents.indexOf(existingDocument);
+
+    if (existingIndex >= 0) {
+      this.documents.splice(existingIndex, 1);
+    }
+
+    this.documentsById.delete(commandId);
+    this.fuseResultsCache.clear();
+    return true;
   }
 
   clear(): void {
@@ -461,7 +490,7 @@ export class SearchEngine {
       exactDocuments.add(document);
       insertTopCandidate(
         topCandidates,
-        createRankedSearchCandidate(query, document, 0, exactMatchedBy, context),
+        createRankedSearchCandidate(query, normalizedQuery, document, 0, exactMatchedBy, context),
         limit,
       );
     }
@@ -484,6 +513,7 @@ export class SearchEngine {
         topCandidates,
         createRankedSearchCandidate(
           query,
+          normalizedQuery,
           result.item,
           result.score ?? 1,
           createMatchedBy(result.matches),
@@ -505,6 +535,7 @@ export class SearchEngine {
           topCandidates,
           createRankedSearchCandidate(
             query,
+            normalizedQuery,
             result.item,
             result.score ?? 1,
             createMatchedBy(result.matches),
@@ -578,7 +609,14 @@ export class SearchEngine {
     }
 
     return this.collectTopSearchResults(this.documents, limit, (document) =>
-      createRankedSearchCandidate(query, document, 1, createEmptyQueryMatchedBy(), options.ranking),
+      createRankedSearchCandidate(
+        query,
+        '',
+        document,
+        1,
+        createEmptyQueryMatchedBy(),
+        options.ranking,
+      ),
     );
   }
 

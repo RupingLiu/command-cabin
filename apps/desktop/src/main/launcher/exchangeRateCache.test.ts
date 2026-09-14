@@ -143,4 +143,172 @@ describe('exchange rate cache', () => {
       await rm(root, { force: true, recursive: true });
     }
   });
+
+  it('returns a fresh cached rate without fetching', async () => {
+    const { cacheFilePath, root } = await createTempCacheFile();
+
+    try {
+      await writeFile(
+        cacheFilePath,
+        JSON.stringify({
+          fetchedAt: new Date().toISOString(),
+          provider: 'Frankfurter',
+          rate: 7.1,
+          updatedAt: '2026-05-17',
+        }),
+      );
+      const fetchRate = vi.fn<ExchangeRateFetch>();
+      const cache = createExchangeRateCache({
+        cacheFilePath,
+        fetch: fetchRate,
+      });
+
+      await expect(cache.getUsdToCnyRate()).resolves.toMatchObject({
+        rate: 7.1,
+        source: 'cache',
+      });
+      expect(fetchRate).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it('returns the stale cached rate immediately while refreshing in the background', async () => {
+    const { cacheFilePath, root } = await createTempCacheFile();
+
+    try {
+      await writeFile(
+        cacheFilePath,
+        JSON.stringify({
+          fetchedAt: '2026-05-17T12:00:00.000Z',
+          provider: 'Frankfurter',
+          rate: 7.1,
+          updatedAt: '2026-05-17',
+        }),
+      );
+      const fetchRate = vi.fn<ExchangeRateFetch>(async () =>
+        createJsonResponse({
+          base: 'USD',
+          date: '2026-05-18',
+          quote: 'CNY',
+          rate: 7.5,
+        }),
+      );
+      const cache = createExchangeRateCache({
+        cacheFilePath,
+        fetch: fetchRate,
+      });
+
+      await expect(cache.getUsdToCnyRate()).resolves.toMatchObject({
+        rate: 7.1,
+        source: 'cache',
+      });
+
+      await vi.waitFor(async () => {
+        const result = await cache.getUsdToCnyRate();
+
+        expect(result?.rate).toBe(7.5);
+      });
+
+      expect(fetchRate).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it('dedupes concurrent fetches when no cached rate exists', async () => {
+    const { cacheFilePath, root } = await createTempCacheFile();
+
+    try {
+      const fetchRate = vi.fn<ExchangeRateFetch>(async () =>
+        createJsonResponse({
+          base: 'USD',
+          date: '2026-05-18',
+          quote: 'CNY',
+          rate: 7.1234,
+        }),
+      );
+      const cache = createExchangeRateCache({
+        cacheFilePath,
+        fetch: fetchRate,
+      });
+
+      const [first, second] = await Promise.all([cache.getUsdToCnyRate(), cache.getUsdToCnyRate()]);
+
+      expect(first).toMatchObject({
+        provider: 'Frankfurter',
+        rate: 7.1234,
+        source: 'live',
+        updatedAt: '2026-05-18',
+      });
+      expect(second).toMatchObject({
+        provider: 'Frankfurter',
+        rate: 7.1234,
+        source: 'live',
+        updatedAt: '2026-05-18',
+      });
+      expect(fetchRate).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it('honors ttlMs and clock options when deciding freshness', async () => {
+    const { cacheFilePath, root } = await createTempCacheFile();
+
+    try {
+      await writeFile(
+        cacheFilePath,
+        JSON.stringify({
+          fetchedAt: '2026-05-17T12:00:00.000Z',
+          provider: 'Frankfurter',
+          rate: 7.1,
+          updatedAt: '2026-05-17',
+        }),
+      );
+
+      const fixedClock = () => new Date('2026-05-17T12:30:00.000Z');
+      const fetchRate = vi.fn<ExchangeRateFetch>(async () =>
+        createJsonResponse({
+          base: 'USD',
+          date: '2026-05-18',
+          quote: 'CNY',
+          rate: 7.5,
+        }),
+      );
+
+      // A 30-minute-old rate is fresh within a 1-hour TTL → no network request.
+      const freshCache = createExchangeRateCache({
+        cacheFilePath,
+        clock: fixedClock,
+        fetch: fetchRate,
+        ttlMs: 60 * 60 * 1000,
+      });
+
+      await expect(freshCache.getUsdToCnyRate()).resolves.toMatchObject({
+        rate: 7.1,
+        source: 'cache',
+      });
+      expect(fetchRate).not.toHaveBeenCalled();
+
+      // The same 30-minute-old rate is stale within a 10-minute TTL → background refresh.
+      const staleCache = createExchangeRateCache({
+        cacheFilePath,
+        clock: fixedClock,
+        fetch: fetchRate,
+        ttlMs: 10 * 60 * 1000,
+      });
+
+      await expect(staleCache.getUsdToCnyRate()).resolves.toMatchObject({
+        rate: 7.1,
+        source: 'cache',
+      });
+      await vi.waitFor(async () => {
+        expect(await readFile(cacheFilePath, 'utf8')).toContain('"rate": 7.5');
+      });
+      expect(fetchRate).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
 });

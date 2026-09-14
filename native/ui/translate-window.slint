@@ -1,0 +1,149 @@
+// CommandCabin 翻译结果窗（M3 Task 8）。
+//
+// TS 基准：翻译结果显示在覆盖层内部（TranslationPanel + 译文标注覆盖选区，
+// translationOverlay.ts）。M3 简化授权（任务书）：独立的置顶小窗显示
+// 原文 + 译文，两段文本均可点击复制（点击复制 = translation.copy 语义）；
+// 不可用/失败时在结果区显示提示消息（TS TranslationPanel data-tone）。
+// 窗口可拖动（标题栏），关闭仅隐藏（下一次翻译复用同一窗口）。
+export component TranslateWindow inherits Window {
+    in property <string> source-label;
+    in property <string> result-label;
+    /// 原文（OCR 文本）与译文；点击复制。
+    in property <string> source-text;
+    in property <string> target-text;
+    /// 不可用/失败提示（success=false 时替代译文区显示）。
+    in property <string> message-text;
+    in property <bool> success: true;
+
+    callback close-requested();
+    callback copy-source-requested();
+    callback copy-target-requested();
+    callback drag-requested();
+
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    width: 420px;
+    height: 360px;
+    title: "CommandCabin Translate";
+
+    // 标题栏：拖拽 + 关闭。
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: 36px;
+        border-radius: 8px;
+        background: #121826f0;
+
+        translate-drag := TouchArea {
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.drag-requested();
+                }
+            }
+        }
+        Text {
+            x: 10px;
+            height: 36px;
+            text: "CommandCabin";
+            color: #9ca3af;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            x: parent.width - 30px;
+            y: 4px;
+            width: 26px;
+            height: 28px;
+            border-radius: 6px;
+            background: translate-close.has-hover ? #ffffff33 : transparent;
+            translate-close := TouchArea {
+                clicked => {
+                    root.close-requested();
+                }
+            }
+            Text {
+                text: "X";
+                color: #f9fafb;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // 原文区（点击复制）。
+    Rectangle {
+        x: 6px;
+        y: 40px;
+        width: root.width - 12px;
+        height: 132px;
+        border-radius: 8px;
+        background: #121826d9;
+        border-width: 1px;
+        border-color: #ffffff24;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 4px;
+
+            Text {
+                text: root.source-label;
+                color: #9ca3af;
+                font-size: 11px;
+            }
+            Text {
+                text: root.source-text;
+                color: #f9fafb;
+                font-size: 13px;
+                wrap: word-wrap;
+                overflow: elide;
+                vertical-stretch: 1;
+            }
+        }
+        source-copy := TouchArea {
+            clicked => {
+                root.copy-source-requested();
+            }
+        }
+    }
+
+    // 译文区 / 提示区（点击复制；失败时仅显示消息）。
+    Rectangle {
+        x: 6px;
+        y: 178px;
+        width: root.width - 12px;
+        height: 176px;
+        border-radius: 8px;
+        background: #121826d9;
+        border-width: 1px;
+        border-color: root.success ? #ffffff24 : #ffb4a866;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 4px;
+
+            Text {
+                text: root.success ? root.result-label : root.message-text;
+                color: root.success ? #9ca3af : #ffb4a8;
+                font-size: root.success ? 11px : 12px;
+                wrap: word-wrap;
+                overflow: elide;
+            }
+            if root.success: Text {
+                text: root.target-text;
+                color: #f9fafb;
+                font-size: 13px;
+                wrap: word-wrap;
+                overflow: elide;
+                vertical-stretch: 1;
+            }
+        }
+        target-copy := TouchArea {
+            clicked => {
+                root.copy-target-requested();
+            }
+        }
+    }
+}

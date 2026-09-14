@@ -235,6 +235,8 @@ export function createIndexCache(options: IndexCacheOptions): AppIndexCache {
       );
     },
     write: async (commands) => {
+      // One clone isolates the snapshot (and the returned commands) from the caller's input;
+      // the local snapshot is discarded after stringify/write, so no second clone is needed.
       const snapshot: AppIndexCacheSnapshot = {
         version: APP_INDEX_CACHE_VERSION,
         scannedAt: now().toISOString(),
@@ -244,10 +246,7 @@ export function createIndexCache(options: IndexCacheOptions): AppIndexCache {
       await fileSystem.makeDirectory(dirname(options.cacheFilePath));
       await fileSystem.writeFile(options.cacheFilePath, stringifyStorageJson(snapshot, context));
 
-      return {
-        ...snapshot,
-        commands: cloneCommands(snapshot.commands),
-      };
+      return { ...snapshot };
     },
     isStale: (snapshot) => {
       const scannedAtTime = new Date(snapshot.scannedAt).getTime();

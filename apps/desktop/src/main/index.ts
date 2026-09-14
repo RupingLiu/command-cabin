@@ -16,6 +16,7 @@ import {
   createSettingsRepository,
   createWindowsStartMenuScanner,
   createWindowsShortcutResolver,
+  mapWithConcurrency,
   openCommandCabinDatabase,
   runMigrations,
   type AppIndexer,
@@ -231,6 +232,7 @@ let settingsStore: CommandCabinSettingsStore = createInMemorySettingsStore();
 let commandCabinDatabase: CommandCabinDatabase | undefined;
 let appIndexer: AppIndexer | undefined;
 let clipboardHistoryRuntime: ClipboardHistoryPluginRuntime | undefined;
+let clipboardHistoryVersion = 0;
 let desktopPluginService: DesktopPluginService | undefined;
 let appCandidateService: AppCandidateService = createAppCandidateService({
   appCommands: () => [],
@@ -248,13 +250,20 @@ let isShutdownResuming = false;
 let nextWindowShowOnReady = true;
 let startupPromise: Promise<void> | undefined;
 
-function getWindowOptions() {
+function createWindowRenderOptions() {
   return {
     appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
-    ...windowEntryPaths,
-    pluginWebviewPolicyStore,
+    preloadPath: windowEntryPaths.preloadPath,
     rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
+    rendererIndexPath: windowEntryPaths.rendererIndexPath,
+  };
+}
+
+function getWindowOptions() {
+  return {
+    ...createWindowRenderOptions(),
+    pluginWebviewPolicyStore,
     showOnReady: nextWindowShowOnReady,
   };
 }
@@ -266,11 +275,7 @@ function getScreenshotOverlayWindowOptions(virtualBounds: {
   y: number;
 }) {
   return {
-    appVersion: app.getVersion(),
-    isPackaged: app.isPackaged,
-    preloadPath: windowEntryPaths.preloadPath,
-    rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
-    rendererIndexPath: windowEntryPaths.rendererIndexPath,
+    ...createWindowRenderOptions(),
     virtualBounds,
   };
 }
@@ -285,13 +290,7 @@ function getScreenshotOverlayPreloadBounds() {
 }
 
 function getPinnedImageWindowOptions() {
-  return {
-    appVersion: app.getVersion(),
-    isPackaged: app.isPackaged,
-    preloadPath: windowEntryPaths.preloadPath,
-    rendererDevServerUrl: process.env.ELECTRON_RENDERER_URL,
-    rendererIndexPath: windowEntryPaths.rendererIndexPath,
-  };
+  return createWindowRenderOptions();
 }
 
 async function createApplicationWindow({ showWindow }: { showWindow: boolean }): Promise<void> {
@@ -299,11 +298,13 @@ async function createApplicationWindow({ showWindow }: { showWindow: boolean }):
   try {
     launcherCommandService = await createPersistentLauncherCommandService();
     launchAtLoginController.sync(settingsStore.getSettings().launchAtLogin);
-    await screenshotShortcutController.start();
-    await desktopApplication.start({ showWindow });
+    // Preload the screenshot overlay in parallel with main-window creation so the first
+    // screenshot does not pay the overlay renderer's startup cost.
     void screenshotController.prepare().catch((error: unknown) => {
       console.warn('Failed to preload screenshot overlay.', error);
     });
+    await screenshotShortcutController.start();
+    await desktopApplication.start({ showWindow });
   } finally {
     nextWindowShowOnReady = true;
   }
@@ -397,7 +398,12 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
   settingsStore = createSettingsRepository(commandCabinDatabase);
   pluginRepository = createPluginRepository(commandCabinDatabase);
   const clipboardHistoryRepository = createClipboardHistoryRepository(commandCabinDatabase);
-  clipboardHistoryRuntime = createPersistentClipboardHistoryRuntime(clipboardHistoryRepository);
+  clipboardHistoryRuntime = createPersistentClipboardHistoryRuntime(
+    clipboardHistoryRepository,
+    () => {
+      clipboardHistoryVersion += 1;
+    },
+  );
   clipboardHistoryRuntime.watcher.start();
   const commandRegistry = createCommandRegistry();
   const favoritesRepository = createFavoritesRepository(commandCabinDatabase);
@@ -450,22 +456,43 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
     repository: pluginRepository,
     runtime: pluginRuntime,
   });
-  await desktopPluginService.loadEnabledPlugins();
+  // Load plugins in the background so startup is not blocked by dynamic module imports;
+  // plugin commands become searchable once loaded (the launcher re-flushes its index on
+  // the next search). Per-plugin failures are handled and persisted inside the service.
+  let launcherService: LauncherCommandService | undefined;
+
+  void desktopPluginService
+    .loadEnabledPlugins()
+    .catch((error: unknown) => {
+      console.error('Failed to load enabled plugins.', error);
+    })
+    .finally(() => {
+      launcherService?.refreshCommands();
+    });
 
   appCandidateService = createAppCandidateService({
     appCommands: () => appIndexer?.getCommands() ?? [],
     favorites: () => favoritesRepository.listFavorites(),
     listDesktopShortcuts: () => listShortcutFilesInDirectories(getDesktopShortcutDirectories()),
     resolveShortcut: (path) => appCandidateShortcutResolver.resolve(path),
+    resolveShortcuts: (paths) => {
+      if (appCandidateShortcutResolver.resolveMany !== undefined) {
+        return appCandidateShortcutResolver.resolveMany(paths);
+      }
+
+      return Promise.all(paths.map((path) => appCandidateShortcutResolver.resolve(path)));
+    },
   });
 
-  return createLauncherCommandService({
+  const launcherCommandService = createLauncherCommandService({
     actionHandlers: {
       'run-plugin': pluginRuntime.createRunPluginCommandHandler(),
     },
     appVersion: app.getVersion(),
     appCommands: getLauncherAppCommands,
+    appCommandsVersion: () => appIndexer?.getCommandsVersion(),
     clipboardHistoryRepository,
+    clipboardHistoryVersion: () => clipboardHistoryVersion,
     commandRegistry,
     exchangeRateProvider,
     favoritesRepository,
@@ -486,14 +513,21 @@ async function createPersistentLauncherCommandService(): Promise<LauncherCommand
       clipboard.writeText(text);
     },
   });
+  launcherService = launcherCommandService;
+
+  return launcherCommandService;
 }
 
 function createPersistentClipboardHistoryRuntime(
   repository: ClipboardHistoryRepository,
+  onClipboardTextSaved?: () => void,
 ): ClipboardHistoryPluginRuntime {
   return createClipboardHistoryPluginRuntime({
     onError: (error) => {
       console.error('Clipboard history watcher failed.', error);
+    },
+    onText: () => {
+      onClipboardTextSaved?.();
     },
     readText: () => clipboard.readText(),
     repository,
@@ -788,10 +822,12 @@ handleTrustedIpc(ADD_PINNED_APP_CHANNEL, async (event) => {
 });
 
 handleTrustedIpc(LIST_APP_CANDIDATES_CHANNEL, async (_event, query: unknown) =>
-  Promise.all(
-    (await appCandidateService.listCandidates(typeof query === 'string' ? query : '')).map(
-      resolveAppCandidateIcon,
-    ),
+  // Icon resolution can spawn PowerShell per candidate, so cap concurrency instead of
+  // firing every candidate at once with Promise.all.
+  mapWithConcurrency(
+    await appCandidateService.listCandidates(typeof query === 'string' ? query : ''),
+    4,
+    resolveAppCandidateIcon,
   ),
 );
 
@@ -904,9 +940,13 @@ handleTrustedIpc(STOP_HOTKEY_INPUT_CAPTURE_CHANNEL, () => {
 
 handleTrustedIpc(LIST_PLUGINS_CHANNEL, () => desktopPluginService?.listPlugins() ?? []);
 
-handleTrustedIpc(INSTALL_PLUGIN_CHANNEL, (_event, input: unknown) =>
-  desktopPluginService?.installPlugin(parsePluginInstallRequest(input).pluginRoot),
-);
+handleTrustedIpc(INSTALL_PLUGIN_CHANNEL, async (_event, input: unknown) => {
+  try {
+    return await desktopPluginService?.installPlugin(parsePluginInstallRequest(input).pluginRoot);
+  } finally {
+    launcherCommandService.refreshCommands();
+  }
+});
 
 handleTrustedIpc(SET_PLUGIN_ENABLED_CHANNEL, async (_event, id: unknown, enabled: unknown) => {
   if (typeof id !== 'string' || id.trim().length === 0) {
@@ -916,7 +956,11 @@ handleTrustedIpc(SET_PLUGIN_ENABLED_CHANNEL, async (_event, id: unknown, enabled
     throw new Error('Plugin enabled state must be a boolean.');
   }
 
-  return desktopPluginService?.setPluginEnabled(id.trim(), enabled);
+  try {
+    return await desktopPluginService?.setPluginEnabled(id.trim(), enabled);
+  } finally {
+    launcherCommandService.refreshCommands();
+  }
 });
 
 handleTrustedIpc(REMOVE_PLUGIN_CHANNEL, async (_event, id: unknown) => {
@@ -924,7 +968,11 @@ handleTrustedIpc(REMOVE_PLUGIN_CHANNEL, async (_event, id: unknown) => {
     throw new Error('Plugin id must be a non-empty string.');
   }
 
-  return (await desktopPluginService?.removePlugin(id.trim())) ?? false;
+  try {
+    return (await desktopPluginService?.removePlugin(id.trim())) ?? false;
+  } finally {
+    launcherCommandService.refreshCommands();
+  }
 });
 
 handleTrustedIpc(GET_DATA_DIRECTORY_CHANNEL, () => ({
@@ -995,7 +1043,9 @@ app.on('window-all-closed', () => {
 app.on('before-quit', (event) => {
   desktopApplication.requestQuit();
 
-  if (isShutdownResuming || !clipboardHistoryRuntime) {
+  // Guard on the database handle rather than the clipboard runtime so a quit during
+  // startup (before the watcher is created) still shuts SQLite down cleanly.
+  if (isShutdownResuming || !commandCabinDatabase) {
     return;
   }
 

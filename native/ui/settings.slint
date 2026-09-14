@@ -1,0 +1,498 @@
+// CommandCabin 设置窗口（M2 Task 10）。信息架构对齐 TS renderer 设置页
+// （i18n.ts `settings.*` 分节：热键 / 外观 / 语言 / 启动 / 启动器 / 收藏 / 关于），
+// 视觉从简。
+//
+// 提交语义：热键与数字输入框在回车（`accepted`）或失焦（`changed has-focus`，
+// vendored std-widgets LineEditInterface 暴露 `out property <bool> has-focus`，
+// 语义见 launcher.slint 头注）时提交；ComboBox/CheckBox 在用户选择（`selected` /
+// `toggled`，仅用户动作触发，程序 push 不会误提交）时提交。每个提交回调把字段
+// 打包为 JSON patch 交回 Rust 侧走 Task 9 的完整设置流（normalize → 查重 →
+// 热键注册 → 持久化）；回调返回空串表示成功，非空为错误文案（红字显示，同时
+// Rust 侧会整包重推视图，把输入/选择回滚到生效值）。
+//
+// 可编辑值全部是窗口级 in-out 属性并经两向绑定接到控件：Rust 整包 push 与用户
+// 编辑走同一条通道，不依赖"单向绑定 + push 覆盖"的脆弱语义（单向绑定在控件
+// 内部写入时会被移除，push 无法回滚——重写时修正）。
+//
+// 主题：`theme-mode`（0 跟随系统 / 1 浅色 / 2 深色，由 Rust 在设置加载与
+// theme 提交后设置）驱动 fluent `Palette.color-scheme`；unknown 色制式回退
+// 系统默认（vendored i-slint-common enums.rs ColorScheme 文档）。
+import {
+    Button,
+    CheckBox,
+    ComboBox,
+    HorizontalBox,
+    LineEdit,
+    Palette,
+    ScrollView,
+    VerticalBox,
+} from "std-widgets.slint";
+
+/// 界面文案（controller/i18n 按语言整包生成，键名对齐 TS i18n.ts
+/// `settings.*` 分节的移植子集；about-version-text 由 Rust 拼入版本号）。
+export struct SettingsTexts {
+    window-title: string,
+    hotkeys-title: string,
+    launcher-hotkey-label: string,
+    screenshot-hotkey-label: string,
+    delayed-hotkey-label: string,
+    appearance-title: string,
+    theme-label: string,
+    theme-system: string,
+    theme-light: string,
+    theme-dark: string,
+    language-title: string,
+    language-label: string,
+    language-zh-cn: string,
+    language-zh-tw: string,
+    language-en-us: string,
+    startup-title: string,
+    launch-at-login: string,
+    launcher-title: string,
+    hide-on-blur: string,
+    preserve-search-query: string,
+    max-results: string,
+    history-boost: string,
+    plugin-boost: string,
+    app-boost: string,
+    file-boost: string,
+    favorites-title: string,
+    favorites-empty: string,
+    favorites-remove: string,
+    clipboard-history-title: string,
+    clipboard-history-clear: string,
+    about-title: string,
+    about-version-text: string,
+    about-license: string,
+    // M5 Task 3：更新检查 / 下载 / 重启安装按钮文案（settings.about.check /
+    // install 逐字；download 为 native 新键）。状态行文本按状态由 Rust 拼装后
+    // 经 about-update-status 属性推送。
+    about-check: string,
+    about-download: string,
+    about-install: string,
+    back: string,
+}
+
+/// 收藏管理行（detail = 类别文案 + 路径/URL；id 供 Rust 侧定位删除目标）。
+export struct FavoriteRowView {
+    id: string,
+    title: string,
+    detail: string,
+}
+
+component SectionTitle inherits Text {
+    font-size: 15px;
+    font-weight: 700;
+    color: Palette.foreground;
+    horizontal-alignment: left;
+}
+
+component FormLabel inherits Text {
+    font-size: 13px;
+    color: Palette.foreground;
+    vertical-alignment: center;
+    horizontal-stretch: 0;
+    min-width: 130px;
+    horizontal-alignment: left;
+}
+
+component HintText inherits Text {
+    font-size: 11px;
+    color: Palette.foreground;
+    opacity: 0.6;
+    wrap: word-wrap;
+    horizontal-stretch: 1;
+}
+
+export component SettingsWindow inherits Window {
+    in property <SettingsTexts> texts;
+    /// 0 system / 1 light / 2 dark（对齐 cabin-core Theme 三值；Rust push）。
+    in property <int> theme-mode: 0;
+    /// 收藏列表（Rust 整包 push）。
+    in property <[FavoriteRowView]> favorites: [];
+    /// 热键 / 数字字段的当前值（Rust 整包 push；与控件两向绑定）。
+    in-out property <string> hotkey-launcher: "";
+    in-out property <string> hotkey-screenshot: "";
+    in-out property <string> hotkey-delayed: "";
+    in-out property <string> max-results: "";
+    in-out property <string> history-boost: "";
+    in-out property <string> plugin-boost: "";
+    in-out property <string> app-boost: "";
+    in-out property <string> file-boost: "";
+    in-out property <bool> hide-on-blur: false;
+    in-out property <bool> launch-at-login: false;
+    in-out property <bool> preserve-search-query: false;
+    /// ComboBox 当前项（与控件两向绑定；用户选择经 selected 提交）。
+    in-out property <int> theme-choice: 0;
+    in-out property <int> language-choice: 0;
+    /// 最近一次提交的错误文案（空 = 无错误）。提交失败时 Rust 侧会重推视图，
+    /// 输入框/选择回到生效值；错误保留到下一次提交。
+    in-out property <string> error-text: "";
+    /// 清空剪贴板历史的失败提示（M4 Task 7；空 = 无错误，TS 成功态无消息）。
+    in-out property <string> clipboard-clear-status: "";
+    /// M5 Task 3 更新状态行（Rust 按状态机 + 语言拼装：空闲提示 / 正在检查 /
+    /// 发现新版本 + 说明摘要 / 下载进度 / 已下载 / 最新 / 可读错误）。
+    in property <string> about-update-status: "";
+    /// TS canCheck：非忙态且未就绪待安装时可点"检查更新"（debug 构建恒 false）。
+    in property <bool> can-check-update: false;
+    /// available 停留态：显示"下载"钮（TS 自动下载无此态，M5 计划新增）。
+    in property <bool> can-download-update: false;
+    /// TS canInstall：已下载且版本一致 → 显示"重启安装"钮。
+    in property <bool> can-install-update: false;
+
+    callback commit-hotkey(int) -> string;
+    callback commit-number(int) -> string;
+    callback set-switch(int, bool) -> string;
+    callback set-choice(int, int) -> string;
+    callback remove-favorite(int);
+    callback clear-clipboard-history();
+    // M5 Task 3：更新编排入口（手动检查 / 下载 / 重启安装），全部回 Rust 侧。
+    callback check-updates();
+    callback download-update();
+    callback install-update();
+    callback dismissed();
+
+    function apply-theme() {
+        if (root.theme-mode == 1) {
+            Palette.color-scheme = ColorScheme.light;
+        } else if (root.theme-mode == 2) {
+            Palette.color-scheme = ColorScheme.dark;
+        } else {
+            Palette.color-scheme = ColorScheme.unknown;
+        }
+    }
+
+    init => { root.apply-theme(); }
+    changed theme-mode => { root.apply-theme(); }
+
+    title: root.texts.window-title;
+    width: 640px;
+    height: 700px;
+    icon: @image-url("../assets/icon.png");
+
+    VerticalBox {
+        padding: 12px;
+        spacing: 8px;
+
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalBox {
+                spacing: 8px;
+                padding: 4px;
+
+                // ---- 热键 ----
+                SectionTitle { text: root.texts.hotkeys-title; }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.launcher-hotkey-label; }
+                    LineEdit {
+                        width: 240px;
+                        text <=> root.hotkey-launcher;
+                        accepted(text) => { root.error-text = root.commit-hotkey(0); }
+                        changed has-focus => {
+                            if !self.has-focus {
+                                root.error-text = root.commit-hotkey(0);
+                            }
+                        }
+                    }
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.screenshot-hotkey-label; }
+                    LineEdit {
+                        width: 240px;
+                        text <=> root.hotkey-screenshot;
+                        accepted(text) => { root.error-text = root.commit-hotkey(1); }
+                        changed has-focus => {
+                            if !self.has-focus {
+                                root.error-text = root.commit-hotkey(1);
+                            }
+                        }
+                    }
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.delayed-hotkey-label; }
+                    LineEdit {
+                        width: 240px;
+                        text <=> root.hotkey-delayed;
+                        accepted(text) => { root.error-text = root.commit-hotkey(2); }
+                        changed has-focus => {
+                            if !self.has-focus {
+                                root.error-text = root.commit-hotkey(2);
+                            }
+                        }
+                    }
+                }
+
+                // ---- 外观 ----
+                SectionTitle { text: root.texts.appearance-title; }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.theme-label; }
+                    theme-combo := ComboBox {
+                        width: 240px;
+                        model: [
+                            root.texts.theme-system,
+                            root.texts.theme-light,
+                            root.texts.theme-dark,
+                        ];
+                        current-index <=> root.theme-choice;
+                        selected(v) => { root.error-text = root.set-choice(0, theme-combo.current-index); }
+                    }
+                }
+
+                // ---- 语言 ----
+                SectionTitle { text: root.texts.language-title; }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.language-label; }
+                    language-combo := ComboBox {
+                        width: 240px;
+                        model: [
+                            root.texts.language-zh-cn,
+                            root.texts.language-zh-tw,
+                            root.texts.language-en-us,
+                        ];
+                        current-index <=> root.language-choice;
+                        selected(v) => { root.error-text = root.set-choice(1, language-combo.current-index); }
+                    }
+                }
+
+                // ---- 启动 ----
+                SectionTitle { text: root.texts.startup-title; }
+                CheckBox {
+                    text: root.texts.launch-at-login;
+                    checked <=> root.launch-at-login;
+                    toggled => {
+                        root.error-text = root.set-switch(1, root.launch-at-login);
+                    }
+                }
+
+                // ---- 启动器 ----
+                SectionTitle { text: root.texts.launcher-title; }
+                CheckBox {
+                    text: root.texts.hide-on-blur;
+                    checked <=> root.hide-on-blur;
+                    toggled => {
+                        root.error-text = root.set-switch(0, root.hide-on-blur);
+                    }
+                }
+                CheckBox {
+                    text: root.texts.preserve-search-query;
+                    checked <=> root.preserve-search-query;
+                    toggled => {
+                        root.error-text = root.set-switch(2, root.preserve-search-query);
+                    }
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.max-results; }
+                    LineEdit {
+                        width: 120px;
+                        text <=> root.max-results;
+                        accepted(text) => { root.error-text = root.commit-number(0); }
+                        changed has-focus => {
+                            if !self.has-focus {
+                                root.error-text = root.commit-number(0);
+                            }
+                        }
+                    }
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.history-boost; }
+                    LineEdit {
+                        width: 120px;
+                        text <=> root.history-boost;
+                        accepted(text) => { root.error-text = root.commit-number(1); }
+                        changed has-focus => {
+                            if !self.has-focus {
+                                root.error-text = root.commit-number(1);
+                            }
+                        }
+                    }
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.plugin-boost; }
+                    LineEdit {
+                        width: 120px;
+                        text <=> root.plugin-boost;
+                        accepted(text) => { root.error-text = root.commit-number(2); }
+                        changed has-focus => {
+                            if !self.has-focus {
+                                root.error-text = root.commit-number(2);
+                            }
+                        }
+                    }
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.app-boost; }
+                    LineEdit {
+                        width: 120px;
+                        text <=> root.app-boost;
+                        accepted(text) => { root.error-text = root.commit-number(3); }
+                        changed has-focus => {
+                            if !self.has-focus {
+                                root.error-text = root.commit-number(3);
+                            }
+                        }
+                    }
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    FormLabel { text: root.texts.file-boost; }
+                    LineEdit {
+                        width: 120px;
+                        text <=> root.file-boost;
+                        accepted(text) => { root.error-text = root.commit-number(4); }
+                        changed has-focus => {
+                            if !self.has-focus {
+                                root.error-text = root.commit-number(4);
+                            }
+                        }
+                    }
+                }
+
+                // ---- 收藏管理 ----
+                SectionTitle { text: root.texts.favorites-title; }
+                if root.favorites.length == 0: HintText { text: root.texts.favorites-empty; }
+                if root.favorites.length > 0: Rectangle {
+                    height: max(96px, min(220px, root.favorites.length * 36px + 8px));
+                    border-radius: 6px;
+                    background: Palette.control-background;
+                    ScrollView {
+                        VerticalBox {
+                            padding: 4px;
+                            spacing: 2px;
+                            for favorite[index] in root.favorites: Rectangle {
+                                height: 32px;
+                                HorizontalBox {
+                                    padding: 0px;
+                                    spacing: 8px;
+                                    alignment: start;
+                                    Text {
+                                        text: favorite.title;
+                                        font-size: 13px;
+                                        color: Palette.foreground;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                        horizontal-stretch: 0;
+                                        max-width: 200px;
+                                    }
+                                    HintText {
+                                        text: favorite.detail;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                    HorizontalBox {
+                                        padding: 0px;
+                                        alignment: end;
+                                        Button {
+                                            text: root.texts.favorites-remove;
+                                            clicked => { root.remove-favorite(index); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ---- 剪贴板历史（M4 Task 7；TS settings.clipboardHistory 分节：
+                // 标题 + 清除钮，清除成功无消息、失败显示 clearError）----
+                SectionTitle { text: root.texts.clipboard-history-title; }
+                HorizontalBox {
+                    padding: 0px;
+                    alignment: start;
+                    Button {
+                        text: root.texts.clipboard-history-clear;
+                        clicked => { root.clear-clipboard-history(); }
+                    }
+                }
+                if root.clipboard-clear-status != "": Text {
+                    text: root.clipboard-clear-status;
+                    font-size: 12px;
+                    color: #d13438;
+                    wrap: word-wrap;
+                }
+
+                // ---- 关于 ----
+                SectionTitle { text: root.texts.about-title; }
+                Text {
+                    text: root.texts.about-version-text;
+                    font-size: 13px;
+                    color: Palette.foreground;
+                    horizontal-alignment: left;
+                }
+                // M5 Task 3：更新状态行 + 操作钮（TS AboutSettings：statusText +
+                // check / install 钮；download 钮为 native 手动下载新增）。
+                if root.about-update-status != "": Text {
+                    text: root.about-update-status;
+                    font-size: 12px;
+                    color: Palette.foreground;
+                    wrap: word-wrap;
+                    horizontal-alignment: left;
+                }
+                HorizontalBox {
+                    padding: 0px;
+                    spacing: 8px;
+                    alignment: start;
+                    Button {
+                        text: root.texts.about-check;
+                        enabled: root.can-check-update;
+                        clicked => { root.check-updates(); }
+                    }
+                    if root.can-download-update: Button {
+                        text: root.texts.about-download;
+                        primary: true;
+                        clicked => { root.download-update(); }
+                    }
+                    if root.can-install-update: Button {
+                        text: root.texts.about-install;
+                        primary: true;
+                        clicked => { root.install-update(); }
+                    }
+                }
+                // Slint Royalty-free 许可署名（设计文档硬性要求）：署名 + 许可文本。
+                Text {
+                    text: "Made with Slint";
+                    font-size: 12px;
+                    color: Palette.foreground;
+                    horizontal-alignment: left;
+                }
+                HintText { text: root.texts.about-license; }
+
+                // ---- 提交错误（最近一次；空串不渲染） ----
+                if root.error-text != "": Text {
+                    text: root.error-text;
+                    font-size: 12px;
+                    color: #d13438;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        // ---- 底部操作 ----
+        HorizontalBox {
+            padding: 0px;
+            alignment: end;
+            Button {
+                text: root.texts.back;
+                clicked => { root.dismissed(); }
+            }
+        }
+    }
+}

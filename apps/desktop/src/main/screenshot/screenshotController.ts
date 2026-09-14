@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type {
   ScreenshotBounds,
   ScreenshotLaunchMode,
@@ -261,6 +263,62 @@ export function createScreenshotController({
         timeoutId: ReturnType<typeof setTimeout>;
       })
     | undefined;
+  // OCR requests are serialized (one at a time) so rapid selections cannot spawn a pile of
+  // PowerShell processes; identical images short-circuit through a bounded result cache.
+  const ocrResultCache = new Map<string, ScreenshotOcrResult>();
+  const MAX_OCR_RESULT_CACHE_ENTRIES = 64;
+  let ocrQueue: Promise<unknown> = Promise.resolve();
+  let ocrPendingCount = 0;
+  const MAX_OCR_QUEUE_DEPTH = 4;
+
+  function createOcrCacheKey(imageDataUrl: string): string {
+    return createHash('sha256').update(imageDataUrl).digest('hex');
+  }
+
+  function getCachedOcrResult(cacheKey: string): ScreenshotOcrResult | undefined {
+    const cachedResult = ocrResultCache.get(cacheKey);
+
+    if (cachedResult === undefined) {
+      return undefined;
+    }
+
+    ocrResultCache.delete(cacheKey);
+    ocrResultCache.set(cacheKey, cachedResult);
+    return cachedResult;
+  }
+
+  function setCachedOcrResult(cacheKey: string, result: ScreenshotOcrResult): void {
+    ocrResultCache.delete(cacheKey);
+    ocrResultCache.set(cacheKey, result);
+
+    while (ocrResultCache.size > MAX_OCR_RESULT_CACHE_ENTRIES) {
+      const oldestCacheKey = ocrResultCache.keys().next().value;
+
+      if (oldestCacheKey === undefined) {
+        break;
+      }
+
+      ocrResultCache.delete(oldestCacheKey);
+    }
+  }
+
+  function enqueueOcr<T>(operation: () => Promise<T>): Promise<T> {
+    if (ocrPendingCount >= MAX_OCR_QUEUE_DEPTH) {
+      return Promise.reject(new Error('Screenshot OCR is busy; try again in a moment.'));
+    }
+
+    ocrPendingCount += 1;
+    const result = ocrQueue.then(operation, operation);
+    ocrQueue = result.then(
+      () => {
+        ocrPendingCount -= 1;
+      },
+      () => {
+        ocrPendingCount -= 1;
+      },
+    );
+    return result;
+  }
 
   const rememberState = (
     window: ScreenshotOverlayWindow,
@@ -336,12 +394,15 @@ export function createScreenshotController({
 
     const webContentsId = window.webContents.id;
     const handleClosed = () => {
+      // Only clear the shared overlay fields when the closing window is the current overlay.
+      // A stale 'closed' event from a previous overlay must not clear the in-flight creation
+      // promise of a replacement window (otherwise a new start could create a second window).
       if (overlayWindow === window) {
         overlayWindow = undefined;
         overlayWindowBounds = undefined;
+        overlayWindowPromise = undefined;
       }
 
-      overlayWindowPromise = undefined;
       overlayWindowClosedListener = undefined;
       states.delete(webContentsId);
       clearRendererReadyWaiter(
@@ -492,7 +553,21 @@ export function createScreenshotController({
     },
     runOcr: async (sender, request) => {
       assertLiveState(states, sender);
-      return runOcr(parseScreenshotOcrRequest(request));
+      const parsedRequest = parseScreenshotOcrRequest(request);
+      const cacheKey = createOcrCacheKey(parsedRequest.imageDataUrl);
+      const cachedResult = getCachedOcrResult(cacheKey);
+
+      if (cachedResult !== undefined) {
+        return cachedResult;
+      }
+
+      const result = await enqueueOcr(async () => runOcr(parsedRequest));
+
+      if (result.status === 'success') {
+        setCachedOcrResult(cacheKey, result);
+      }
+
+      return result;
     },
     translateSelection: async (sender, request) => {
       assertLiveState(states, sender);

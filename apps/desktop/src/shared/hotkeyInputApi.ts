@@ -1,3 +1,5 @@
+import { parseBoolean, parseString } from './parsers.js';
+
 export interface HotkeyInputCapturePayload {
   altKey: boolean;
   ctrlKey: boolean;
@@ -6,24 +8,11 @@ export interface HotkeyInputCapturePayload {
   shiftKey: boolean;
 }
 
+// Kept private (instead of the strict shared `isRecord`) to preserve the
+// existing behavior of accepting any object-like value without a plain-object
+// prototype check.
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function parseBoolean(value: unknown, context: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new Error(`${context} must be a boolean.`);
-  }
-
-  return value;
-}
-
-function parseString(value: unknown, context: string): string {
-  if (typeof value !== 'string') {
-    throw new Error(`${context} must be a string.`);
-  }
-
-  return value;
 }
 
 export function parseHotkeyInputCapturePayload(value: unknown): HotkeyInputCapturePayload {

@@ -1098,4 +1098,286 @@ describe('createScreenshotController', () => {
       imageDataUrl: 'data:image/jpeg;base64,BBBB',
     });
   });
+
+  it('serializes concurrent OCR requests', async () => {
+    const overlayWindow = {
+      close: vi.fn(),
+      hide: vi.fn(),
+      isDestroyed: () => false,
+      on: vi.fn(),
+      webContents: { id: 71 },
+      show: vi.fn(),
+    };
+    const ocrDeferreds: Array<ReturnType<typeof createDeferred>> = [];
+    const runOcr = vi.fn(() => {
+      const deferred = createDeferred<{
+        language: 'en-US';
+        lines: string[];
+        status: 'success';
+        text: string;
+      }>();
+      ocrDeferreds.push(deferred);
+      return deferred.promise;
+    });
+    const notifyOverlayLaunchState = createAutoReadyNotify(() => controller);
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      getOverlayBounds: vi.fn(() => overlayBounds),
+      hideLauncher: vi.fn(),
+      notifyOverlayLaunchState,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(async () => ({ canceled: true })),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr,
+    });
+
+    await controller.start('ocr');
+
+    const first = controller.runOcr(overlayWindow.webContents, {
+      imageDataUrl: 'data:image/png;base64,IMG1',
+      language: 'en-US',
+    });
+    const second = controller.runOcr(overlayWindow.webContents, {
+      imageDataUrl: 'data:image/png;base64,IMG2',
+      language: 'en-US',
+    });
+    await Promise.resolve();
+
+    expect(runOcr).toHaveBeenCalledTimes(1);
+
+    ocrDeferreds[0]!.resolve({
+      language: 'en-US',
+      lines: ['first'],
+      status: 'success',
+      text: 'first',
+    });
+    await expect(first).resolves.toEqual({
+      language: 'en-US',
+      lines: ['first'],
+      status: 'success',
+      text: 'first',
+    });
+    await Promise.resolve();
+
+    expect(runOcr).toHaveBeenCalledTimes(2);
+
+    ocrDeferreds[1]!.resolve({
+      language: 'en-US',
+      lines: ['second'],
+      status: 'success',
+      text: 'second',
+    });
+    await expect(second).resolves.toEqual({
+      language: 'en-US',
+      lines: ['second'],
+      status: 'success',
+      text: 'second',
+    });
+  });
+
+  it('serves repeated OCR for the same image from cache', async () => {
+    const overlayWindow = {
+      close: vi.fn(),
+      hide: vi.fn(),
+      isDestroyed: () => false,
+      on: vi.fn(),
+      webContents: { id: 72 },
+      show: vi.fn(),
+    };
+    const runOcr = vi.fn(async () => ({
+      language: 'en-US' as const,
+      lines: ['hello'],
+      status: 'success' as const,
+      text: 'hello',
+    }));
+    const notifyOverlayLaunchState = createAutoReadyNotify(() => controller);
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      getOverlayBounds: vi.fn(() => overlayBounds),
+      hideLauncher: vi.fn(),
+      notifyOverlayLaunchState,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(async () => ({ canceled: true })),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr,
+    });
+
+    await controller.start('ocr');
+
+    const request = {
+      imageDataUrl: 'data:image/png;base64,AAAA',
+      language: 'en-US' as const,
+    };
+    await expect(controller.runOcr(overlayWindow.webContents, request)).resolves.toEqual({
+      language: 'en-US',
+      lines: ['hello'],
+      status: 'success',
+      text: 'hello',
+    });
+    await expect(controller.runOcr(overlayWindow.webContents, request)).resolves.toEqual({
+      language: 'en-US',
+      lines: ['hello'],
+      status: 'success',
+      text: 'hello',
+    });
+
+    expect(runOcr).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects OCR requests beyond the queue depth limit', async () => {
+    const overlayWindow = {
+      close: vi.fn(),
+      hide: vi.fn(),
+      isDestroyed: () => false,
+      on: vi.fn(),
+      webContents: { id: 73 },
+      show: vi.fn(),
+    };
+    const runOcr = vi.fn(() => new Promise<never>(() => undefined));
+    const notifyOverlayLaunchState = createAutoReadyNotify(() => controller);
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      getOverlayBounds: vi.fn(() => overlayBounds),
+      hideLauncher: vi.fn(),
+      notifyOverlayLaunchState,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(async () => ({ canceled: true })),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr,
+    });
+
+    await controller.start('ocr');
+
+    for (let index = 0; index < 4; index += 1) {
+      void controller.runOcr(overlayWindow.webContents, {
+        imageDataUrl: `data:image/png;base64,QUEUED${index}`,
+        language: 'en-US',
+      });
+    }
+
+    await expect(
+      controller.runOcr(overlayWindow.webContents, {
+        imageDataUrl: 'data:image/png;base64,OVERFLOW',
+        language: 'en-US',
+      }),
+    ).rejects.toThrow(/OCR is busy/);
+  });
+
+  it('evicts the least recently used OCR cache entries', async () => {
+    const overlayWindow = {
+      close: vi.fn(),
+      hide: vi.fn(),
+      isDestroyed: () => false,
+      on: vi.fn(),
+      webContents: { id: 74 },
+      show: vi.fn(),
+    };
+    const runOcr = vi.fn(async (request: { imageDataUrl: string }) => ({
+      language: 'en-US' as const,
+      lines: [request.imageDataUrl],
+      status: 'success' as const,
+      text: request.imageDataUrl,
+    }));
+    const notifyOverlayLaunchState = createAutoReadyNotify(() => controller);
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow: vi.fn(async () => overlayWindow),
+      getOverlayBounds: vi.fn(() => overlayBounds),
+      hideLauncher: vi.fn(),
+      notifyOverlayLaunchState,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(async () => ({ canceled: true })),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr,
+    });
+
+    await controller.start('ocr');
+
+    for (let index = 0; index < 65; index += 1) {
+      await controller.runOcr(overlayWindow.webContents, {
+        imageDataUrl: `data:image/png;base64,IMG${index}`,
+        language: 'en-US',
+      });
+    }
+
+    expect(runOcr).toHaveBeenCalledTimes(65);
+
+    await controller.runOcr(overlayWindow.webContents, {
+      imageDataUrl: 'data:image/png;base64,IMG0',
+      language: 'en-US',
+    });
+
+    expect(runOcr).toHaveBeenCalledTimes(66);
+  });
+
+  it('reuses the in-flight replacement overlay when a late closed event arrives from the old window', async () => {
+    const firstClosedListeners = new Set<() => void>();
+    let firstDestroyed = false;
+    const firstOverlayWindow = {
+      close: vi.fn(),
+      hide: vi.fn(() => false),
+      isDestroyed: () => firstDestroyed,
+      off: vi.fn(),
+      on: vi.fn((_eventName: 'closed', listener: () => void) => {
+        firstClosedListeners.add(listener);
+      }),
+      setBounds: vi.fn(),
+      show: vi.fn(),
+      get webContents() {
+        return { id: 81 };
+      },
+      emitClosed: () => {
+        firstDestroyed = true;
+
+        for (const listener of firstClosedListeners) {
+          listener();
+        }
+      },
+    };
+    const replacementWindow = createOverlayWindowWithBoundsEvents({ id: 82 }, []);
+    let createCount = 0;
+    const createOverlayWindow = vi.fn(async () => {
+      createCount += 1;
+      return createCount === 1 ? firstOverlayWindow : replacementWindow;
+    });
+    const notifyOverlayLaunchState = createAutoReadyNotify(() => controller);
+    const controller = createScreenshotController({
+      captureDisplays: vi.fn(async () => launchState),
+      createOverlayWindow,
+      getOverlayBounds: vi.fn(() => overlayBounds),
+      hideLauncher: vi.fn(),
+      notifyOverlayLaunchState,
+      writeClipboardImage: vi.fn(),
+      showSaveDialog: vi.fn(async () => ({ canceled: true })),
+      writeImageFile: vi.fn(),
+      createPinnedImageToken: vi.fn(() => 'pin-unused'),
+      pinImage: vi.fn(),
+      runOcr: vi.fn(),
+    });
+
+    await controller.start('ocr');
+
+    expect(controller.cancel(firstOverlayWindow.webContents)).toBe(true);
+    await controller.prepare();
+
+    // The old window's closed event fires late (after the replacement was created).
+    firstOverlayWindow.emitClosed();
+
+    await controller.start('capture');
+
+    // One window for the initial capture, one replacement; the late closed event must not
+    // trigger a third window.
+    expect(createOverlayWindow).toHaveBeenCalledTimes(2);
+  });
 });

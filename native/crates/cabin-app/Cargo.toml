@@ -1,0 +1,37 @@
+[package]
+name = "cabin-app"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+cabin-core = { path = "../cabin-core" }
+cabin-storage = { path = "../cabin-storage" }
+cabin-platform = { path = "../cabin-platform" }
+cabin-platform-windows = { path = "../cabin-platform-windows" }
+# unstable-winit-030：经 WinitWindowAccessor 拿到 winit 窗口做前台激活（focus_window）
+# 与失焦检测（has_focus，hide-on-blur 轮询）。
+# M5 收口（实测对比后定版）：默认特性集换成 CPU 软件渲染器（renderer-software），
+# 剔除 femtovg/GL（glutin+glow）与未使用的 system-tray API。动机：femtovg 每个
+# 隐藏窗口常驻 ~82MB WS（GL 上下文/驱动侧），3 窗急切创建即 314MB 平台期主因；
+# 软件渲染器全应用平台期 38.9MB（<60MB 目标达标，t90 稳定），且首帧无 GL 初始化
+# （冷启动主嫌疑）。accessibility（accesskit/UIA）保留——屏幕阅读器面不回退。
+slint = { version = "1.9", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-winit",
+    "renderer-software",
+    "accessibility",
+    "unstable-winit-030",
+] }
+arboard = "3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde_json = "1"
+# 结果图标 dataUrl → Slint 位图解码（png + ico，覆盖共享磁盘缓存里的两种 MIME）。
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+
+[build-dependencies]
+slint-build = "1.9"
+
+[lints]
+workspace = true

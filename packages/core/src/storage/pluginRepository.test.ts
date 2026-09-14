@@ -547,4 +547,88 @@ describe('SQLite plugin repository', () => {
       database.close();
     }
   });
+
+  it('upserts an existing plugin and returns a complete record preserving installedAt', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createPluginRepository(database);
+      const installedAt = new Date('2026-01-01T00:00:00.000Z');
+
+      repository.upsertPlugin({
+        id: 'com.example.text-tools',
+        name: 'Text Tools',
+        version: '0.1.0',
+        main: 'dist/main.js',
+        installedAt,
+      });
+
+      const updated = repository.upsertPlugin({
+        id: 'com.example.text-tools',
+        name: 'Text Tools',
+        version: '0.2.0',
+        description: 'Updated description',
+        main: 'dist/main.js',
+        pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+        ui: 'dist/index.html',
+        enabled: false,
+        permissions: ['clipboard.read'],
+      });
+
+      expect(updated).toMatchObject({
+        id: 'com.example.text-tools',
+        name: 'Text Tools',
+        version: '0.2.0',
+        description: 'Updated description',
+        main: 'dist/main.js',
+        pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+        ui: 'dist/index.html',
+        enabled: false,
+        permissions: ['clipboard.read'],
+        installedAt: '2026-01-01T00:00:00.000Z',
+      });
+      expect(updated.updatedAt).toBeDefined();
+      expect(repository.getPlugin('com.example.text-tools')).toEqual(updated);
+    } finally {
+      database.close();
+    }
+  });
+
+  it('preserves existing plugin defaults when an upsert omits them', () => {
+    const database = openInMemoryCommandCabinDatabase();
+
+    try {
+      runMigrations(database);
+      const repository = createPluginRepository(database);
+      const installedAt = new Date('2026-02-02T00:00:00.000Z');
+
+      repository.upsertPlugin({
+        id: 'com.example.text-tools',
+        name: 'Text Tools',
+        version: '0.1.0',
+        main: 'dist/main.js',
+        pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+        enabled: false,
+        installedAt,
+      });
+
+      const updated = repository.upsertPlugin({
+        id: 'com.example.text-tools',
+        name: 'Text Tools',
+        version: '0.2.0',
+        main: 'dist/main.js',
+      });
+
+      expect(updated).toMatchObject({
+        id: 'com.example.text-tools',
+        version: '0.2.0',
+        pluginRoot: 'C:\\CommandCabin\\plugins\\text-tools',
+        enabled: false,
+        installedAt: '2026-02-02T00:00:00.000Z',
+      });
+    } finally {
+      database.close();
+    }
+  });
 });

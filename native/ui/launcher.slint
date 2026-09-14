@@ -1,0 +1,791 @@
+// CommandCabin 原生启动器窗口（M1/M2 起步；后续多轮实机迭代）。
+// 键盘处理挂在搜索输入 TextInput 的 key-pressed 上：TextInput 在做任何内部处理
+// 之前先调用该回调，返回 accept 即拦截按键（vendored i-slint-core items/text.rs
+// 确认）。计划参考布局把 FocusScope 放在 VerticalLayout 同级——按键事件只沿
+// 焦点项父链冒泡（i-slint-core window.rs process_key_event），同级 FocusScope
+// 永远收不到事件，故改为直接挂在输入框上。
+//
+// UI 复刻（2026-09 用户反馈第六轮："对比原本的首页风格重做"）：
+// 以 Electron 原版（apps/desktop/src/renderer/src/app/App.css + LauncherPage.tsx）
+// 为视觉规范逐 token 复刻，浅/深两套（:root 与 :root[data-theme='dark']）：
+// - 窗口背景：原版 --app-bg 双层渐变简化为纵向奶油→蓝白渐变
+//   （#fff7f2→#eef7ff；深色 #201916→#0f1117，对应原版深色暖黑）。
+// - 品牌标题栏（原版 .launcher-titlebar）：44px 圆角 Logo + "CommandCabin"
+//   15px/700 标题 + 右侧 38px 圆形设置齿轮按钮（原版 SettingsGearIcon，
+//   经新增 open-settings 回调走托盘同一条 show_settings_window 路径）。
+// - 搜索区（原版 .search-box/.search-field-wrap）：上方 13px "搜索" 小标签
+//   （search-label，Rust 按语言 push，对齐 TS launcher.search.label）；输入框
+//   改自绘药丸卡（52px 高、18px 圆角、暖橙描边 + 软投影、18px 字号），内置
+//   TextInput + 占位文案（search-placeholder，TS launcher.search.placeholder）。
+//   弃用 std-widgets LineEdit（无法定制圆角/描边/投影）。
+// - 首页磁贴（原版 .result-item--recent-app 卡片）：96px 高白卡、18px 圆角、
+//   暖橙细描边 + 软投影；内容 = 38px 圆角图标芯片（暖色渐变底 + 24px 应用图标）
+//   + 11px 最多两行居中名称。选中态：2px 强调描边 + 暖色底（对齐原版
+//   data-selected 卡片样式）。每行 5 个、至多 2 行（用户第二轮明确要求，
+//   原版为 6 列）。
+// - 搜索结果行（原版 .result-item 详细行）：64px 高、20px 圆角白卡、暖橙描边；
+//   38px 图标芯片（无图标时显示标题首字符 glyph，对齐 TS getResultIconGlyph）；
+//   14px/700 标题 + 12px 副标题；选中态 = 暖底 + 强调描边 + 左缘 4px 强调条
+//   （原版 inset 4px accent 竖条）。行高 48→64px 同步进 ensure-selection-visible。
+// - 更新横幅（原版 .launcher-update-banner）：accent-soft 底 + accent-line 描边、
+//   46px 高、18px 圆角；按钮改自绘药丸（原版 border-radius:999px）。
+// - 首页功能（原版 .launcher-home-actions）：药丸按钮 + 24px 图标圆片
+//   （原版三钮：添加应用/单位换算/截图；native 现仅截图入口有对应功能，
+//   其余不设空壳按钮）。
+// - 主题：theme-mode（0 系统/1 浅/2 深）沿用；`dark` 判定在显式模式之上用
+//   Palette.window-background 亮度探测系统主题（Palette.color-scheme 读回值
+//   不反映系统解析结果，背景色会随 unknown 解析）。
+//
+// 历史轮次（行为语义，全部保留）：
+// - UI 修复 2（键盘导航）：空查询首页四向箭头驱动磁贴网格（Rust
+//   state::move_tile_selection 决策 + selected-tile 回推高亮）；Enter 经
+//   execute-selected 由 Rust 按选中磁贴路由（state::execute_tile_route）；
+//   搜索态 ↑/↓ 循环移动（跳分组行）+ ensure-selection-visible 滚入视口。
+// - UI 修复 1（磁贴网格）：pinned 不进平铺列表，走 pinned-tiles /
+//   pinned-tiles-row-2 两行模型（Rust 切分；Slint for 委托不支持条件元素）。
+//   第二行必须 `if length > 0` 整体守卫：空 for-in HorizontalLayout 会报告
+//   ~370px 幻影 preferred 高度（实机探针实证）。
+// - M2 Task 10：app 结果行"固定到首页"按钮（pin-app 回调）；分组头行机制
+//   保留（`group` 非空 = 分组头，现仅搜索态防御性渲染）。
+// - M5 Task 3：更新横幅三态（downloading 纯文本 / downloaded + 立即安装 /
+//   error + 查看设置）。
+import { ListView, Palette } from "std-widgets.slint";
+
+export struct ResultItem {
+    title: string,
+    subtitle: string,
+    // 结果图标（Rust 侧从图标缓存水合为位图；无图标时为零尺寸空图）。
+    icon: image,
+    // 无图标时的芯片字符（标题首字符大写，对齐 TS getResultIconGlyph；Rust 填）。
+    glyph: string,
+    // 分组头文本：非空 = 首页分组头行（不可选中/执行/固定）。
+    group: string,
+    // 命令 id（分组头行为空串）；执行与固定动作经 id 回 Rust 侧解析。
+    command-id: string,
+    // source==app && open-app → 可固定（显示固定按钮）。
+    app: bool,
+    // 已是固定应用收藏（含收藏命令本身）→ 不显示固定按钮。
+    pinned: bool,
+}
+
+/// 首页固定磁贴：标题 + 图标 + 命令 id（点击执行经 id 回 Rust）。
+export struct PinnedTile {
+    title: string,
+    icon: image,
+    command-id: string,
+}
+
+/// 自绘药丸按钮（原版 .launcher-home-actions button / 横幅按钮 / 设置齿轮的
+/// 圆角 999px 样式；std-widgets Button 无法定制外形故弃用）。
+/// icon-kind 非空时显示 24px 图标圆片 + 纯矢量小图标（UI 修复 9：字符图标
+/// ⚙/⊕/⛶ 经字体 fallback 渲染不可控——实测出现 emoji 彩底、错位、偏心点，
+/// 全部改为 Rectangle 组合绘制，零字体依赖）；text 非空时右侧 12px/700 标签。
+/// 注意：`pill-*` 前缀避免与 Rectangle 内建 height/background/border 冲突。
+component PillButton inherits Rectangle {
+    in property <string> text: "";
+    /// 矢量图标种类："settings"（三滑杆）/ "screenshot"（四角取景框）/ ""（无）。
+    in property <string> icon-kind: "";
+    in property <length> pill-height: 34px;
+    /// 图标圆片底色渐变（原版 .launcher-home-actions__icon background）。
+    in property <brush> icon-background: @linear-gradient(
+        135deg,
+        #ff4d3624 0%,
+        #ff9f0a1f 45%,
+        #0a84ff21 100%
+    );
+    in property <color> icon-color: #ff4d36;
+    in property <color> label-color: #111827;
+    in property <color> pill-border: #ff6f2638;
+    in property <color> pill-background: #ffffffe0;
+    in property <color> pill-hover-background: #fff4ecf5;
+    in property <color> pill-hover-border: #ff5b356b;
+    callback clicked();
+
+    height: pill-height;
+    min-width: icon-kind != "" && text == "" ? pill-height : 92px;
+    border-radius: self.height / 2;
+    border-width: 1px;
+    border-color: pill-touch.has-hover ? root.pill-hover-border : root.pill-border;
+    background: pill-touch.has-hover ? root.pill-hover-background : root.pill-background;
+    drop-shadow-blur: 14px;
+    drop-shadow-color: #16345217;
+    drop-shadow-offset-y: 3px;
+
+    pill-touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: root.text == "" ? 0px : 6px;
+        padding-right: 12px;
+        padding-top: 5px;
+        padding-bottom: 5px;
+        spacing: 7px;
+        alignment: root.text == "" ? center : start;
+        if root.icon-kind != "": Rectangle {
+            width: 24px;
+            height: 24px;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #ffffffdb;
+            background: root.icon-background;
+            HorizontalLayout {
+                padding: 0px;
+                alignment: center;
+                VerticalLayout {
+                    padding: 0px;
+                    alignment: center;
+                    // ---- 设置入口：三滑杆（三条横杆 + 三个错位圆钮） ----
+                    if root.icon-kind == "settings": Rectangle {
+                        width: 15px;
+                        height: 15px;
+                        Rectangle { x: 0px; y: 1px; width: 15px; height: 3px; border-radius: 1.5px; background: root.icon-color; }
+                        Rectangle { x: 0px; y: 6px; width: 15px; height: 3px; border-radius: 1.5px; background: root.icon-color; }
+                        Rectangle { x: 0px; y: 11px; width: 15px; height: 3px; border-radius: 1.5px; background: root.icon-color; }
+                        // 圆钮（白描边 + 图标色圆心），三行各错一位。
+                        Rectangle { x: 1.5px; y: 0px; width: 5px; height: 5px; border-radius: 2.5px; border-width: 1px; border-color: #ffffffdb; background: root.icon-color; }
+                        Rectangle { x: 7.5px; y: 5px; width: 5px; height: 5px; border-radius: 2.5px; border-width: 1px; border-color: #ffffffdb; background: root.icon-color; }
+                        Rectangle { x: 4.5px; y: 10px; width: 5px; height: 5px; border-radius: 2.5px; border-width: 1px; border-color: #ffffffdb; background: root.icon-color; }
+                    }
+                    // ---- 截图入口：四角取景框 ----
+                    if root.icon-kind == "screenshot": Rectangle {
+                        width: 15px;
+                        height: 15px;
+                        // 四个 L 形角（横臂 + 竖臂）。
+                        Rectangle { x: 0px; y: 0px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
+                        Rectangle { x: 0px; y: 0px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
+                        Rectangle { x: 9.5px; y: 0px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
+                        Rectangle { x: 12.8px; y: 0px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
+                        Rectangle { x: 0px; y: 12.8px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
+                        Rectangle { x: 0px; y: 9.5px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
+                        Rectangle { x: 9.5px; y: 12.8px; width: 5.5px; height: 2.2px; border-radius: 1.1px; background: root.icon-color; }
+                        Rectangle { x: 12.8px; y: 9.5px; width: 2.2px; height: 5.5px; border-radius: 1.1px; background: root.icon-color; }
+                    }
+                }
+            }
+        }
+        if root.text != "": Text {
+            text: root.text;
+            font-size: 12px;
+            font-weight: 700;
+            color: root.label-color;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+/// 首页磁贴卡片（原版 .result-item--recent-app：96px 白卡、18px 圆角、
+/// 图标芯片 + 最多两行居中名称；选中/悬停暖色反馈）。
+component HomeTileView inherits Rectangle {
+    in property <PinnedTile> tile;
+    in property <bool> selected: false;
+    in property <length> tile-width: 110px;
+    in property <color> card-background: #ffffffd9;
+    in property <color> card-selected-background: #fff3ebf5;
+    in property <color> card-border: #ff6f2638;
+    in property <color> accent-border: #ff5b356b;
+    in property <color> name-color: #111827;
+    in property <brush> chip-background: @linear-gradient(
+        135deg,
+        #ff4d3626 0%,
+        #ff9f0a1f 45%,
+        #0a84ff21 100%
+    );
+    in property <color> chip-border: #ffffffdb;
+    callback run(string);
+
+    width: tile-width;
+    height: 96px;
+    border-radius: 18px;
+    border-width: root.selected ? 2px : 1px;
+    border-color: root.selected ? root.accent-border : root.card-border;
+    background: root.selected ? root.card-selected-background : root.card-background;
+    drop-shadow-blur: 16px;
+    drop-shadow-color: #193c0c17;
+    drop-shadow-offset-y: 4px;
+
+    tile-touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.run(root.tile.command-id); }
+    }
+    VerticalLayout {
+        padding-top: 10px;
+        padding-bottom: 9px;
+        padding-left: 7px;
+        padding-right: 7px;
+        spacing: 5px;
+        alignment: center;
+        // 图标芯片（原版 .result-icon：38px 圆角方块 + 暖色渐变底 + 应用图标）。
+        HorizontalLayout {
+            padding: 0px;
+            alignment: center;
+                Rectangle {
+                width: 38px;
+                height: 38px;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: root.chip-border;
+                background: root.chip-background;
+                // 图标可能带透明外衬超出 38px 盒——clip 住芯片边界。
+                clip: true;
+                HorizontalLayout {
+                    padding: 0px;
+                    alignment: center;
+                    VerticalLayout {
+                        padding: 0px;
+                        alignment: center;
+                        Image {
+                            source: root.tile.icon;
+                            width: 24px;
+                            height: 24px;
+                        }
+                    }
+                }
+            }
+        }
+        // 名称：11px、最多两行、居中（原版 -webkit-line-clamp: 2；clip 容器
+        // 兜底超长第三行——Slint 无 line-clamp）。
+        Rectangle {
+            height: 28px;
+            clip: true;
+            Text {
+                width: 100%;
+                text: root.tile.title;
+                font-size: 11px;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+                color: root.name-color;
+            }
+        }
+    }
+}
+
+export component LauncherWindow inherits Window {
+    in property <[ResultItem]> results: [];
+    in-out property <int> selected-index: 0;
+    in-out property <string> current-query: "";
+    /// 首页分组头 / 固定按钮文案（Rust 按设置语言 push）。`recent-group` /
+    /// `pinned-group` / `home-actions-label` 在 UI 复刻轮后不再渲染（原版首页
+    /// 无分组头；磁贴网格与功能按钮排自 explanatory），属性与 i18n 文案保留
+    /// （Rust setter 依赖属性存在；文案供未来分区复用）。
+    in property <string> recent-group: "";
+    in property <string> pinned-group: "";
+    in property <string> pin-label: "";
+    /// 搜索区标签与占位文案（UI 复刻轮新增；TS launcher.search.label /
+    /// .placeholder，Rust push_launcher_texts 按语言 push）。
+    in property <string> search-label: "";
+    in property <string> search-placeholder: "";
+    /// 首页固定磁贴模型（空查询首页由 Rust push——网格第一行，至多 5 个；
+    /// 第二行见 `pinned-tiles-row-2`）。
+    in property <[PinnedTile]> pinned-tiles: [];
+    /// 固定磁贴网格第二行（至多 5 个，可空）。
+    in property <[PinnedTile]> pinned-tiles-row-2: [];
+    /// 首页磁贴键盘选中（Rust push 网格下标，-1 = 无选中。高亮与 Enter 执行
+    /// 都读它；决策表在 Rust `state::move_tile_selection`）。
+    in-out property <int> selected-tile: -1;
+    /// "首页功能" 分区头 / 截图按钮文案（Rust 按设置语言 push；分区头不再渲染）。
+    in property <string> home-actions-label: "";
+    in property <string> home-action-screenshot: "";
+    /// 设置齿轮无障碍文案（TS launcher.openSettings；tooltip 层面暂以
+    /// accessible 角色提供，UI 复刻轮新增 open-settings 回调配套）。
+    in property <string> open-settings-label: "";
+    /// 0 system / 1 light / 2 dark（Rust push；与 settings.slint 同语义）。
+    in property <int> theme-mode: 0;
+    /// M5 Task 3 更新横幅（downloading 纯文本 / downloaded 文本 + "立即安装" /
+    /// error checkFailed + 详情 + "查看设置"；其余状态无横幅）。
+    in property <string> update-banner-text: "";
+    in property <string> update-banner-detail: "";
+    in property <bool> update-banner-install: false;
+    in property <bool> update-banner-settings: false;
+    in property <string> update-banner-install-label: "";
+    in property <string> update-banner-settings-label: "";
+    callback query-changed(string);
+    callback move-selection(int);
+    // 首页磁贴四向键盘导航：dx/dy ∈ {-1,0,1}（每次单轴），决策与边界钳制在
+    // Rust 侧；撞边界不动、不回绕。
+    callback move-tile-selection(int, int);
+    callback execute-selected();
+    callback dismissed();
+    // 固定磁贴点击执行：id 回 Rust 侧 commands_by_id 解析后执行。
+    callback run-command-id(string);
+    // 首页功能截图入口：与截图热键同一条 start_capture 路径。
+    callback run-screenshot();
+    // 设置齿轮（UI 复刻轮）：与托盘"设置"同一条 show_settings_window 路径。
+    callback open-settings();
+    // M2 设置更新桥（Task 9）：入参为 JSON patch 文本，返回空串表示成功、
+    // 否则为错误文案。
+    callback apply-settings(string) -> string;
+    // 固定到首页（M2 Task 10）：command-id 参数；Rust 侧写收藏并刷新视图。
+    callback pin-app(string);
+    // M5 Task 3：横幅动作——重启安装已下载的更新 / 打开设置查看更新状态。
+    callback install-update();
+    callback open-update-settings();
+
+    /// 结果列表滚动偏移别名：Rust 重渲染后复位到顶部——若新旧
+    /// selected-index 相同则 changed 不触发，滚动复位必须由 Rust 显式做。
+    in-out property <length> results-viewport-y <=> results-list.viewport-y;
+
+    // ---- 暖色主题 token（原版 App.css :root / [data-theme='dark'] 映射）----
+    /// 显式深色（mode 2）或系统深色（mode 0：Palette.color-scheme 读回不反映
+    /// 系统解析，改用 control-background 亮度探测——fluent 深色控件底
+    /// ≈ #2b2b2b，三通道和 < 0.9；浅色 ≈ #ffffff，≈ 3.0）。
+    property <bool> dark: root.theme-mode == 2
+        || (root.theme-mode == 0
+            && Palette.control-background.red + Palette.control-background.green
+                + Palette.control-background.blue < 0.9);
+    // --app-title / --app-text / --app-muted / --app-placeholder
+    property <color> title-color: root.dark ? #f9fafb : #111827;
+    property <color> text-color: root.dark ? #eef2f8 : #1f2937;
+    property <color> muted-color: root.dark ? #9aa4b2 : #657080;
+    property <color> placeholder-color: root.dark ? #7f8a9b : #8d96a7;
+    // --app-accent / --app-accent-line / --app-control-line / --app-accent-soft
+    property <color> accent-color: root.dark ? #ff8a1f : #ff4d36;
+    property <color> accent-line: root.dark ? #ff8a1f70 : #ff5b356b;
+    property <color> control-line: root.dark ? #ffffff1f : #ff6f2638;
+    property <color> accent-soft: root.dark ? #ff8a1f24 : #ff712529;
+    // 卡片 / 输入框底色（--app-panel-bg / --app-control-bg）
+    property <color> card-background: root.dark ? #ffffff14 : #ffffffd9;
+    property <color> card-selected-background: root.dark ? #402d1ef2 : #fff3ebf5;
+    property <color> field-background: root.dark ? #ffffff1a : #ffffffe6;
+    // 图标芯片渐变（.result-icon background：暖红→暖橙→蓝）
+    property <brush> chip-background: root.dark
+        ? @linear-gradient(135deg, #ff8a1f24 0%, #ffd60a21 45%, #64d2ff21 100%)
+        : @linear-gradient(135deg, #ff4d3626 0%, #ff9f0a1f 45%, #0a84ff21 100%);
+    property <color> chip-border: root.dark ? #ffffff1f : #ffffffdb;
+    // 投影（--app-shadow-soft 近似；软件渲染器下 blur 代价可控）
+    property <color> shadow-color: root.dark ? #00000042 : #1634521c;
+
+    function apply-theme() {
+        if (root.theme-mode == 1) {
+            Palette.color-scheme = ColorScheme.light;
+        } else if (root.theme-mode == 2) {
+            Palette.color-scheme = ColorScheme.dark;
+        } else {
+            Palette.color-scheme = ColorScheme.unknown;
+        }
+    }
+
+    // 把选中行滚入可视区（行高统一 64px，含分组头行）。语义同 vendored ListView
+    // bring-into-view：越上缘 → 顶对齐；越下缘 → 底对齐。
+    function ensure-selection-visible() {
+        if (root.selected-index < 0 || root.results.length == 0) {
+            return;
+        }
+        if (results-list.visible-height <= 0px) {
+            return;
+        }
+        if (root.selected-index * 64px + results-list.viewport-y < 0px) {
+            results-list.viewport-y = root.selected-index * -64px;
+        } else if (root.selected-index * 64px + results-list.viewport-y + 64px > results-list.visible-height) {
+            results-list.viewport-y = results-list.visible-height - (root.selected-index + 1) * 64px;
+        }
+    }
+
+    init => { root.apply-theme(); }
+    changed theme-mode => { root.apply-theme(); }
+    changed selected-index => { root.ensure-selection-visible(); }
+
+    title: "CommandCabin";
+    width: 640px;
+    // 首页（品牌栏 44 + 搜索区 76 + 磁贴 2×96 + 横幅/功能排 + 留白）与搜索态
+    // 列表可视行数（~6 行 × 64px）共用 600px。呼出居中按 winit outer_size
+    // 运行时取值，无需同步。
+    height: 600px;
+    no-frame: false;
+    always-on-top: true;
+    icon: @image-url("../assets/icon.png");
+
+    background: root.dark
+        ? @linear-gradient(180deg, #201916 0%, #0f1117 100%)
+        : @linear-gradient(180deg, #fff7f2 0%, #eef7ff 100%);
+
+    forward-focus: query-input;
+
+    // Rust 侧在每次呼出窗口后调用，把键盘焦点显式交给输入框
+    // （forward-focus 仅在窗口首次获得焦点时隐式生效）。
+    public function focus-input() {
+        query-input.focus();
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        padding-bottom: 14px;
+        padding-left: 28px;
+        padding-right: 28px;
+        spacing: 12px;
+
+        // ---- 品牌标题栏（原版 .launcher-titlebar：Logo + 标题 + 设置齿轮）----
+        HorizontalLayout {
+            spacing: 12px;
+            Rectangle {
+                width: 44px;
+                height: 44px;
+                border-radius: 13px;
+                clip: true;
+                Image {
+                    width: 100%;
+                    height: 100%;
+                    source: @image-url("../assets/icon.png");
+                }
+            }
+            Text {
+                text: "CommandCabin";
+                font-size: 15px;
+                font-weight: 700;
+                color: root.title-color;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+            }
+            PillButton {
+                // UI 修复 9：字符图标（⚙/⊕）字体 fallback 渲染不可控（emoji 彩底/
+                // 错位/偏心点），改纯矢量"三滑杆"设置图标。
+                icon-kind: "settings";
+                pill-height: 38px;
+                // 显式宽度钳制：图标-only 按钮无文本参与 preferred 宽度计算时，
+                // 品牌行布局可能把富余空间误分给按钮（实测拉宽到 ~211 logical）；
+                // 圆形按钮 = 高度即宽度。
+                width: 38px;
+                icon-background: root.chip-background;
+                icon-color: root.accent-color;
+                label-color: root.title-color;
+                pill-border: root.control-line;
+                pill-background: root.dark ? #ffffff12 : #ffffffd5;
+                pill-hover-background: root.accent-soft;
+                pill-hover-border: root.accent-line;
+                clicked => { root.open-settings(); }
+            }
+        }
+
+        // ---- 搜索区（原版 .search-box：13px 标签 + 药丸输入卡）----
+        VerticalLayout {
+            spacing: 6px;
+            Text {
+                text: root.search-label;
+                font-size: 13px;
+                font-weight: 600;
+                color: root.dark ? #d8dee8 : #475467;
+            }
+            search-field := Rectangle {
+                height: 52px;
+                border-radius: 18px;
+                background: root.field-background;
+                border-width: 1.5px;
+                border-color: query-input.has-focus ? root.accent-line : root.control-line;
+                drop-shadow-blur: 24px;
+                drop-shadow-color: root.shadow-color;
+                drop-shadow-offset-y: 6px;
+
+                HorizontalLayout {
+                    padding-left: 18px;
+                    padding-right: 18px;
+                    query-input := TextInput {
+                        vertical-alignment: center;
+                        font-size: 18px;
+                        color: root.title-color;
+                        text <=> root.current-query;
+                        // Slint 1.9 TextInput.edited 无参回调（LineEdit 的
+                        // edited(text) 才带参）；文本经双向绑定同步后取值。
+                        edited => { root.query-changed(query-input.text); }
+                        key-pressed(event) => {
+                            // 首页（空查询且有磁贴）四向箭头驱动磁贴网格——全部
+                            // accept，左/右不再移动输入框光标；Enter/Esc 仍走同名
+                            // execute-selected / dismissed（Rust 按 selected-tile 路由）。
+                            if (root.current-query == "" && root.pinned-tiles.length > 0) {
+                                if (event.text == Key.UpArrow) { root.move-tile-selection(0, -1); return accept; }
+                                if (event.text == Key.DownArrow) { root.move-tile-selection(0, 1); return accept; }
+                                if (event.text == Key.LeftArrow) { root.move-tile-selection(-1, 0); return accept; }
+                                if (event.text == Key.RightArrow) { root.move-tile-selection(1, 0); return accept; }
+                                if (event.text == Key.Return) { root.execute-selected(); return accept; }
+                                if (event.text == Key.Escape) { root.dismissed(); return accept; }
+                                return reject;
+                            }
+                            // 搜索态：↑/↓/Enter/Esc 走平铺列表；左/右 reject（光标移动）。
+                            if (event.text == Key.UpArrow) { root.move-selection(-1); return accept; }
+                            if (event.text == Key.DownArrow) { root.move-selection(1); return accept; }
+                            if (event.text == Key.Return) { root.execute-selected(); return accept; }
+                            if (event.text == Key.Escape) { root.dismissed(); return accept; }
+                            return reject;
+                        }
+                    }
+                }
+                // 占位文案（原版 input::placeholder；Slint TextInput 无内建
+                // placeholder，空文本时叠加显示，18px 与输入同轨）。
+                if root.current-query == "": Text {
+                    x: 18px;
+                    width: parent.width - 36px;
+                    y: (parent.height - self.preferred-height) / 2;
+                    text: root.search-placeholder;
+                    font-size: 18px;
+                    color: root.placeholder-color;
+                    overflow: elide;
+                }
+            }
+        }
+
+        // ---- 首页磁贴网格（空查询首页的唯一命令入口；每行 5 个、至多 2 行，
+        // Rust 侧 home_pinned_tiles 截断 + 切分两行模型——Slint 的 for 委托
+        // 不支持条件元素，无法在 .slint 内按下标分槽）。↑/↓/←/→ 键盘导航
+        // （选中态由 Rust push 的 selected-tile 驱动），Enter 执行选中磁贴；
+        // 鼠标点击执行不变。
+        // 第二行必须用 `if length > 0` 整体守卫（实机探针实证）：空的 for-in
+        // HorizontalLayout 会向上游布局报告约 370px 的幻影 preferred 高度。
+        // 列宽 = (行宽 - 4×8px 间距) / 5：随窗口宽度等分，5 列始终均匀铺满。----
+        if root.current-query == "" && root.pinned-tiles.length > 0: VerticalLayout {
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                for tile[t] in root.pinned-tiles: HomeTileView {
+                    tile-width: (parent.width - 32px) / 5;
+                    selected: root.selected-tile == t;
+                    tile: tile;
+                    card-background: root.card-background;
+                    card-selected-background: root.card-selected-background;
+                    card-border: root.control-line;
+                    accent-border: root.accent-line;
+                    name-color: root.title-color;
+                    chip-background: root.chip-background;
+                    chip-border: root.chip-border;
+                    run(id) => { root.run-command-id(id); }
+                }
+            }
+            if root.pinned-tiles-row-2.length > 0: HorizontalLayout {
+                spacing: 8px;
+                for tile[t] in root.pinned-tiles-row-2: HomeTileView {
+                    tile-width: (parent.width - 32px) / 5;
+                    // 第二行下标整体偏移一行（网格 5 列）。
+                    selected: root.selected-tile == 5 + t;
+                    tile: tile;
+                    card-background: root.card-background;
+                    card-selected-background: root.card-selected-background;
+                    card-border: root.control-line;
+                    accent-border: root.accent-line;
+                    name-color: root.title-color;
+                    chip-background: root.chip-background;
+                    chip-border: root.chip-border;
+                    run(id) => { root.run-command-id(id); }
+                }
+            }
+        }
+
+        results-list := ListView {
+            vertical-stretch: 1;
+            for item[index] in root.results: Rectangle {
+                // 行高统一 64px（原版 .result-item min-height；ListView 虚拟化
+                // 按统一行高滚动，ensure-selection-visible 同步 64px）。
+                height: 64px;
+                border-radius: 20px;
+                border-width: item.group == "" && index == root.selected-index ? 2px : 1px;
+                border-color: item.group == "" && index == root.selected-index
+                    ? root.accent-line
+                    : root.control-line;
+                background: item.group == "" && index == root.selected-index
+                    ? root.card-selected-background
+                    : root.card-background;
+                drop-shadow-blur: 14px;
+                drop-shadow-color: root.shadow-color;
+                drop-shadow-offset-y: 3px;
+
+                if item.group != "":
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        alignment: start;
+                        Text {
+                            text: item.group;
+                            font-size: 11px;
+                            font-weight: 700;
+                            opacity: 0.55;
+                            color: root.title-color;
+                            vertical-alignment: center;
+                        }
+                    }
+                if item.group == "":
+                    // 行内点击区（先声明，按钮/芯片之后覆盖其上可正常接收点击）。
+                    TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        clicked => {
+                            root.selected-index = index;
+                            root.execute-selected();
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        padding-top: 12px;
+                        padding-bottom: 12px;
+                        spacing: 12px;
+                        alignment: start;
+
+                        // 图标芯片（原版 .result-icon：38px、13px 圆角、暖色
+                        // 渐变底；有图标显 22px 图标，否则标题首字符 glyph）。
+                        Rectangle {
+                            width: 38px;
+                            height: 38px;
+                            border-radius: 13px;
+                            border-width: 1px;
+                            border-color: root.chip-border;
+                            background: root.chip-background;
+                            // 同上：clip 芯片边界防图标衬底溢出。
+                            clip: true;
+                            HorizontalLayout {
+                                padding: 0px;
+                                alignment: center;
+                                VerticalLayout {
+                                    padding: 0px;
+                                    alignment: center;
+                                    if item.icon.width > 0: Image {
+                                        source: item.icon;
+                                        width: 22px;
+                                        height: 22px;
+                                    }
+                                    if item.icon.width == 0: Text {
+                                        text: item.glyph;
+                                        font-size: 14px;
+                                        font-weight: 700;
+                                        color: root.accent-color;
+                                    }
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            padding: 0px;
+                            spacing: 0px;
+                            horizontal-stretch: 1;
+                            Text {
+                                text: item.title;
+                                font-size: 14px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                                color: root.title-color;
+                                overflow: elide;
+                            }
+                            if item.subtitle != "": Text {
+                                text: item.subtitle;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                                color: root.muted-color;
+                                overflow: elide;
+                            }
+                        }
+
+                        if item.app && !item.pinned: PillButton {
+                            text: root.pin-label;
+                            pill-height: 30px;
+                            label-color: root.title-color;
+                            pill-border: root.control-line;
+                            pill-background: root.dark ? #ffffff12 : #ffffffd5;
+                            pill-hover-background: root.accent-soft;
+                            pill-hover-border: root.accent-line;
+                            clicked => { root.pin-app(item.command-id); }
+                        }
+                    }
+                    // 选中行左缘 4px 强调条（原版 inset 4px accent 竖条；避让
+                    // 20px 圆角取直边区）。
+                    if index == root.selected-index: Rectangle {
+                        x: 5px;
+                        y: 16px;
+                        width: 4px;
+                        height: parent.height - 32px;
+                        border-radius: 2px;
+                        background: root.accent-color;
+                    }
+            }
+        }
+
+        // ---- 更新横幅（原版 .launcher-update-banner：accent-soft 底 +
+        // accent-line 描边；空文本隐藏，仅空查询首页显示）----
+        if root.current-query == "" && root.update-banner-text != "": Rectangle {
+            height: 46px;
+            border-radius: 18px;
+            border-width: 1px;
+            border-color: root.accent-line;
+            background: root.accent-soft;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 8px;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    padding: 0px;
+                    spacing: 0px;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: root.update-banner-text;
+                        font-size: 13px;
+                        font-weight: 700;
+                        color: root.title-color;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    if root.update-banner-detail != "": Text {
+                        text: root.update-banner-detail;
+                        font-size: 12px;
+                        color: root.dark ? #ff7a90 : #c6283f;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                if root.update-banner-install: PillButton {
+                    text: root.update-banner-install-label;
+                    pill-height: 30px;
+                    label-color: root.title-color;
+                    pill-border: root.control-line;
+                    pill-background: root.dark ? #ffffff12 : #ffffffd5;
+                    pill-hover-background: root.accent-soft;
+                    pill-hover-border: root.accent-line;
+                    clicked => { root.install-update(); }
+                }
+                if root.update-banner-settings: PillButton {
+                    text: root.update-banner-settings-label;
+                    pill-height: 30px;
+                    label-color: root.title-color;
+                    pill-border: root.control-line;
+                    pill-background: root.dark ? #ffffff12 : #ffffffd5;
+                    pill-hover-background: root.accent-soft;
+                    pill-hover-border: root.accent-line;
+                    clicked => { root.open-update-settings(); }
+                }
+            }
+        }
+
+        // ---- 首页功能排（原版 .launcher-home-actions 药丸按钮 + 图标圆片；
+        // native 现有截图入口，对齐原版第三颗按钮样式）----
+        if root.current-query == "": HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            PillButton {
+                icon-kind: "screenshot";
+                text: root.home-action-screenshot;
+                icon-background: root.chip-background;
+                icon-color: root.accent-color;
+                label-color: root.title-color;
+                pill-border: root.control-line;
+                pill-background: root.dark ? #ffffff12 : #ffffffe0;
+                pill-hover-background: root.dark ? #ff8a1f24 : #fff4ecf5;
+                pill-hover-border: root.accent-line;
+                clicked => { root.run-screenshot(); }
+            }
+        }
+
+        // Slint Royalty-free 许可要求署名；设置窗口关于分区含完整署名文本
+        // （M2 Task 10），启动器底部保留最小徽章双保险。
+        HorizontalLayout {
+            alignment: end;
+            padding: 0px;
+            Text {
+                text: "Made with Slint";
+                font-size: 9px;
+                opacity: 0.35;
+                color: root.title-color;
+            }
+        }
+    }
+}

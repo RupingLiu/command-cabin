@@ -56,9 +56,11 @@ export interface UpdateControllerOptions {
   getWindows: () => readonly UpdateControllerWindow[];
   isPackaged: boolean;
   logger?: Pick<Console, 'error' | 'log'> | undefined;
+  manualCheckCooldownMs?: number | undefined;
 }
 
 const defaultAutomaticCheckIntervalMs = 6 * 60 * 60 * 1000;
+const defaultManualCheckCooldownMs = 10 * 60 * 1000;
 
 function getVersion(value: unknown): string | undefined {
   if (!value || typeof value !== 'object') {
@@ -101,6 +103,7 @@ export function createUpdateController({
   getWindows,
   isPackaged,
   logger = console,
+  manualCheckCooldownMs = defaultManualCheckCooldownMs,
 }: UpdateControllerOptions): UpdateController {
   let status: UpdateStatus = isPackaged
     ? {
@@ -117,6 +120,7 @@ export function createUpdateController({
   let checkInFlight: Promise<UpdateCheckResult> | undefined;
   let automaticCheckStarted = false;
   let automaticCheckTimer: ReturnType<typeof setInterval> | undefined;
+  let lastManualCheckAt: number | undefined;
   let versionKnowledge: UpdateVersionKnowledge = {};
 
   autoUpdater.autoInstallOnAppQuit = false;
@@ -252,7 +256,7 @@ export function createUpdateController({
     });
   });
 
-  async function checkForUpdates(): Promise<UpdateCheckResult> {
+  async function checkForUpdates(bypassCooldown = false): Promise<UpdateCheckResult> {
     if (!isPackaged) {
       return status;
     }
@@ -268,6 +272,17 @@ export function createUpdateController({
 
     if (checkInFlight) {
       return checkInFlight;
+    }
+
+    if (!bypassCooldown) {
+      if (
+        lastManualCheckAt !== undefined &&
+        Date.now() - lastManualCheckAt < manualCheckCooldownMs
+      ) {
+        return status;
+      }
+
+      lastManualCheckAt = Date.now();
     }
 
     mergeStatus({ phase: 'checking' });
@@ -292,6 +307,10 @@ export function createUpdateController({
     return checkInFlight;
   }
 
+  function performCheck(): Promise<UpdateCheckResult> {
+    return checkForUpdates(true);
+  }
+
   return {
     checkForUpdates,
     getStatus: () => status,
@@ -312,10 +331,10 @@ export function createUpdateController({
       }
 
       automaticCheckStarted = true;
-      void checkForUpdates();
+      void performCheck();
       if (isPackaged && automaticCheckIntervalMs > 0 && !automaticCheckTimer) {
         automaticCheckTimer = setInterval(() => {
-          void checkForUpdates();
+          void performCheck();
         }, automaticCheckIntervalMs);
       }
     },

@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 
 const FRANKFURTER_USD_CNY_ENDPOINT = 'https://api.frankfurter.dev/v2/rate/USD/CNY';
 const DEFAULT_TIMEOUT_MS = 1200;
+const DEFAULT_TTL_MS = 60 * 60 * 1000;
 
 export interface ExchangeRateFetchResponse {
   json: () => Promise<unknown>;
@@ -32,6 +33,8 @@ export interface ExchangeRateCacheOptions {
   fetch?: ExchangeRateFetch | undefined;
   logger?: Pick<Console, 'warn'> | undefined;
   timeoutMs?: number | undefined;
+  ttlMs?: number | undefined;
+  clock?: (() => Date) | undefined;
 }
 
 interface CachedUsdToCnyExchangeRate {
@@ -111,12 +114,13 @@ function readNestedCnyRate(value: Record<string, unknown>): number | undefined {
 
 async function readCacheFile(
   cacheFilePath: string,
+  logger: ExchangeRateCacheOptions['logger'],
 ): Promise<CachedUsdToCnyExchangeRate | undefined> {
   try {
     return parseCachedRate(JSON.parse(await readFile(cacheFilePath, 'utf8')));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      return undefined;
+      logger?.warn('Exchange rate cache read failed.', error);
     }
 
     return undefined;
@@ -168,22 +172,31 @@ async function fetchLiveRate({
   }
 }
 
+function isFresh(rate: CachedUsdToCnyExchangeRate, ttlMs: number, clock: () => Date): boolean {
+  const fetchedAtTime = Date.parse(rate.fetchedAt);
+
+  return !Number.isNaN(fetchedAtTime) && clock().getTime() - fetchedAtTime < ttlMs;
+}
+
 export function createExchangeRateCache({
   cacheFilePath,
   fetch: fetchRate = globalThis.fetch as ExchangeRateFetch,
   logger,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  ttlMs = DEFAULT_TTL_MS,
+  clock = () => new Date(),
 }: ExchangeRateCacheOptions): ExchangeRateCache {
   let cachedRatePromise: Promise<CachedUsdToCnyExchangeRate | undefined> | undefined;
+  let refreshInFlight: Promise<CachedUsdToCnyExchangeRate | undefined> | undefined;
 
   async function getCachedRate(): Promise<CachedUsdToCnyExchangeRate | undefined> {
-    cachedRatePromise ??= readCacheFile(cacheFilePath);
+    cachedRatePromise ??= readCacheFile(cacheFilePath, logger);
 
     return cachedRatePromise;
   }
 
-  return {
-    getUsdToCnyRate: async () => {
+  async function refreshRate(): Promise<CachedUsdToCnyExchangeRate | undefined> {
+    refreshInFlight ??= (async () => {
       try {
         const liveRate = await fetchLiveRate({
           fetchRate,
@@ -194,15 +207,41 @@ export function createExchangeRateCache({
           await writeCacheFile(cacheFilePath, liveRate);
           cachedRatePromise = Promise.resolve(liveRate);
 
-          return toResult(liveRate, 'live');
+          return liveRate;
         }
+
+        return undefined;
       } catch (error) {
         logger?.warn('Exchange rate refresh failed.', error);
-      }
 
+        return undefined;
+      }
+    })();
+
+    try {
+      return await refreshInFlight;
+    } finally {
+      refreshInFlight = undefined;
+    }
+  }
+
+  return {
+    getUsdToCnyRate: async () => {
       const cachedRate = await getCachedRate();
 
-      return cachedRate === undefined ? undefined : toResult(cachedRate, 'cache');
+      if (cachedRate !== undefined && isFresh(cachedRate, ttlMs, clock)) {
+        return toResult(cachedRate, 'cache');
+      }
+
+      if (cachedRate !== undefined) {
+        void refreshRate();
+
+        return toResult(cachedRate, 'cache');
+      }
+
+      const liveRate = await refreshRate();
+
+      return liveRate === undefined ? undefined : toResult(liveRate, 'live');
     },
   };
 }

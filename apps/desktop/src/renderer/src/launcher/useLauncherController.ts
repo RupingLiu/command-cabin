@@ -1021,35 +1021,41 @@ export function useLauncherController(options: LauncherControllerOptions = {}) {
 
     lastStartedSearchKeyRef.current = nextSearchKey;
 
-    dispatch({
-      requestId,
-      type: 'search-started',
-    });
-
-    desktopApi
-      .searchCommands(state.query)
-      .then((results) => {
-        if (!isMountedRef.current) {
-          return;
-        }
-
-        dispatch({
-          requestId,
-          results,
-          type: 'search-succeeded',
-        });
-      })
-      .catch((error: unknown) => {
-        if (!isMountedRef.current) {
-          return;
-        }
-
-        dispatch({
-          errorMessage: formatUnknownError(error, 'Search failed.'),
-          requestId,
-          type: 'search-failed',
-        });
+    const searchTimer = setTimeout(() => {
+      dispatch({
+        requestId,
+        type: 'search-started',
       });
+
+      desktopApi
+        .searchCommands(state.query)
+        .then((results) => {
+          if (!isMountedRef.current) {
+            return;
+          }
+
+          dispatch({
+            requestId,
+            results,
+            type: 'search-succeeded',
+          });
+        })
+        .catch((error: unknown) => {
+          if (!isMountedRef.current) {
+            return;
+          }
+
+          dispatch({
+            errorMessage: formatUnknownError(error, 'Search failed.'),
+            requestId,
+            type: 'search-failed',
+          });
+        });
+    }, 150);
+
+    return () => {
+      clearTimeout(searchTimer);
+    };
   }, [desktopApi, searchRequestKey, state.query]);
 
   return {

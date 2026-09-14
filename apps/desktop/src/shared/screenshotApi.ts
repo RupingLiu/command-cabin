@@ -1,3 +1,12 @@
+import {
+  isRecord,
+  parseBoolean,
+  parseFiniteNumber,
+  parseNonEmptyString,
+  parseString,
+  parseStringArray,
+} from './parsers.js';
+
 export const screenshotLaunchModes = Object.freeze([
   'capture',
   'capture-delay-3',
@@ -131,63 +140,12 @@ const translationLanguageSet = new Set<ScreenshotTranslationLanguage>(
 );
 const imageDataUrlPattern = /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false;
-  }
-
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
 function assertKnownKeys(value: Record<string, unknown>, keys: Set<string>, context: string): void {
   for (const key of Object.keys(value)) {
     if (!keys.has(key)) {
       throw new Error(`${context} contains unknown key "${key}".`);
     }
   }
-}
-
-function parseString(value: unknown, context: string): string {
-  if (typeof value !== 'string') {
-    throw new Error(`${context} must be a string.`);
-  }
-
-  return value;
-}
-
-function parseStringArray(value: unknown, context: string): string[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${context} must be an array.`);
-  }
-
-  return value.map((entry, index) => parseString(entry, `${context}[${index}]`));
-}
-
-function parseNonEmptyString(value: unknown, context: string): string {
-  const parsed = parseString(value, context).trim();
-
-  if (parsed.length === 0) {
-    throw new Error(`${context} must be a non-empty string.`);
-  }
-
-  return parsed;
-}
-
-function parseFiniteNumber(value: unknown, context: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${context} must be a finite number.`);
-  }
-
-  return value;
-}
-
-function parseBoolean(value: unknown, context: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new Error(`${context} must be a boolean.`);
-  }
-
-  return value;
 }
 
 function parseImageDataUrl(value: unknown, context: string): string {

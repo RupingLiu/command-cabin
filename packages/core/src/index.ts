@@ -46,6 +46,7 @@ export { createSettingsRepository } from './storage/settingsRepository.js';
 export { createHistoryRepository } from './storage/historyRepository.js';
 export type {
   CommandHistoryEntry,
+  CommandHistoryRankingEntry,
   HistoryRepository,
   RecordCommandExecutionInput,
 } from './storage/historyRepository.js';
@@ -224,6 +225,7 @@ export {
   createWindowsStartMenuScanner,
   getDefaultWindowsDesktopDirectories,
   getDefaultWindowsStartMenuDirectories,
+  mapWithConcurrency,
 } from './indexer/windows/startMenuScanner.js';
 export type {
   AppsFolderApp,

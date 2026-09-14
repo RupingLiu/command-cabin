@@ -74,6 +74,7 @@ export function createClipboardWatcher(options: ClipboardWatcherOptions): Clipbo
       timerId = setIntervalFn(() => {
         void poll();
       }, intervalMs);
+      void poll();
     },
     stop: async () => {
       if (timerId === undefined) {

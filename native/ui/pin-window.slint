@@ -1,0 +1,143 @@
+// CommandCabin 置顶图窗（M3 Task 8）。
+//
+// TS 基准 PinnedImageView.tsx：标题栏（关闭 X）+ 截图内容。M3 简化授权
+// （M3 计划 Task 8 简化条款）：无边框置顶小窗、可拖动（标题栏按住拖拽）、
+// 新增保存/复制按钮（TS 置顶窗仅关闭；复制/保存入口在 TS 的覆盖层工具栏）。
+// 图像由 Rust 侧按选区合成结果推送；窗口尺寸 = 图像逻辑尺寸 + 边框。
+//
+// 拖动：标题栏 TouchArea pointer-pressed → drag-requested → Rust 侧经
+// winit `drag_window()` 进入系统拖动（须在按住状态下调用）。
+export component PinWindow inherits Window {
+    in property <image> pin-image;
+    /// 图像逻辑尺寸（Rust 侧按窗口内容换算推送）。
+    in property <length> image-width: 280px;
+    in property <length> image-height: 180px;
+    in property <string> save-label;
+    in property <string> copy-label;
+    /// TS 标题栏关闭按钮的字面文案（aria-label "Close pinned screenshot"）。
+    in property <string> close-label;
+
+    callback close-requested();
+    callback save-requested();
+    callback copy-requested();
+    callback drag-requested();
+
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    width: root.image-width + 12px;
+    height: root.image-height + 44px + 44px;
+    title: "CommandCabin Pin";
+
+    // 标题栏（TS pinned-image-titlebar）：拖拽 + 关闭。
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: 36px;
+        border-radius: 8px;
+        background: #121826f0;
+
+        pin-drag := TouchArea {
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.drag-requested();
+                }
+            }
+        }
+        Text {
+            x: 10px;
+            height: 36px;
+            text: "CommandCabin";
+            color: #9ca3af;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            x: parent.width - 30px;
+            y: 4px;
+            width: 26px;
+            height: 28px;
+            border-radius: 6px;
+            background: close-area.has-hover ? #ffffff33 : transparent;
+            close-area := TouchArea {
+                clicked => {
+                    root.close-requested();
+                }
+            }
+            Text {
+                text: "X";
+                color: #f9fafb;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // 截图内容（TS pinned-image；保持像素不缩放由 Rust 推送逻辑尺寸保证）。
+    Rectangle {
+        x: 6px;
+        y: 38px;
+        width: root.image-width + 0px;
+        height: root.image-height + 0px;
+        clip: true;
+        border-radius: 4px;
+        border-width: 1px;
+        border-color: #ffffff24;
+        Image {
+            source: root.pin-image;
+            x: 0;
+            y: 0;
+            width: root.image-width;
+            height: root.image-height;
+        }
+    }
+
+    // 操作行（M3 简化新增：保存 / 复制）。
+    HorizontalLayout {
+        x: 6px;
+        y: root.image-height + 46px;
+        width: root.image-width;
+        height: 34px;
+        spacing: 8px;
+        alignment: end;
+
+        Rectangle {
+            width: 64px;
+            height: 28px;
+            border-radius: 6px;
+            background: pin-copy.has-hover ? #ffffff33 : #ffffff22;
+            pin-copy := TouchArea {
+                clicked => {
+                    root.copy-requested();
+                }
+            }
+            Text {
+                text: root.copy-label;
+                color: #f9fafb;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Rectangle {
+            width: 64px;
+            height: 28px;
+            border-radius: 6px;
+            background: pin-save.has-hover ? #3d1a24 : #ff375f;
+            pin-save := TouchArea {
+                clicked => {
+                    root.save-requested();
+                }
+            }
+            Text {
+                text: root.save-label;
+                color: #f9fafb;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

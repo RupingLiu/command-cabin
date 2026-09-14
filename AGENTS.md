@@ -38,6 +38,36 @@ corepack pnpm test apps/desktop/src/main/window/createMainWindow.test.ts
 corepack pnpm --filter @command-cabin/core test
 ```
 
+## Native (Rust + Slint) Workspace
+
+A native rewrite of the desktop app lives under `native/` (Cargo workspace: `cabin-core`,
+`cabin-storage`, `cabin-platform`, `cabin-platform-windows`, `cabin-app`). It is developed
+milestone-by-milestone; acceptance docs and milestone plans live under
+`docs/superpowers/acceptance/` (start at `m5-release.md` for the release checklist and
+milestone index). Until the Electron-to-native cutover, both stacks coexist.
+
+- Toolchain: `stable-x86_64-pc-windows-gnu` (cargo + MSYS2 UCRT64 linker). Cargo is not on the
+  default PATH — bootstrap with
+  `export PATH="$USERPROFILE/.cargo/bin:/c/msys64/ucrt64/bin:$PATH"` (Git Bash) or use the
+  scripts below, which set it themselves.
+- Build: `powershell native/scripts/build.ps1 -Release` (builds, copies the exe to
+  `native/artifacts/`, then deletes `native/target` — disk-budget discipline; do not leave
+  `native/target` behind).
+- Test all: `powershell native/scripts/build.ps1 -Test`; targeted: `cargo test -p <crate>` from
+  `native/`.
+- Lint/format: `cargo clippy --workspace -- -D warnings` and `cargo fmt` (workspace lints come
+  from `[workspace.lints.clippy]` in `native/Cargo.toml`).
+- Windows installer: `powershell native/scripts/build-installer.ps1` (version single-source is
+  `[workspace.package] version` in `native/Cargo.toml`; produces
+  `native/artifacts/CommandCabin-Setup-{version}.exe` + `.sha512`).
+- Layering rules: `cabin-core`/`cabin-storage`/`cabin-platform` are pure Rust with no
+  Windows/Electron dependencies (platform specifics go behind traits defined in
+  `cabin-platform`, implemented in `cabin-platform-windows`); `cabin-app` is the only crate
+  allowed to touch Slint/winit/win32 and owns orchestration. Tests live beside source as
+  `*.rs` `#[cfg(test)]` modules; live-network probes are `#[ignore]`-gated.
+- Architecture parity: TS-era behavior (`apps/desktop`, `packages/core`) is the reference spec;
+  when porting behavior, quote the TS source in tests/docs rather than inventing semantics.
+
 ## Coding Conventions
 
 - The repo is ESM TypeScript with `moduleResolution: NodeNext`; keep relative TS imports using

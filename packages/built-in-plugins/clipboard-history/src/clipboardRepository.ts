@@ -101,10 +101,12 @@ export function createClipboardHistoryRepository(
       WHERE text = ?
     `,
   );
-  const selectAllForComparison = database.prepare<[], ClipboardHistoryRow>(
+  const selectByNormalizedText = database.prepare<{ normalizedText: string }, { id: number }>(
     `
-      SELECT id, text, copied_at
+      SELECT id
       FROM clipboard_history
+      WHERE normalized_text = @normalizedText
+      LIMIT 1
     `,
   );
   const selectRecent = database.prepare<[number], ClipboardHistoryRow>(
@@ -124,18 +126,23 @@ export function createClipboardHistoryRepository(
       LIMIT @limit
     `,
   );
-  const upsertText = database.prepare<{ text: string; copiedAt: string }>(
+  const upsertText = database.prepare<{ text: string; normalizedText: string; copiedAt: string }>(
     `
-      INSERT INTO clipboard_history (text, copied_at)
-      VALUES (@text, @copiedAt)
+      INSERT INTO clipboard_history (text, normalized_text, copied_at)
+      VALUES (@text, @normalizedText, @copiedAt)
       ON CONFLICT(text) DO UPDATE SET
         copied_at = excluded.copied_at
     `,
   );
-  const updateText = database.prepare<{ id: number; text: string; copiedAt: string }>(
+  const updateText = database.prepare<{
+    id: number;
+    text: string;
+    normalizedText: string;
+    copiedAt: string;
+  }>(
     `
       UPDATE clipboard_history
-      SET text = @text, copied_at = @copiedAt
+      SET text = @text, normalized_text = @normalizedText, copied_at = @copiedAt
       WHERE id = @id
     `,
   );
@@ -154,14 +161,12 @@ export function createClipboardHistoryRepository(
 
   const saveTransaction = database.transaction(
     (text: string, normalizedText: string, copiedAt: string) => {
-      const duplicate = selectAllForComparison
-        .all()
-        .find((row) => normalizeClipboardTextForComparison(row.text) === normalizedText);
+      const duplicate = selectByNormalizedText.get({ normalizedText });
 
       if (duplicate) {
-        updateText.run({ id: duplicate.id, text, copiedAt });
+        updateText.run({ id: duplicate.id, text, normalizedText, copiedAt });
       } else {
-        upsertText.run({ text, copiedAt });
+        upsertText.run({ text, normalizedText, copiedAt });
       }
 
       pruneOldRows.run(MAX_CLIPBOARD_HISTORY_LIMIT);

@@ -4,6 +4,11 @@ export interface StorageMigration {
   id: number;
   name: string;
   sql: string;
+  /**
+   * Optional custom application logic. When provided it runs instead of `exec(sql)`,
+   * receiving the migration SQL so it can apply it conditionally (e.g. idempotent DDL).
+   */
+  apply?: (database: CommandCabinDatabase, sql: string) => void;
 }
 
 export interface MigrationResult {
@@ -115,6 +120,24 @@ const STORAGE_MIGRATIONS: readonly StorageMigration[] = [
     sql: `
       ALTER TABLE plugins
         ADD COLUMN plugin_root TEXT;
+    `,
+    apply: (database, sql) => {
+      const pluginColumns = database.pragma('table_info(plugins)') as Array<{ name: string }>;
+
+      if (!pluginColumns.some((column) => column.name === 'plugin_root')) {
+        database.exec(sql);
+      }
+    },
+  },
+  {
+    id: 5,
+    name: '005_clipboard_history_normalized_text',
+    sql: `
+      ALTER TABLE clipboard_history
+        ADD COLUMN normalized_text TEXT NOT NULL DEFAULT '';
+
+      CREATE INDEX idx_clipboard_history_normalized_text
+        ON clipboard_history(normalized_text);
     `,
   },
 ];
@@ -245,7 +268,12 @@ export function runMigrations(database: CommandCabinDatabase): MigrationResult {
   const newlyAppliedMigrationIds: number[] = [];
 
   const applyMigration = database.transaction((migration: StorageMigration) => {
-    database.exec(migration.sql);
+    if (migration.apply) {
+      migration.apply(database, migration.sql);
+    } else {
+      database.exec(migration.sql);
+    }
+
     database
       .prepare<{ id: number; name: string; appliedAt: string }>(
         `

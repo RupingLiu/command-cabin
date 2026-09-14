@@ -83,7 +83,7 @@ export struct PinnedTile {
 /// 注意：`pill-*` 前缀避免与 Rectangle 内建 height/background/border 冲突。
 component PillButton inherits Rectangle {
     in property <string> text: "";
-    /// 矢量图标种类："settings"（三滑杆）/ "screenshot"（四角取景框）/ ""（无）。
+    /// 矢量图标种类："settings"（齿轮）/ "screenshot"（四角取景框）/ ""（无）。
     in property <string> icon-kind: "";
     in property <length> pill-height: 34px;
     /// 图标圆片底色渐变（原版 .launcher-home-actions__icon background）。
@@ -136,17 +136,92 @@ component PillButton inherits Rectangle {
                 VerticalLayout {
                     padding: 0px;
                     alignment: center;
-                    // ---- 设置入口：三滑杆（三条横杆 + 三个错位圆钮） ----
+                    // ---- 设置入口：齿轮（圆环 + 8 齿，全矢量零字体依赖。
+                    // 字符齿轮 ⚙/⊕ 经字体 fallback 渲染不可控——实测 emoji
+                    // 彩底/错位/偏心点，故禁止回归字符方案；Slint 1.17 无
+                    // Rectangle 旋转，齿用 4 正轴长条 + 4 对角方块手动定位）----
                     if root.icon-kind == "settings": Rectangle {
                         width: 15px;
                         height: 15px;
-                        Rectangle { x: 0px; y: 1px; width: 15px; height: 3px; border-radius: 1.5px; background: root.icon-color; }
-                        Rectangle { x: 0px; y: 6px; width: 15px; height: 3px; border-radius: 1.5px; background: root.icon-color; }
-                        Rectangle { x: 0px; y: 11px; width: 15px; height: 3px; border-radius: 1.5px; background: root.icon-color; }
-                        // 圆钮（白描边 + 图标色圆心），三行各错一位。
-                        Rectangle { x: 1.5px; y: 0px; width: 5px; height: 5px; border-radius: 2.5px; border-width: 1px; border-color: #ffffffdb; background: root.icon-color; }
-                        Rectangle { x: 7.5px; y: 5px; width: 5px; height: 5px; border-radius: 2.5px; border-width: 1px; border-color: #ffffffdb; background: root.icon-color; }
-                        Rectangle { x: 4.5px; y: 10px; width: 5px; height: 5px; border-radius: 2.5px; border-width: 1px; border-color: #ffffffdb; background: root.icon-color; }
+                        background: transparent;
+                        // 齿圈：8.6px 圆环、环宽 2.6px，中心与 15px 盒同心。
+                        Rectangle {
+                            x: 3.2px;
+                            y: 3.2px;
+                            width: 8.6px;
+                            height: 8.6px;
+                            border-radius: 4.3px;
+                            border-width: 2.6px;
+                            background: transparent;
+                            border-color: root.icon-color;
+                        }
+                        // 正轴齿 ×4（N/E/S/W：2.7px 宽长条从环面伸向盒缘）。
+                        Rectangle {
+                            x: 6.15px;
+                            y: 0.2px;
+                            width: 2.7px;
+                            height: 3.4px;
+                            border-radius: 1px;
+                            background: root.icon-color;
+                        }
+                        Rectangle {
+                            x: 6.15px;
+                            y: 11.4px;
+                            width: 2.7px;
+                            height: 3.4px;
+                            border-radius: 1px;
+                            background: root.icon-color;
+                        }
+                        Rectangle {
+                            x: 0.2px;
+                            y: 6.15px;
+                            width: 3.4px;
+                            height: 2.7px;
+                            border-radius: 1px;
+                            background: root.icon-color;
+                        }
+                        Rectangle {
+                            x: 11.4px;
+                            y: 6.15px;
+                            width: 3.4px;
+                            height: 2.7px;
+                            border-radius: 1px;
+                            background: root.icon-color;
+                        }
+                        // 对角齿 ×4（NE/NW/SW/SE：2.7px 方块中心落在 45° 半径上，
+                        // 距中心 ~5.65px ≈ (11.5, 3.5) 等四点）。
+                        Rectangle {
+                            x: 10.15px;
+                            y: 2.15px;
+                            width: 2.7px;
+                            height: 2.7px;
+                            border-radius: 0.9px;
+                            background: root.icon-color;
+                        }
+                        Rectangle {
+                            x: 2.15px;
+                            y: 2.15px;
+                            width: 2.7px;
+                            height: 2.7px;
+                            border-radius: 0.9px;
+                            background: root.icon-color;
+                        }
+                        Rectangle {
+                            x: 2.15px;
+                            y: 10.15px;
+                            width: 2.7px;
+                            height: 2.7px;
+                            border-radius: 0.9px;
+                            background: root.icon-color;
+                        }
+                        Rectangle {
+                            x: 10.15px;
+                            y: 10.15px;
+                            width: 2.7px;
+                            height: 2.7px;
+                            border-radius: 0.9px;
+                            background: root.icon-color;
+                        }
                     }
                     // ---- 截图入口：四角取景框 ----
                     if root.icon-kind == "screenshot": Rectangle {
@@ -442,7 +517,7 @@ export component LauncherWindow inherits Window {
             }
             PillButton {
                 // UI 修复 9：字符图标（⚙/⊕）字体 fallback 渲染不可控（emoji 彩底/
-                // 错位/偏心点），改纯矢量"三滑杆"设置图标。
+                // 错位/偏心点），改纯矢量齿轮图标（圆环 + 6 齿）。
                 icon-kind: "settings";
                 pill-height: 38px;
                 // 显式宽度钳制：图标-only 按钮无文本参与 preferred 宽度计算时，

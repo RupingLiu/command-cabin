@@ -1065,6 +1065,7 @@ fn push_update_views(context: &AppContext) {
 /// status）。准入后：checking 推送 → 工作线程 `latest()` → 回 UI 线程转移。
 /// 自动检查失败静默回 Idle（计划全局约束），手动失败直出可读错误。
 fn start_update_check(context: &Arc<AppContext>, manual: bool) {
+    append_diag_log(&format!("update check start (manual={manual})"));
     let admitted = {
         let mut guard = context.state.lock().unwrap();
         let now_ms = unix_millis();
@@ -1075,6 +1076,7 @@ fn start_update_check(context: &Arc<AppContext>, manual: bool) {
         }
     };
     if !admitted {
+        append_diag_log("update check NOT admitted");
         return;
     }
     push_update_views(context);
@@ -1089,12 +1091,17 @@ fn start_update_check(context: &Arc<AppContext>, manual: bool) {
                         guard.update.finish_check_up_to_date(None);
                         false
                     }
-                    Ok(Some(info)) => guard.update.finish_check_available(info),
+                    Ok(Some(info)) => {
+                        append_diag_log(&format!("update check: update available v{}", info.version));
+                        guard.update.finish_check_available(info)
+                    }
                     Err(error) if manual => {
+                        append_diag_log(&format!("update check failed (manual): {error}"));
                         guard.update.finish_check_failed(error.to_string());
                         false
                     }
                     Err(error) => {
+                        append_diag_log(&format!("update check failed (auto): {error}"));
                         eprintln!("CommandCabin: automatic update check failed: {error}");
                         guard.update.recover_silent_check();
                         false
@@ -1173,8 +1180,12 @@ fn start_update_download(context: &Arc<AppContext>) {
             {
                 let mut guard = context.state.lock().unwrap();
                 match result {
-                    Ok(()) => guard.update.finish_download(),
+                    Ok(()) => {
+                        append_diag_log("update download finished");
+                        guard.update.finish_download();
+                    }
                     Err(message) => {
+                        append_diag_log(&format!("update download failed: {message}"));
                         eprintln!("CommandCabin: update download failed: {message}");
                         guard.update.fail_download(message);
                     }

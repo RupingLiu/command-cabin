@@ -32,8 +32,12 @@ use cabin_core::updater::{find_installer_asset, installer_asset_name, ReleaseAss
 
 use crate::i18n::UpdateUiTexts;
 
-/// TS `defaultAutomaticCheckIntervalMs = 6 * 60 * 60 * 1000`（updateController.ts:62）逐字。
-pub const AUTOMATIC_CHECK_INTERVAL_MS: u64 = 6 * 60 * 60 * 1000;
+/// 自动检查间隔。TS 原版 `defaultAutomaticCheckIntervalMs = 6h`
+/// （updateController.ts:62）；v1.0.3 缩短为 30min——v1.0.1 实机反馈：6h
+/// 意味着发布后最长 6 小时才轮到自动检查，"自动更新"感知极差（首次发布后
+/// 用户当晚收不到）。检查本身成本极低（一次 GitHub API 调用，条件准入），
+/// 30min 在体验与负载间取平衡；此为 native 与 TS 的唯一有意差异（其余逐字）。
+pub const AUTOMATIC_CHECK_INTERVAL_MS: u64 = 30 * 60 * 1000;
 /// TS `defaultManualCheckCooldownMs = 10 * 60 * 1000`（updateController.ts:63）逐字。
 pub const MANUAL_CHECK_COOLDOWN_MS: i64 = 10 * 60 * 1000;
 /// TS `installUpdate` 的 guard 失败文案（updateController.ts:320）逐字。

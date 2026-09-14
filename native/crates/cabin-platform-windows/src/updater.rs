@@ -205,6 +205,10 @@ impl UpdateService for GitHubUpdateService {
         to: &Path,
         progress: Option<Box<dyn Fn(u64, u64) + Send>>,
     ) -> Result<(), PlatformError> {
+        // v1.0.1 安全校验（下载红线 0）：下载/边车 URL 必须是 https 且主机在
+        // GitHub 域内——资产 URL 来自 GitHub API 响应体（browser_download_url），
+        // 被篡改的响应不得把下载器指向任意主机。
+        validate_download_url(&asset.url)?;
         let sidecar_url = format!("{}{SHA512_SIDECAR_SUFFIX}", asset.url);
         download_asset(
             &sidecar_url,
@@ -216,6 +220,38 @@ impl UpdateService for GitHubUpdateService {
             self.download_read_timeout,
         )
     }
+}
+
+/// 下载 URL 安全校验：仅 https；主机限 GitHub 系（github.com / api.github.com /
+/// *.githubusercontent.com——资产 302 目标 CDN 家族）。返回 Err 拒绝下载。
+/// 解析不用 url crate：https 前缀判定 + authority 提取（到第一个 '/'/'?'/'#'），
+/// 主机小写比较（DNS 大小写不敏感）。
+fn validate_download_url(url: &str) -> Result<(), PlatformError> {
+    let reject = |reason: &str| {
+        Err(PlatformError::UpdateDownload(format!(
+            "refusing update download: {reason} ({url})"
+        )))
+    };
+    let Some(rest) = url.strip_prefix("https://") else {
+        return reject("URL must use https");
+    };
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .to_lowercase();
+    // authority 可能含 userinfo@ 或 :port——主机取最后一段 '@' 之后、':' 之前。
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    let host = host.split(':').next().unwrap_or_default();
+    let github_host = host == "github.com"
+        || host == "api.github.com"
+        || host == "www.github.com"
+        || host.ends_with(".github.com")
+        || host.ends_with(".githubusercontent.com");
+    if !github_host {
+        return reject("host is not a GitHub domain");
+    }
+    Ok(())
 }
 
 static TEMPORARY_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -376,6 +412,62 @@ mod tests {
 
     use super::*;
     use cabin_core::updater::{installer_asset_name, sidecar_asset_name};
+
+    /// v1.0.1 下载 URL 安全校验：https-only + GitHub 域白名单。
+    #[test]
+    fn validate_download_url_accepts_github_https_only() {        assert!(validate_download_url(
+            "https://github.com/RupingLiu/command-cabin/releases/download/v1.0.1/x.exe"
+        )
+        .is_ok());
+        assert!(validate_download_url(
+            "https://objects.githubusercontent.com/some/path?query=1"
+        )
+        .is_ok());
+        assert!(validate_download_url(
+            "https://release-assets.githubusercontent.com/a/b"
+        )
+        .is_ok());
+        assert!(validate_download_url("https://api.github.com/repos/x").is_ok());
+        // 大小写与端口不敏感。
+        assert!(validate_download_url("https://GITHUB.COM/x").is_ok());
+        assert!(validate_download_url("https://github.com:443/x").is_ok());
+    }
+
+    #[test]
+    fn validate_download_url_rejects_non_https_and_foreign_hosts() {
+        // 明文 http / 其他协议一律拒绝。
+        assert!(validate_download_url("http://github.com/x").is_err());
+        assert!(validate_download_url("ftp://github.com/x").is_err());
+        // 非 GitHub 主机（含仿冒子域/后缀拼接）拒绝。
+        assert!(validate_download_url("https://evil.example.com/x").is_err());
+        assert!(validate_download_url("https://github.com.evil.io/x").is_err());
+        assert!(validate_download_url("https://notgithubusercontent.com/x").is_err());
+        assert!(validate_download_url("https://127.0.0.1/x").is_err());
+        assert!(validate_download_url("https://localhost/x").is_err());
+        // userinfo 混淆拒绝（主机仍须白名单）。
+        assert!(validate_download_url("https://user@evil.io/x").is_err());
+        // 缺主机拒绝。
+        assert!(validate_download_url("https:///x").is_err());
+        assert!(validate_download_url("").is_err());
+    }
+
+    /// download() 入口校验接线：非 GitHub 资产 URL 在发起任何网络请求前即
+    /// 拒绝（错误类型 UpdateDownload，消息含拒绝原因与原 URL）。
+    #[test]
+    fn download_rejects_foreign_asset_url_before_any_request() {
+        let service = GitHubUpdateService::new();
+        let asset = ReleaseAsset {
+            name: "CommandCabin-Setup-9.9.9.exe".to_string(),
+            url: "https://evil.example.com/CommandCabin-Setup-9.9.9.exe".to_string(),
+            size: 1,
+        };
+        let target = std::env::temp_dir().join("cabin-updater-should-not-exist.exe");
+        let error = service
+            .download(&asset, &target, None)
+            .expect_err("foreign host must be refused");
+        assert!(matches!(error, PlatformError::UpdateDownload(message) if message.contains("refusing update download")));
+        assert!(!target.exists());
+    }
 
     /// 多响应 HTTP mock：每个连接依次取一个响应（None → 关闭监听）；
     /// 单线程客户端按序请求，与 accept 循环一一对应。

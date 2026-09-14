@@ -32,6 +32,10 @@ image = { version = "0.25", default-features = false, features = ["png", "ico"] 
 
 [build-dependencies]
 slint-build = "1.9"
+# exe 图标/版本资源嵌入（v1.0.1：快捷方式与资源管理器读 exe 资源段——此前
+# 只有运行时 Slint 窗口图标，快捷方式图标空白）。windows-gnu 工具链经外部
+# windres（MSYS2 ucrt64/bin，build 环境已在 PATH）。
+winresource = "0.1"
 
 [lints]
 workspace = true

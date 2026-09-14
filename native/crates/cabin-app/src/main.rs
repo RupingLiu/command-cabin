@@ -1082,17 +1082,33 @@ fn start_update_check(context: &Arc<AppContext>, manual: bool) {
     std::thread::spawn(move || {
         let result = GitHubUpdateService::new().latest(CURRENT_APP_VERSION);
         let _ = slint::invoke_from_event_loop(move || {
-            {
+            let became_available = {
                 let mut guard = context.state.lock().unwrap();
                 match result {
-                    Ok(None) => guard.update.finish_check_up_to_date(None),
+                    Ok(None) => {
+                        guard.update.finish_check_up_to_date(None);
+                        false
+                    }
                     Ok(Some(info)) => guard.update.finish_check_available(info),
-                    Err(error) if manual => guard.update.finish_check_failed(error.to_string()),
+                    Err(error) if manual => {
+                        guard.update.finish_check_failed(error.to_string());
+                        false
+                    }
                     Err(error) => {
                         eprintln!("CommandCabin: automatic update check failed: {error}");
                         guard.update.recover_silent_check();
+                        false
                     }
                 }
+            };
+            if became_available {
+                // v1.0.1（用户需求"自动下载更新包，提示更新"）：发现新版本即
+                // 自动开始下载（对齐 TS electron-updater 默认 autoDownload——
+                // 检查→下载→"已下载+立即安装"横幅全程无手动步骤；下载失败进
+                // Error 相位由横幅/设置页呈现，不会循环重试）。设置页的手动
+                // [下载] 按钮保留（重复触发被 begin_download 相位机拒绝）。
+                start_update_download(&context);
+                return;
             }
             push_update_views(&context);
         });

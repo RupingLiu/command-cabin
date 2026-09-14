@@ -13,9 +13,11 @@
 //!   `getStatusText` 与 LauncherPage `updateBanner` useMemo 的移植）。
 //!
 //! 与 TS 的有意差异（均在任务简报/计划授权范围内）：
-//! 1. TS 在 `update-available` 事件里立即 `autoUpdater.downloadUpdate()`（自动
-//!    下载）；M5 计划要求"发现新版本 → [下载] 按钮"，故 available 停留等待用户
-//!    动作，`UpdatePhase::Available` 成为可停留状态。
+//! 1. ~~TS 在 `update-available` 事件里立即 `autoUpdater.downloadUpdate()`（自动
+//!    下载）；M5 计划要求"发现新版本 → [下载] 按钮"~~ v1.0.1 已消除：用户需求
+//!    "自动下载更新包，提示更新"——检查发现新版本即由 main.rs 自动触发
+//!    `start_update_download`（对齐 TS electron-updater 默认 autoDownload），
+//!    `Available` 回归瞬态；设置页手动 [下载] 按钮保留（重复触发被相位机拒绝）。
 //! 2. TS 自动检查失败会 publish `phase=error`（启动器横幅显示"无法连接 GitHub
 //!    检查更新"）；M5 计划全局约束"检查失败 = 静默跳过 + 下次自动重试"，自动
 //!    失败仅回落 Idle（stderr 诊断），手动失败才直出可读错误。
@@ -177,21 +179,25 @@ impl UpdateOrchestration {
 
     /// TS `update-not-available` → up-to-date（守卫"仍在 checking"——TS
     /// `.then` 回调同款：update-available 事件先行时让位）。
-    pub fn finish_check_up_to_date(&mut self, latest_version: Option<&str>) {
+    /// 返回是否发生转移（main 据此决定是否推进后续动作）。
+    pub fn finish_check_up_to_date(&mut self, latest_version: Option<&str>) -> bool {
         if self.status.phase != UpdatePhase::Checking {
-            return;
+            return false;
         }
         self.status.phase = UpdatePhase::UpToDate;
         self.status.version = latest_version.map(str::to_string);
         self.status.latest_version = latest_version.map(str::to_string);
         self.refresh_flags();
+        true
     }
 
-    /// TS `update-available`：记录版本知识并停在 Available（差异 1：不自动
-    /// 下载，等用户 [下载]）。
-    pub fn finish_check_available(&mut self, info: UpdateInfo) {
+    /// TS `update-available`：记录版本知识并停在 Available。
+    /// v1.0.1 起调用方立即自动触发下载（对齐 TS electron-updater 默认
+    /// autoDownload——原"差异 1：不自动下载"已消除，Available 成为瞬态）。
+    /// 返回是否转移成功（守卫失败=并发让位，不触发自动下载）。
+    pub fn finish_check_available(&mut self, info: UpdateInfo) -> bool {
         if self.status.phase != UpdatePhase::Checking {
-            return;
+            return false;
         }
         self.status.latest_version = Some(info.version.clone());
         self.status.version = Some(info.version.clone());
@@ -199,27 +205,30 @@ impl UpdateOrchestration {
         self.status.error = None;
         self.pending = Some(info);
         self.refresh_flags();
+        true
     }
 
     /// 手动检查失败：可读错误直出（TS `checkForUpdates` catch → phase=error）。
-    pub fn finish_check_failed(&mut self, message: String) {
+    pub fn finish_check_failed(&mut self, message: String) -> bool {
         if self.status.phase != UpdatePhase::Checking {
-            return;
+            return false;
         }
         self.status.phase = UpdatePhase::Error;
         self.status.error = Some(message);
         self.refresh_flags();
+        true
     }
 
     /// 自动检查失败静默（差异 2）：Checking → Idle，不显示错误（stderr 诊断在
     /// 调用方）。
-    pub fn recover_silent_check(&mut self) {
+    pub fn recover_silent_check(&mut self) -> bool {
         if self.status.phase != UpdatePhase::Checking {
-            return;
+            return false;
         }
         self.status.phase = UpdatePhase::Idle;
         self.status.percent = None;
         self.refresh_flags();
+        true
     }
 
     /// [下载]：从 pending 清单取安装包资产并进入 Downloading(0%)。清单缺

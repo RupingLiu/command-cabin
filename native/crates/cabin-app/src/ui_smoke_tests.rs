@@ -68,6 +68,86 @@ fn click(window: &slint::Window, x: f32, y: f32) {
 }
 
 #[test]
+fn settings_reopen_repaints_sidebar_after_windows_surface_loss() {
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let launcher = LauncherWindow::new().unwrap();
+    let settings = SettingsWindow::new().unwrap();
+    let adapter = adapters.borrow()[1].clone();
+    settings.set_texts(settings_texts_for_view(
+        cabin_core::settings::Language::ZhCn,
+    ));
+    settings.set_theme_mode(1);
+    settings.set_active_page(4);
+    settings.set_about_update_status("正在检查更新…".into());
+    settings.show().unwrap();
+    adapter
+        .window()
+        .dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor: 1.5 });
+    adapter.set_size(slint::LogicalSize::new(680., 500.));
+    slint::platform::update_timers_and_animations();
+    let size = adapter.window().size();
+    let mut buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(size.width, size.height);
+    let draw = |buffer: &mut slint::SharedPixelBuffer<slint::Rgb8Pixel>| {
+        adapter.window().request_redraw();
+        assert!(adapter.draw_if_needed(|renderer| {
+            renderer.set_repaint_buffer_type(RepaintBufferType::ReusedBuffer);
+            renderer.render(buffer.make_mut_slice(), size.width as usize);
+        }));
+    };
+    draw(&mut buffer);
+    let original = buffer.clone();
+    let settings_weak = settings.as_weak();
+    launcher.on_open_settings(move || show_settings_surface(&settings_weak.unwrap()).unwrap());
+
+    for cycle in 0..3 {
+        settings.hide().unwrap();
+        // Windows may clear its surface while retaining buffer age=1. The UI's
+        // static sidebar is then absent unless reopening invalidates the cache.
+        buffer.make_mut_slice().fill(slint::Rgb8Pixel {
+            r: 255,
+            g: 255,
+            b: 255,
+        });
+        settings.set_about_update_status(format!("检查完成 {cycle}").into());
+        launcher.invoke_open_settings();
+        slint::platform::update_timers_and_animations();
+        draw(&mut buffer);
+        if let Some(output) = std::env::var_os("CABIN_UI_SNAPSHOT_DIR") {
+            let output = PathBuf::from(output);
+            std::fs::create_dir_all(&output).unwrap();
+            image::save_buffer(
+                output.join(format!("settings-reopen-{cycle}.png")),
+                buffer.as_bytes(),
+                size.width,
+                size.height,
+                image::ColorType::Rgb8,
+            )
+            .unwrap();
+        }
+        for y in 0..size.height as usize {
+            for x in 0..size.width as usize {
+                // The sidebar, page heading and footer are unchanged; the About
+                // status inside the scroll area deliberately changes each time.
+                if x >= 225 && y >= 150 && y < size.height as usize - 72 {
+                    continue;
+                }
+                let index = y * size.width as usize + x;
+                assert_eq!(
+                    buffer.as_slice()[index],
+                    original.as_slice()[index],
+                    "static settings chrome must survive reopen {cycle} at {x},{y}"
+                );
+            }
+        }
+    }
+    // Navigation remains interactive after the restored frame.
+    click(settings.window(), 75., 85.);
+    assert_eq!(settings.get_active_page(), 0);
+    settings.hide().unwrap();
+}
+
+#[test]
 fn native_ui_navigation_and_dpi_smoke() {
     let adapters = Rc::new(RefCell::new(Vec::new()));
     slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();

@@ -733,8 +733,7 @@ impl AppContext {
         window.invoke_commit_pending();
         push_settings_view(self);
         window.set_error_text("".into());
-        window.show().expect("show settings");
-        window.window().request_redraw();
+        show_settings_surface(&window).expect("show settings");
     }
 
     fn hide_settings_window(&self) {
@@ -1261,6 +1260,22 @@ fn install_downloaded_update(context: &Arc<AppContext>) {
             push_update_views(context);
         }
     }
+}
+
+fn show_settings_surface(window: &SettingsWindow) -> Result<(), slint::PlatformError> {
+    window.show()?;
+    // Slint 1.17.1's Windows software surface can lose its pixels on hide/show
+    // while still reporting buffer age=1. request_redraw only schedules a frame;
+    // unchanged sidebar/header items would then be skipped by partial rendering.
+    // The public snapshot API performs a full render and invalidates the partial
+    // cache when restoring the previous buffer mode. Discard the temporary image
+    // (no file or screen capture), then present a complete frame. This runs only
+    // on an explicit settings-open action, not on each settings/status update.
+    if let Err(error) = window.window().take_snapshot() {
+        eprintln!("CommandCabin: settings full repaint failed: {error}");
+    }
+    window.window().request_redraw();
+    Ok(())
 }
 
 /// 搜索/首页 → 结果模型：图标命中磁盘缓存则内嵌位图，未命中投递后台提取

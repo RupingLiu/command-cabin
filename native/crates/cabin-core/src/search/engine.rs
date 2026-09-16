@@ -10,13 +10,12 @@
 //! - 精确子串轮 matched_by 的 indices 为源字符串 char 区间（经 tokenize 的
 //!   source_ranges 映射）；模糊轮 indices 为归一化文本上的 char 下标（nucleo 对
 //!   非 ASCII 文本按 grapheme 首字符计，归一化后两者基本一致）。
-//! - TS 对 boosted 文档单独跑一轮 Fuse（无命中则不入候选）；这里对前两轮未覆盖的
-//!   boosted 文档一律补入候选，无命中时 fuse_score=1（见
-//!   `pinned_candidate_surfaces_without_text_match` 测试）。
+//! - 与 TS 一致，pinned/history 加成只影响已匹配命令的排序；补充轮对未覆盖的
+//!   boosted 文档去重后再匹配。查询中的标点按普通文本处理，不启用模式操作符。
 
 use std::collections::{HashMap, HashSet};
 
-use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
+use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
 use crate::command::types::Command;
@@ -229,8 +228,12 @@ impl SearchEngine {
         if exact_indices.len() != self.documents.len() {
             // 第二轮：nucleo 模糊匹配，取 max(limit, 100) 个候选。
             let mut matcher = Matcher::new(Config::DEFAULT);
-            let pattern =
-                Pattern::parse(normalized_query, CaseMatching::Ignore, Normalization::Smart);
+            let pattern = Pattern::new(
+                normalized_query,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            );
             let mut haystack_buf: Vec<char> = Vec::new();
             let mut perfect_indices: Vec<u32> = Vec::new();
             let perfect_score = pattern
@@ -282,15 +285,12 @@ impl SearchEngine {
                     continue;
                 }
                 let document = &self.documents[index];
-                let (fuse_score, matched_by) =
-                    match fuzzy_match_document(&mut matcher, &pattern, document, &mut haystack_buf)
-                    {
-                        Some((raw, matched_by)) => (
-                            1.0 - (raw as f64 / perfect_score as f64).clamp(0.0, 1.0),
-                            matched_by,
-                        ),
-                        None => (1.0, Vec::new()),
-                    };
+                let Some((raw, matched_by)) =
+                    fuzzy_match_document(&mut matcher, &pattern, document, &mut haystack_buf)
+                else {
+                    continue;
+                };
+                let fuse_score = 1.0 - (raw as f64 / perfect_score as f64).clamp(0.0, 1.0);
                 let candidate = self.rank_candidate(
                     index,
                     query,
@@ -494,11 +494,11 @@ fn indices_to_ranges(indices: &[u32]) -> Vec<(usize, usize)> {
     ranges
 }
 
-fn boosted_command_ids(context: Option<&RankingContext>) -> Vec<String> {
+fn boosted_command_ids(context: Option<&RankingContext>) -> HashSet<String> {
     let Some(context) = context else {
-        return Vec::new();
+        return HashSet::new();
     };
-    let mut ids: Vec<String> = context.pinned_command_ids.iter().cloned().collect();
+    let mut ids = context.pinned_command_ids.clone();
     ids.extend(context.history.keys().cloned());
     ids
 }
@@ -628,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn pinned_candidate_surfaces_without_text_match() {
+    fn pinned_candidate_requires_text_match() {
         let mut context = RankingContext::default();
         context.pinned_command_ids.insert("app.calculator".into());
         let results = engine().search(
@@ -638,8 +638,101 @@ mod tests {
                 ..Default::default()
             },
         );
-        // pinned 文档即使无文本匹配也通过补充轮进入候选（无匹配时 fuse_score=1，靠 pinned 分入榜）
-        assert!(results.iter().any(|r| r.command.id == "app.calculator"));
+        // TS searchEngine.ts: boostedFuse.search(normalizedQuery) only yields matches.
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn history_candidate_requires_text_match() {
+        let mut context = RankingContext::default();
+        context.history.insert(
+            "app.calculator".into(),
+            HistoryEntry {
+                execution_count: 500,
+                last_used_at_ms: None,
+            },
+        );
+        let results = engine().search(
+            "zzz-no-match",
+            SearchOptions {
+                ranking: Some(&context),
+                ..Default::default()
+            },
+        );
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn boosted_fuzzy_candidate_outside_normal_window_appears_only_once() {
+        // TS getBoostedDocuments collects pinned/history IDs in a Set before searching.
+        // Equal fuzzy scores leave shared.149 outside the normal 100-candidate window.
+        let commands = (0..150)
+            .map(|index| {
+                command(
+                    &format!("shared.{index:03}"),
+                    CommandSource::App,
+                    "Visual Studio Code",
+                    &[],
+                )
+            })
+            .collect();
+        let engine = SearchEngine::new(commands);
+        for (pinned, history) in [(true, false), (false, true), (true, true)] {
+            let mut context = RankingContext::default();
+            if pinned {
+                context.pinned_command_ids.insert("shared.149".into());
+            }
+            if history {
+                context.history.insert(
+                    "shared.149".into(),
+                    HistoryEntry {
+                        execution_count: 500,
+                        last_used_at_ms: None,
+                    },
+                );
+            }
+            let results = engine.search(
+                "vsc",
+                SearchOptions {
+                    limit: Some(2),
+                    ranking: Some(&context),
+                    ..Default::default()
+                },
+            );
+            assert_eq!(results.len(), 2);
+            assert_eq!(results[0].command.id, "shared.149");
+            assert_ne!(results[0].command.id, results[1].command.id);
+            assert!(!results[0].matched_by.is_empty());
+        }
+    }
+
+    #[test]
+    fn search_punctuation_does_not_enable_pattern_operators() {
+        // TS createFuseOptions does not enable extended search. Launcher input is text.
+        for query in ["!", "^", "$", "'", "!missing", "^visual", "code$"] {
+            assert!(
+                engine().search(query, SearchOptions::default()).is_empty(),
+                "unexpected operator matches for {query:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn punctuation_participates_in_fuzzy_matching() {
+        for (query, title) in [
+            ("!alpha", "! a l p h a"),
+            ("^alpha", "^ a l p h a"),
+            ("alpha$", "a l p h a $"),
+            ("'alpha", "' a l p h a"),
+        ] {
+            let engine = SearchEngine::new(vec![
+                command("literal", CommandSource::App, title, &[]),
+                command("plain", CommandSource::App, "alpha", &[]),
+            ]);
+            let results = engine.search(query, SearchOptions::default());
+            assert_eq!(results.len(), 1, "query: {query:?}");
+            assert_eq!(results[0].command.id, "literal");
+        }
     }
 
     #[test]

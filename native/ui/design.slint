@@ -1,0 +1,124 @@
+// A · 清晰原生。共享不透明色板，适配 CPU 软件渲染与系统浅/深色。
+import { Palette } from "std-widgets.slint";
+
+export global CabinTheme {
+    // Fluent controls can be translucent white in both modes; use the opaque
+    // window palette to resolve the system theme. RGB components are 0–255.
+    out property <bool> dark: Palette.background.red
+        + Palette.background.green + Palette.background.blue < 384;
+    out property <color> background: dark ? #191f24 : #ffffff;
+    out property <color> panel: dark ? #20282e : #f6f8f9;
+    out property <color> text: dark ? #edf3f5 : #202c34;
+    out property <color> muted: dark ? #a7b7c1 : #63727c;
+    out property <color> line: dark ? #39464f : #e1e7eb;
+    out property <color> accent: dark ? #7cdbcd : #0d736c;
+    out property <color> soft: dark ? #203c3c : #e9f4f1;
+    out property <color> danger: dark ? #ffb3b3 : #b42318;
+}
+
+export component CabinIcon inherits Image {
+    in property <string> kind;
+    width: 18px;
+    height: 18px;
+    colorize: CabinTheme.accent;
+    source: kind == "search" ? @image-url("icons/search.svg")
+    : kind == "settings" ? @image-url("icons/settings.svg")
+    : kind == "capture" ? @image-url("icons/capture.svg")
+    : kind == "keyboard" ? @image-url("icons/keyboard.svg")
+    : kind == "star" ? @image-url("icons/star.svg")
+    : kind == "data" ? @image-url("icons/data.svg")
+    : kind == "about" ? @image-url("icons/about.svg")
+    : @image-url("icons/text.svg");
+}
+
+// Fixed icon/text slots prevent overlapping in translated labels and at high DPI.
+export component CabinButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon-kind: "";
+    in property <string> label: text;
+    in property <bool> enabled: true;
+    in property <bool> selected: false;
+    in property <bool> quiet: false;
+    callback clicked();
+    forward-focus: focus;
+    min-width: text == "" ? 34px : copy.preferred-width + (icon-kind == "" ? 24px : 50px);
+    height: 34px;
+    horizontal-stretch: 0;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: focus.has-focus || selected ? CabinTheme.accent : quiet ? transparent : CabinTheme.line;
+    background: selected || (touch.has-hover && enabled) ? CabinTheme.soft : quiet ? transparent : CabinTheme.background;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+    if root.icon-kind != "": CabinIcon {
+        x: root.text == "" ? (root.width - self.width) / 2 : 12px;
+        y: (root.height - self.height) / 2;
+        kind: root.icon-kind;
+    }
+    copy := Text {
+        x: root.icon-kind == "" ? 12px : 38px;
+        width: root.width - self.x - 12px;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        font-weight: root.selected ? 600 : 400;
+        color: root.selected ? CabinTheme.accent : CabinTheme.text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { focus.focus(); root.clicked(); }
+    }
+}
+
+export component CabinSwitch inherits Rectangle {
+    in-out property <bool> checked;
+    in property <string> label;
+    callback toggled();
+    width: 38px;
+    height: 24px;
+    border-radius: 12px;
+    border-width: focus.has-focus ? 1px : 0px;
+    border-color: CabinTheme.accent;
+    background: transparent;
+    forward-focus: focus;
+    accessible-role: checkbox;
+    accessible-label: label;
+    accessible-checked: checked;
+    accessible-action-default => { root.checked = !root.checked; root.toggled(); }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.checked = !root.checked;
+                root.toggled();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    Rectangle {
+        x: 2px; y: 3px; width: 34px; height: 18px; border-radius: 9px;
+        background: root.checked ? CabinTheme.accent : CabinTheme.muted;
+        Rectangle {
+            x: root.checked ? 18px : 2px; y: 2px;
+            width: 14px; height: 14px; border-radius: 7px;
+            background: root.checked && CabinTheme.dark ? CabinTheme.background : #ffffff;
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { focus.focus(); root.checked = !root.checked; root.toggled(); }
+    }
+}

@@ -21,6 +21,9 @@ mod screenshot_controller;
 mod state;
 mod updater_controller;
 
+#[cfg(test)]
+mod ui_smoke_tests;
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -69,6 +72,7 @@ use cabin_platform_windows::launcher::WindowsLauncher;
 use cabin_platform_windows::packaged_apps::enumerate_packaged_apps;
 use cabin_platform_windows::single_instance::WindowsSingleInstance;
 use cabin_platform_windows::tray::WindowsTray;
+use cabin_platform_windows::update_installer::{launch_installer, InstallerLaunch};
 use cabin_platform_windows::updater::GitHubUpdateService;
 use cabin_storage::clipboard::{ClipboardHistoryRepository, MAX_CLIPBOARD_HISTORY_LIMIT};
 use cabin_storage::favorites::FavoritesRepository;
@@ -726,6 +730,7 @@ impl AppContext {
         let Some(window) = self.settings_window.upgrade() else {
             return;
         };
+        window.invoke_commit_pending();
         push_settings_view(self);
         window.set_error_text("".into());
         window.show().expect("show settings");
@@ -736,6 +741,7 @@ impl AppContext {
         let Some(window) = self.settings_window.upgrade() else {
             return;
         };
+        window.invoke_commit_pending();
         window.hide().expect("hide settings");
     }
 
@@ -1027,17 +1033,33 @@ fn push_update_views(context: &AppContext) {
             summary,
         )
     };
+    apply_update_views(
+        language,
+        &status,
+        summary.as_deref(),
+        context.settings_window.upgrade().as_ref(),
+        context.window.upgrade().as_ref(),
+    );
+}
+
+fn apply_update_views(
+    language: cabin_core::settings::Language,
+    status: &updater_controller::UpdateStatus,
+    summary: Option<&str>,
+    settings: Option<&SettingsWindow>,
+    launcher: Option<&LauncherWindow>,
+) {
     let texts = i18n::update_texts(language);
-    if let Some(window) = context.settings_window.upgrade() {
+    if let Some(window) = settings {
         window.set_about_update_status(
-            updater_controller::status_text(&texts, &status, summary.as_deref()).into(),
+            updater_controller::status_text(&texts, status, summary).into(),
         );
         window.set_can_check_update(status.can_check);
         window.set_can_download_update(status.phase == updater_controller::UpdatePhase::Available);
         window.set_can_install_update(status.can_install);
     }
-    if let Some(launcher) = context.window.upgrade() {
-        match updater_controller::banner_view(&texts, &status) {
+    if let Some(launcher) = launcher {
+        match updater_controller::banner_view(&texts, status) {
             Some(banner) => {
                 launcher.set_update_banner_text(banner.text.into());
                 launcher.set_update_banner_detail(banner.detail.unwrap_or_default().into());
@@ -1092,7 +1114,10 @@ fn start_update_check(context: &Arc<AppContext>, manual: bool) {
                         false
                     }
                     Ok(Some(info)) => {
-                        append_diag_log(&format!("update check: update available v{}", info.version));
+                        append_diag_log(&format!(
+                            "update check: update available v{}",
+                            info.version
+                        ));
                         guard.update.finish_check_available(info)
                     }
                     Err(error) if manual => {
@@ -1128,6 +1153,10 @@ fn start_update_check(context: &Arc<AppContext>, manual: bool) {
 fn start_update_download(context: &Arc<AppContext>) {
     let (asset, version) = {
         let mut guard = context.state.lock().unwrap();
+        // A queued double click must not turn an in-flight download into Error.
+        if guard.update.status.phase != updater_controller::UpdatePhase::Available {
+            return;
+        }
         let version = guard.update.status.version.clone().unwrap_or_default();
         match guard.update.begin_download() {
             Ok(asset) => (asset, version),
@@ -1197,8 +1226,8 @@ fn start_update_download(context: &Arc<AppContext>) {
 }
 
 /// [重启安装] / 横幅 [立即安装]（TS `installUpdate` → `quitAndInstall`）：
-/// 构造 `Setup.exe /S`（纯函数）→ 校验安装包文件在位 → spawn → 立即退出事件
-/// 循环（安装器负责等待旧进程退出，Task 4）。spawn 失败 / 文件丢失 → 可读错误。
+/// 构造 `Setup.exe /S` → ShellExecuteExW(runas) 请求 UAC → 成功后退出。
+/// 用户取消 UAC 保留已下载状态，可再次安装；启动失败时保留应用并显示错误。
 fn install_downloaded_update(context: &Arc<AppContext>) {
     let plan = {
         let guard = context.state.lock().unwrap();
@@ -1211,28 +1240,15 @@ fn install_downloaded_update(context: &Arc<AppContext>) {
         );
         return;
     };
-    // 安全注记（安全扫描误报说明）：此处为 std 参数化进程 API（程序路径 +
-    // 参数向量），直达 CreateProcessW，不经任何 shell，无拼接字符串可注入。
-    // program 为固定目录 + 固定文件名（version 经 parse_version 严格数字
-    // 校验后才可能进入路径），spawn 前有 is_file 检查，文件本身经
-    // sha512 sidecar 校验落地（见 updater.rs）。
-    let spawned = if plan.program.is_file() {
-        std::process::Command::new(&plan.program)
-            .args(&plan.args)
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("could not start {}: {error}", plan.program.display()))
-    } else {
-        Err(format!(
-            "{} (missing {})",
-            updater_controller::INSTALL_NOT_READY_ERROR,
-            plan.program.display()
-        ))
-    };
+    let spawned = launch_installer(&plan.program);
     match spawned {
-        Ok(()) => {
+        Ok(InstallerLaunch::Started) => {
+            append_diag_log("update installer accepted; exiting for installation");
             // 安装器已启动：立即退出，让安装器等待本进程消失后覆盖安装。
             let _ = slint::quit_event_loop();
+        }
+        Ok(InstallerLaunch::Cancelled) => {
+            append_diag_log("update installation cancelled; verified download retained");
         }
         Err(message) => {
             eprintln!("CommandCabin: update install failed: {message}");
@@ -1388,6 +1404,11 @@ fn push_command_row(
 /// 按设置语言推送启动器新增文案（搜索区文案 / 固定按钮 / 截图入口 / 设置齿轮）。
 fn push_launcher_texts(window: &LauncherWindow, language: cabin_core::settings::Language) {
     let texts = i18n::home_texts(language);
+    window.set_keyboard_hint(texts.keyboard_hint.into());
+    window.set_empty_hint(texts.empty_hint.into());
+    window.set_no_results_hint(texts.no_results_hint.into());
+    window.set_home_action_ocr(texts.home_action_ocr.into());
+
     window.set_recent_group(texts.recent_group.into());
     window.set_pinned_group(texts.pinned_group.into());
     window.set_pin_label(texts.pin_app.into());
@@ -1429,19 +1450,21 @@ fn apply_theme_to_windows(launcher: &LauncherWindow, settings: &SettingsWindow, 
     settings.set_theme_mode(mode);
 }
 
-/// 设置窗口视图整包推送（M2 Task 10）：值 + 文案 + 收藏列表 + 主题。
-/// 任何设置提交（成功或失败回滚）后调用，把输入框/选择收敛到生效值；
-/// 语言变更同时刷新设置窗口文案与启动器首页文案。收藏列表每次从仓储重读
-/// （固定/删除后也经本函数刷新）。窗口未创建/已销毁时安全跳过。
-fn push_settings_view(context: &AppContext) {
-    let Some(settings_window) = context.settings_window.upgrade() else {
-        return;
-    };
-    let guard = context.state.lock().unwrap();
-    let settings = &guard.settings;
-    let texts = i18n::settings_texts(settings.language);
+// Keep presentation text construction independent of the database for UI smoke tests.
+fn settings_texts_for_view(language: cabin_core::settings::Language) -> SettingsTexts {
+    let texts = i18n::settings_texts(language);
+    SettingsTexts {
+        shortcuts_nav: texts.shortcuts_nav.into(),
+        general_title: texts.general_title.into(),
+        data_title: texts.data_title.into(),
+        advanced_title: texts.advanced_title.into(),
+        general_description: texts.general_description.into(),
+        hotkeys_description: texts.hotkeys_description.into(),
+        favorites_description: texts.favorites_description.into(),
+        data_description: texts.data_description.into(),
+        about_description: texts.about_description.into(),
+        saved_hint: texts.saved_hint.into(),
 
-    settings_window.set_texts(SettingsTexts {
         window_title: texts.window_title.into(),
         hotkeys_title: texts.hotkeys_title.into(),
         launcher_hotkey_label: texts.launcher_hotkey_label.into(),
@@ -1479,7 +1502,24 @@ fn push_settings_view(context: &AppContext) {
         about_download: texts.about_download.into(),
         about_install: texts.about_install.into(),
         back: texts.back.into(),
-    });
+    }
+}
+
+/// 设置窗口视图整包推送（M2 Task 10）：值 + 文案 + 收藏列表 + 主题。
+/// 任何设置提交（成功或失败回滚）后调用，把输入框/选择收敛到生效值；
+/// 语言变更同时刷新设置窗口文案与启动器首页文案。收藏列表每次从仓储重读
+/// （固定/删除后也经本函数刷新）。窗口未创建/已销毁时安全跳过。
+fn push_settings_view(context: &AppContext) {
+    let Some(settings_window) = context.settings_window.upgrade() else {
+        return;
+    };
+    let guard = context.state.lock().unwrap();
+    let settings = &guard.settings;
+
+    settings_window.set_texts(settings_texts_for_view(settings.language));
+    if let Some(launcher) = context.window.upgrade() {
+        launcher.set_hotkey_hint(settings.hotkey.clone().into());
+    }
     settings_window.set_hotkey_launcher(settings.hotkey.clone().into());
     settings_window.set_hotkey_screenshot(settings.screenshot_hotkey.clone().into());
     settings_window.set_hotkey_delayed(settings.delayed_screenshot_hotkey.clone().into());
@@ -2251,6 +2291,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let settings_weak = context.settings_window.clone();
         settings_window.window().on_close_requested(move || {
             if let Some(window) = settings_weak.upgrade() {
+                window.invoke_commit_pending();
                 let _ = window.hide();
             }
             slint::CloseRequestResponse::KeepWindowShown
@@ -2422,6 +2463,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let screenshot = Arc::clone(&screenshot_controller);
         window.on_run_screenshot(move || screenshot.start_capture(ScreenshotMode::Capture));
     }
+    {
+        let screenshot = Arc::clone(&screenshot_controller);
+        window.on_run_ocr(move || screenshot.start_capture(ScreenshotMode::Ocr));
+    }
 
     // ---- 设置窗口提交回调（M2 Task 10）。提交语义见 settings.slint 头注：
     // 字段经 JSON patch 走完整设置流；回调返回错误文案（空串=成功）。 ----
@@ -2587,7 +2632,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let context = Arc::clone(&context);
-        window.on_open_update_settings(move || context.show_settings_window());
+        window.on_open_update_settings(move || {
+            context.show_settings_window();
+            if let Some(settings) = context.settings_window.upgrade() {
+                settings.set_active_page(4);
+            }
+        });
     }
     // 标题栏设置齿轮（UI 复刻轮）：与托盘"设置"/横幅"查看设置"同一条
     // show_settings_window 路径（整包推送快照后显示设置窗口）。

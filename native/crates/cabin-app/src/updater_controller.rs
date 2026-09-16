@@ -44,8 +44,6 @@ pub const MANUAL_CHECK_COOLDOWN_MS: i64 = 10 * 60 * 1000;
 pub const INSTALL_NOT_READY_ERROR: &str = "Update is not ready to install.";
 /// 下载暂存目录名（挂在 `std::env::temp_dir()` 下；计划 Task 3 约定）。
 pub const UPDATE_DOWNLOAD_DIR_NAME: &str = "command-cabin-update";
-/// NSIS 静默安装参数（计划 Task 3：`安装包.exe /S`）。
-pub const NSIS_SILENT_ARG: &str = "/S";
 
 /// TS `UpdateStatusPhase`（shared/updateApi.ts）的移植。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,6 +217,7 @@ impl UpdateOrchestration {
         }
         self.status.phase = UpdatePhase::Error;
         self.status.error = Some(message);
+        self.last_manual_check_at_ms = None;
         self.refresh_flags();
         true
     }
@@ -289,6 +288,7 @@ impl UpdateOrchestration {
         self.status.phase = UpdatePhase::Error;
         self.status.error = Some(message);
         self.status.percent = None;
+        self.last_manual_check_at_ms = None;
         self.refresh_flags();
     }
 
@@ -312,7 +312,6 @@ impl UpdateOrchestration {
         let version = self.status.version.as_deref()?;
         Some(InstallSpawn {
             program: installer_download_path(temp_root, version),
-            args: vec![NSIS_SILENT_ARG.to_string()],
         })
     }
 
@@ -324,16 +323,15 @@ impl UpdateOrchestration {
         }
         self.status.phase = UpdatePhase::Error;
         self.status.error = Some(message);
+        self.last_manual_check_at_ms = None;
         self.refresh_flags();
     }
 }
 
-/// 安装 spawn 计划（main.rs 据此 `Command::new(program).args(args).spawn()`；
-/// 独立结构使测试不必触及进程 API）。
+/// 已校验的安装包位置。平台层固定使用 runas + /S，调用方不拼接命令行。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallSpawn {
     pub program: PathBuf,
-    pub args: Vec<String>,
 }
 
 /// 下载百分比：received/total 四舍五入、夹取 0-100（TS `getPercent` 的夹取 +
@@ -612,7 +610,7 @@ mod tests {
             Some("update check failed: HTTP 500")
         );
         // 错误态可再检查（重试路径）。
-        assert!(update.admit_manual_check(MANUAL_CHECK_COOLDOWN_MS));
+        assert!(update.admit_manual_check(1));
     }
 
     #[test]
@@ -661,6 +659,10 @@ mod tests {
         assert_eq!(update.status.percent, Some(25));
         update.download_progress(500, 200);
         assert_eq!(update.status.percent, Some(100));
+        assert!(
+            !update.install_ready(),
+            "100% is not yet checksum verification"
+        );
         update.finish_download();
         assert_eq!(update.status.phase, UpdatePhase::Downloaded);
         assert!(update.status.can_install);
@@ -678,6 +680,10 @@ mod tests {
         assert_eq!(update.status.version.as_deref(), Some("1.2.3"));
         assert!(update.status.can_check);
         assert!(!update.status.can_install);
+        assert!(
+            update.admit_manual_check(1),
+            "a failed download allows immediate retry"
+        );
     }
 
     // ---- 安装命令构造（不 spawn）----
@@ -702,7 +708,6 @@ mod tests {
             temp.join("command-cabin-update")
                 .join("CommandCabin-Setup-1.2.3.exe")
         );
-        assert_eq!(plan.args, vec!["/S"]);
     }
 
     #[test]
@@ -719,6 +724,10 @@ mod tests {
             Some("installer file is missing")
         );
         assert!(!update.status.can_install);
+        assert!(
+            update.admit_manual_check(1),
+            "a missing installer allows immediate retry"
+        );
     }
 
     // ---- 纯工具函数 ----

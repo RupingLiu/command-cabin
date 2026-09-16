@@ -43,6 +43,10 @@ if (-not $SkipBuild) {
 if (-not (Test-Path $exeSource)) {
     throw "缺少 $exeSource —— 先运行 native/scripts/build.ps1 -Release（或去掉 -SkipBuild）"
 }
+$binaryVersion = (Get-Item -LiteralPath $exeSource).VersionInfo.ProductVersion
+if ($binaryVersion -ne $Version) {
+    throw "EXE 版本 $binaryVersion 与安装包版本 $Version 不一致；请重新构建 Release"
+}
 
 # ---- 3. 定位/获取 makensis：PATH → 便携缓存 → 下载（一次性，留在用户目录）----
 # 便携 NSIS 版本固定：3.11（官方 SourceForge 分发的当前稳定版 zip，约 3.5MB；

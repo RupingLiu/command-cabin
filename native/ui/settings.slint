@@ -1,36 +1,20 @@
-// CommandCabin 设置窗口（M2 Task 10）。信息架构对齐 TS renderer 设置页
-// （i18n.ts `settings.*` 分节：热键 / 外观 / 语言 / 启动 / 启动器 / 收藏 / 关于），
-// 视觉从简。
-//
-// 提交语义：热键与数字输入框在回车（`accepted`）或失焦（`changed has-focus`，
-// vendored std-widgets LineEditInterface 暴露 `out property <bool> has-focus`，
-// 语义见 launcher.slint 头注）时提交；ComboBox/CheckBox 在用户选择（`selected` /
-// `toggled`，仅用户动作触发，程序 push 不会误提交）时提交。每个提交回调把字段
-// 打包为 JSON patch 交回 Rust 侧走 Task 9 的完整设置流（normalize → 查重 →
-// 热键注册 → 持久化）；回调返回空串表示成功，非空为错误文案（红字显示，同时
-// Rust 侧会整包重推视图，把输入/选择回滚到生效值）。
-//
-// 可编辑值全部是窗口级 in-out 属性并经两向绑定接到控件：Rust 整包 push 与用户
-// 编辑走同一条通道，不依赖"单向绑定 + push 覆盖"的脆弱语义（单向绑定在控件
-// 内部写入时会被移除，push 无法回滚——重写时修正）。
-//
-// 主题：`theme-mode`（0 跟随系统 / 1 浅色 / 2 深色，由 Rust 在设置加载与
-// theme 提交后设置）驱动 fluent `Palette.color-scheme`；unknown 色制式回退
-// 系统默认（vendored i-slint-common enums.rs ColorScheme 文档）。
-import {
-    Button,
-    CheckBox,
-    ComboBox,
-    HorizontalBox,
-    LineEdit,
-    Palette,
-    ScrollView,
-    VerticalBox,
-} from "std-widgets.slint";
+// A · 清晰原生：分区设置、单层滚动与固定操作列。
+// 输入仍使用双向绑定，回车/失焦提交，经 Rust 原有校验与持久化流程。
+import { ComboBox, LineEdit, Palette, ScrollView } from "std-widgets.slint";
+import { CabinTheme, CabinButton, CabinIcon, CabinSwitch } from "design.slint";
 
-/// 界面文案（controller/i18n 按语言整包生成，键名对齐 TS i18n.ts
-/// `settings.*` 分节的移植子集；about-version-text 由 Rust 拼入版本号）。
 export struct SettingsTexts {
+    shortcuts-nav: string,
+    general-title: string,
+    data-title: string,
+    advanced-title: string,
+    general-description: string,
+    hotkeys-description: string,
+    favorites-description: string,
+    data-description: string,
+    about-description: string,
+    saved-hint: string,
+
     window-title: string,
     hotkeys-title: string,
     launcher-hotkey-label: string,
@@ -80,28 +64,44 @@ export struct FavoriteRowView {
     detail: string,
 }
 
+
 component SectionTitle inherits Text {
-    font-size: 15px;
-    font-weight: 700;
-    color: Palette.foreground;
-    horizontal-alignment: left;
+    font-size: 12px; font-weight: 600; color: CabinTheme.muted;
 }
-
-component FormLabel inherits Text {
-    font-size: 13px;
-    color: Palette.foreground;
-    vertical-alignment: center;
-    horizontal-stretch: 0;
-    min-width: 130px;
-    horizontal-alignment: left;
+component FormRow inherits Rectangle {
+    in property <string> label;
+    min-height: 48px;
+    border-radius: 8px;
+    background: CabinTheme.panel;
+    HorizontalLayout {
+        padding: 12px; padding-top: 8px; padding-bottom: 8px; spacing: 14px;
+        Text { text: root.label; horizontal-stretch: 1; color: CabinTheme.text; font-size: 13px; wrap: word-wrap; vertical-alignment: center; }
+        @children
+    }
 }
-
-component HintText inherits Text {
-    font-size: 11px;
-    color: Palette.foreground;
-    opacity: 0.6;
-    wrap: word-wrap;
-    horizontal-stretch: 1;
+component NumberRow inherits FormRow {
+    in-out property <string> value;
+    callback commit();
+    callback edited();
+    LineEdit {
+        width: 108px; text <=> root.value;
+        accessible-label: root.label;
+        edited(text) => { root.edited(); }
+        accepted(text) => { root.commit(); }
+        changed has-focus => { if !self.has-focus { root.commit(); } }
+    }
+}
+component HotkeyRow inherits FormRow {
+    in-out property <string> value;
+    callback commit();
+    callback edited();
+    LineEdit {
+        width: 200px; text <=> root.value;
+        accessible-label: root.label;
+        edited(text) => { root.edited(); }
+        accepted(text) => { root.commit(); }
+        changed has-focus => { if !self.has-focus { root.commit(); } }
+    }
 }
 
 export component SettingsWindow inherits Window {
@@ -152,346 +152,186 @@ export component SettingsWindow inherits Window {
     callback install-update();
     callback dismissed();
 
-    function apply-theme() {
-        if (root.theme-mode == 1) {
-            Palette.color-scheme = ColorScheme.light;
-        } else if (root.theme-mode == 2) {
-            Palette.color-scheme = ColorScheme.dark;
-        } else {
-            Palette.color-scheme = ColorScheme.unknown;
-        }
+
+    in-out property <int> active-page: 0;
+    private property <int> pending-kind: -1;
+    private property <int> pending-field: -1;
+    // A conditional page can be destroyed before deferred focus-change handlers
+    // run. Commit its edited field explicitly before navigation or closing.
+    public function commit-pending() {
+        let kind = root.pending-kind;
+        let field = root.pending-field;
+        root.pending-kind = -1;
+        root.pending-field = -1;
+        if kind == 0 { root.error-text = root.commit-hotkey(field); }
+        if kind == 1 { root.error-text = root.commit-number(field); }
+    }
+    function commit-field(kind: int, field: int) {
+        if root.pending-kind == kind && root.pending-field == field { root.commit-pending(); }
     }
 
+    private property <bool> advanced: false;
+    private property <[string]> page-titles: [root.texts.general-title, root.texts.hotkeys-title, root.texts.favorites-title, root.texts.data-title, root.texts.about-title];
+    private property <[string]> page-descriptions: [root.texts.general-description, root.texts.hotkeys-description, root.texts.favorites-description, root.texts.data-description, root.texts.about-description];
+    private property <[string]> page-icons: ["settings", "keyboard", "star", "data", "about"];
+    function apply-theme() {
+        Palette.color-scheme = root.theme-mode == 1 ? ColorScheme.light
+        : root.theme-mode == 2 ? ColorScheme.dark : ColorScheme.unknown;
+    }
     init => { root.apply-theme(); }
     changed theme-mode => { root.apply-theme(); }
-
+    changed active-page => { content-scroll.viewport-y = 0px; }
     title: root.texts.window-title;
-    width: 640px;
-    height: 700px;
+    preferred-width: 720px; min-width: 680px;
+    preferred-height: 550px; min-height: 500px;
     icon: @image-url("../assets/icon.png");
-
-    VerticalBox {
-        padding: 12px;
-        spacing: 8px;
-
-        ScrollView {
+    background: CabinTheme.background;
+    default-font-family: "Segoe UI";
+    default-font-size: 13px;
+    VerticalLayout {
+        spacing: 0px;
+        HorizontalLayout {
+            spacing: 0px;
             vertical-stretch: 1;
-            VerticalBox {
-                spacing: 8px;
-                padding: 4px;
-
-                // ---- 热键 ----
-                SectionTitle { text: root.texts.hotkeys-title; }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.launcher-hotkey-label; }
-                    LineEdit {
-                        width: 240px;
-                        text <=> root.hotkey-launcher;
-                        accepted(text) => { root.error-text = root.commit-hotkey(0); }
-                        changed has-focus => {
-                            if !self.has-focus {
-                                root.error-text = root.commit-hotkey(0);
+            Rectangle {
+                width: 150px;
+                background: CabinTheme.panel;
+                Rectangle { x: parent.width - 1px; width: 1px; height: parent.height; background: CabinTheme.line; }
+                VerticalLayout {
+                    padding: 12px; padding-top: 22px; spacing: 6px;
+                    HorizontalLayout {
+                        height: 37px; spacing: 9px;
+                        Image { width: 25px; height: 25px; source: @image-url("../assets/icon.png"); }
+                        Text { text: root.texts.window-title; color: CabinTheme.text; font-size: 14px; font-weight: 600; vertical-alignment: center; }
+                    }
+                    for title[index] in root.page-titles: CabinButton {
+                        text: index == 1 ? root.texts.shortcuts-nav : title; icon-kind: root.page-icons[index]; quiet: true;
+                        min-width: 0px;
+                        selected: root.active-page == index; height: 39px;
+                        clicked => { root.commit-pending(); root.active-page = index; }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+            VerticalLayout {
+                padding: 24px; spacing: 10px;
+                Text { text: root.page-titles[root.active-page]; font-size: 22px; font-weight: 600; color: CabinTheme.text; }
+                Text { text: root.page-descriptions[root.active-page]; font-size: 12px; color: CabinTheme.muted; wrap: word-wrap; }
+                Rectangle { height: 6px; }
+                content-scroll := ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        padding-right: 8px; spacing: 7px; alignment: start;
+                        if root.active-page == 0: VerticalLayout {
+                            spacing: 8px; alignment: start;
+                            SectionTitle { text: root.texts.appearance-title; }
+                            FormRow {
+                                label: root.texts.theme-label;
+                                theme-combo := ComboBox {
+                                    width: 155px;
+                                    model: [root.texts.theme-system, root.texts.theme-light, root.texts.theme-dark];
+                                    current-index <=> root.theme-choice;
+                                    accessible-label: root.texts.theme-label;
+                                    selected(v) => { root.error-text = root.set-choice(0, theme-combo.current-index); }
+                                }
+                            }
+                            FormRow {
+                                label: root.texts.language-label;
+                                language-combo := ComboBox {
+                                    width: 155px;
+                                    model: [root.texts.language-zh-cn, root.texts.language-zh-tw, root.texts.language-en-us];
+                                    current-index <=> root.language-choice;
+                                    accessible-label: root.texts.language-label;
+                                    selected(v) => { root.error-text = root.set-choice(1, language-combo.current-index); }
+                                }
+                            }
+                            Rectangle { height: 6px; }
+                            SectionTitle { text: root.texts.launcher-title; }
+                            FormRow {
+                                label: root.texts.launch-at-login;
+                                CabinSwitch { checked <=> root.launch-at-login; label: root.texts.launch-at-login; toggled => { root.error-text = root.set-switch(1, root.launch-at-login); } }
+                            }
+                            FormRow {
+                                label: root.texts.hide-on-blur;
+                                CabinSwitch { checked <=> root.hide-on-blur; label: root.texts.hide-on-blur; toggled => { root.error-text = root.set-switch(0, root.hide-on-blur); } }
+                            }
+                            FormRow {
+                                label: root.texts.preserve-search-query;
+                                CabinSwitch { checked <=> root.preserve-search-query; label: root.texts.preserve-search-query; toggled => { root.error-text = root.set-switch(2, root.preserve-search-query); } }
+                            }
+                            CabinButton {
+                                text: (root.advanced ? "−  " : "+  ") + root.texts.advanced-title; quiet: true;
+                                selected: root.advanced;
+                                clicked => { root.commit-pending(); root.advanced = !root.advanced; }
+                            }
+                            if root.advanced: VerticalLayout {
+                                spacing: 5px;
+                                NumberRow { label: root.texts.max-results; value <=> root.max-results; edited => { root.pending-kind = 1; root.pending-field = 0; } commit => { root.commit-field(1, 0); } }
+                                NumberRow { label: root.texts.history-boost; value <=> root.history-boost; edited => { root.pending-kind = 1; root.pending-field = 1; } commit => { root.commit-field(1, 1); } }
+                                NumberRow { label: root.texts.plugin-boost; value <=> root.plugin-boost; edited => { root.pending-kind = 1; root.pending-field = 2; } commit => { root.commit-field(1, 2); } }
+                                NumberRow { label: root.texts.app-boost; value <=> root.app-boost; edited => { root.pending-kind = 1; root.pending-field = 3; } commit => { root.commit-field(1, 3); } }
+                                NumberRow { label: root.texts.file-boost; value <=> root.file-boost; edited => { root.pending-kind = 1; root.pending-field = 4; } commit => { root.commit-field(1, 4); } }
                             }
                         }
-                    }
-                }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.screenshot-hotkey-label; }
-                    LineEdit {
-                        width: 240px;
-                        text <=> root.hotkey-screenshot;
-                        accepted(text) => { root.error-text = root.commit-hotkey(1); }
-                        changed has-focus => {
-                            if !self.has-focus {
-                                root.error-text = root.commit-hotkey(1);
-                            }
+                        if root.active-page == 1: VerticalLayout {
+                            spacing: 8px;
+                            HotkeyRow { label: root.texts.launcher-hotkey-label; value <=> root.hotkey-launcher; edited => { root.pending-kind = 0; root.pending-field = 0; } commit => { root.commit-field(0, 0); } }
+                            HotkeyRow { label: root.texts.screenshot-hotkey-label; value <=> root.hotkey-screenshot; edited => { root.pending-kind = 0; root.pending-field = 1; } commit => { root.commit-field(0, 1); } }
+                            HotkeyRow { label: root.texts.delayed-hotkey-label; value <=> root.hotkey-delayed; edited => { root.pending-kind = 0; root.pending-field = 2; } commit => { root.commit-field(0, 2); } }
                         }
-                    }
-                }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.delayed-hotkey-label; }
-                    LineEdit {
-                        width: 240px;
-                        text <=> root.hotkey-delayed;
-                        accepted(text) => { root.error-text = root.commit-hotkey(2); }
-                        changed has-focus => {
-                            if !self.has-focus {
-                                root.error-text = root.commit-hotkey(2);
-                            }
-                        }
-                    }
-                }
-
-                // ---- 外观 ----
-                SectionTitle { text: root.texts.appearance-title; }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.theme-label; }
-                    theme-combo := ComboBox {
-                        width: 240px;
-                        model: [
-                            root.texts.theme-system,
-                            root.texts.theme-light,
-                            root.texts.theme-dark,
-                        ];
-                        current-index <=> root.theme-choice;
-                        selected(v) => { root.error-text = root.set-choice(0, theme-combo.current-index); }
-                    }
-                }
-
-                // ---- 语言 ----
-                SectionTitle { text: root.texts.language-title; }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.language-label; }
-                    language-combo := ComboBox {
-                        width: 240px;
-                        model: [
-                            root.texts.language-zh-cn,
-                            root.texts.language-zh-tw,
-                            root.texts.language-en-us,
-                        ];
-                        current-index <=> root.language-choice;
-                        selected(v) => { root.error-text = root.set-choice(1, language-combo.current-index); }
-                    }
-                }
-
-                // ---- 启动 ----
-                SectionTitle { text: root.texts.startup-title; }
-                CheckBox {
-                    text: root.texts.launch-at-login;
-                    checked <=> root.launch-at-login;
-                    toggled => {
-                        root.error-text = root.set-switch(1, root.launch-at-login);
-                    }
-                }
-
-                // ---- 启动器 ----
-                SectionTitle { text: root.texts.launcher-title; }
-                CheckBox {
-                    text: root.texts.hide-on-blur;
-                    checked <=> root.hide-on-blur;
-                    toggled => {
-                        root.error-text = root.set-switch(0, root.hide-on-blur);
-                    }
-                }
-                CheckBox {
-                    text: root.texts.preserve-search-query;
-                    checked <=> root.preserve-search-query;
-                    toggled => {
-                        root.error-text = root.set-switch(2, root.preserve-search-query);
-                    }
-                }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.max-results; }
-                    LineEdit {
-                        width: 120px;
-                        text <=> root.max-results;
-                        accepted(text) => { root.error-text = root.commit-number(0); }
-                        changed has-focus => {
-                            if !self.has-focus {
-                                root.error-text = root.commit-number(0);
-                            }
-                        }
-                    }
-                }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.history-boost; }
-                    LineEdit {
-                        width: 120px;
-                        text <=> root.history-boost;
-                        accepted(text) => { root.error-text = root.commit-number(1); }
-                        changed has-focus => {
-                            if !self.has-focus {
-                                root.error-text = root.commit-number(1);
-                            }
-                        }
-                    }
-                }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.plugin-boost; }
-                    LineEdit {
-                        width: 120px;
-                        text <=> root.plugin-boost;
-                        accepted(text) => { root.error-text = root.commit-number(2); }
-                        changed has-focus => {
-                            if !self.has-focus {
-                                root.error-text = root.commit-number(2);
-                            }
-                        }
-                    }
-                }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.app-boost; }
-                    LineEdit {
-                        width: 120px;
-                        text <=> root.app-boost;
-                        accepted(text) => { root.error-text = root.commit-number(3); }
-                        changed has-focus => {
-                            if !self.has-focus {
-                                root.error-text = root.commit-number(3);
-                            }
-                        }
-                    }
-                }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    FormLabel { text: root.texts.file-boost; }
-                    LineEdit {
-                        width: 120px;
-                        text <=> root.file-boost;
-                        accepted(text) => { root.error-text = root.commit-number(4); }
-                        changed has-focus => {
-                            if !self.has-focus {
-                                root.error-text = root.commit-number(4);
-                            }
-                        }
-                    }
-                }
-
-                // ---- 收藏管理 ----
-                SectionTitle { text: root.texts.favorites-title; }
-                if root.favorites.length == 0: HintText { text: root.texts.favorites-empty; }
-                if root.favorites.length > 0: Rectangle {
-                    height: max(96px, min(220px, root.favorites.length * 36px + 8px));
-                    border-radius: 6px;
-                    background: Palette.control-background;
-                    ScrollView {
-                        VerticalBox {
-                            padding: 4px;
-                            spacing: 2px;
+                        if root.active-page == 2: VerticalLayout {
+                            spacing: 1px;
+                            if root.favorites.length == 0: Text { text: root.texts.favorites-empty; color: CabinTheme.muted; height: 120px; vertical-alignment: center; horizontal-alignment: center; }
                             for favorite[index] in root.favorites: Rectangle {
-                                height: 32px;
-                                HorizontalBox {
-                                    padding: 0px;
-                                    spacing: 8px;
-                                    alignment: start;
-                                    Text {
-                                        text: favorite.title;
-                                        font-size: 13px;
-                                        color: Palette.foreground;
-                                        vertical-alignment: center;
-                                        overflow: elide;
-                                        horizontal-stretch: 0;
-                                        max-width: 200px;
+                                height: 66px;
+                                Rectangle { y: parent.height - 1px; width: parent.width; height: 1px; background: CabinTheme.line; }
+                                HorizontalLayout {
+                                    padding-top: 10px; padding-bottom: 10px; spacing: 12px;
+                                    VerticalLayout { width: 18px; alignment: center; CabinIcon { kind: "star"; } }
+                                    VerticalLayout {
+                                        horizontal-stretch: 1; spacing: 4px; alignment: center;
+                                        Text { text: favorite.title; font-size: 13px; font-weight: 600; color: CabinTheme.text; overflow: elide; }
+                                        Text { text: favorite.detail; font-size: 11px; color: CabinTheme.muted; overflow: elide; }
                                     }
-                                    HintText {
-                                        text: favorite.detail;
-                                        vertical-alignment: center;
-                                        overflow: elide;
-                                    }
-                                    HorizontalBox {
-                                        padding: 0px;
-                                        alignment: end;
-                                        Button {
-                                            text: root.texts.favorites-remove;
-                                            clicked => { root.remove-favorite(index); }
-                                        }
-                                    }
+                                    CabinButton { width: 70px; text: root.texts.favorites-remove; clicked => { root.remove-favorite(index); } }
                                 }
                             }
                         }
+                        if root.active-page == 3: VerticalLayout {
+                            spacing: 12px;
+                            FormRow {
+                                label: root.texts.clipboard-history-title;
+                                CabinButton { text: root.texts.clipboard-history-clear; clicked => { root.clear-clipboard-history(); } }
+                            }
+                            if root.clipboard-clear-status != "": Text { text: root.clipboard-clear-status; color: CabinTheme.danger; wrap: word-wrap; }
+                        }
+                        if root.active-page == 4: VerticalLayout {
+                            spacing: 16px; alignment: start;
+                            Image { width: 48px; height: 48px; source: @image-url("../assets/icon.png"); }
+                            Text { text: root.texts.about-version-text; color: CabinTheme.text; font-size: 17px; font-weight: 600; }
+                            Text { text: root.about-update-status; color: CabinTheme.muted; font-size: 13px; wrap: word-wrap; }
+                            HorizontalLayout {
+                                spacing: 8px; alignment: start;
+                                CabinButton { text: root.texts.about-check; enabled: root.can-check-update; clicked => { root.check-updates(); } }
+                                if root.can-download-update: CabinButton { text: root.texts.about-download; clicked => { root.download-update(); } }
+                                if root.can-install-update: CabinButton { text: root.texts.about-install; clicked => { root.install-update(); } }
+                            }
+                            Rectangle { height: 1px; background: CabinTheme.line; }
+                            Text { text: "Made with Slint"; color: CabinTheme.muted; font-size: 12px; }
+                            Text { text: root.texts.about-license; color: CabinTheme.muted; font-size: 11px; wrap: word-wrap; }
+                        }
                     }
                 }
-
-                // ---- 剪贴板历史（M4 Task 7；TS settings.clipboardHistory 分节：
-                // 标题 + 清除钮，清除成功无消息、失败显示 clearError）----
-                SectionTitle { text: root.texts.clipboard-history-title; }
-                HorizontalBox {
-                    padding: 0px;
-                    alignment: start;
-                    Button {
-                        text: root.texts.clipboard-history-clear;
-                        clicked => { root.clear-clipboard-history(); }
-                    }
-                }
-                if root.clipboard-clear-status != "": Text {
-                    text: root.clipboard-clear-status;
-                    font-size: 12px;
-                    color: #d13438;
-                    wrap: word-wrap;
-                }
-
-                // ---- 关于 ----
-                SectionTitle { text: root.texts.about-title; }
-                Text {
-                    text: root.texts.about-version-text;
-                    font-size: 13px;
-                    color: Palette.foreground;
-                    horizontal-alignment: left;
-                }
-                // M5 Task 3：更新状态行 + 操作钮（TS AboutSettings：statusText +
-                // check / install 钮；download 钮为 native 手动下载新增）。
-                if root.about-update-status != "": Text {
-                    text: root.about-update-status;
-                    font-size: 12px;
-                    color: Palette.foreground;
-                    wrap: word-wrap;
-                    horizontal-alignment: left;
-                }
-                HorizontalBox {
-                    padding: 0px;
-                    spacing: 8px;
-                    alignment: start;
-                    Button {
-                        text: root.texts.about-check;
-                        enabled: root.can-check-update;
-                        clicked => { root.check-updates(); }
-                    }
-                    if root.can-download-update: Button {
-                        text: root.texts.about-download;
-                        primary: true;
-                        clicked => { root.download-update(); }
-                    }
-                    if root.can-install-update: Button {
-                        text: root.texts.about-install;
-                        primary: true;
-                        clicked => { root.install-update(); }
-                    }
-                }
-                // Slint Royalty-free 许可署名（设计文档硬性要求）：署名 + 许可文本。
-                Text {
-                    text: "Made with Slint";
-                    font-size: 12px;
-                    color: Palette.foreground;
-                    horizontal-alignment: left;
-                }
-                HintText { text: root.texts.about-license; }
-
-                // ---- 提交错误（最近一次；空串不渲染） ----
-                if root.error-text != "": Text {
-                    text: root.error-text;
-                    font-size: 12px;
-                    color: #d13438;
-                    wrap: word-wrap;
-                }
+                if root.error-text != "": Text { text: root.error-text; font-size: 12px; color: CabinTheme.danger; wrap: word-wrap; }
             }
         }
-
-        // ---- 底部操作 ----
-        HorizontalBox {
-            padding: 0px;
-            alignment: end;
-            Button {
-                text: root.texts.back;
-                clicked => { root.dismissed(); }
+        Rectangle {
+            height: 48px; background: CabinTheme.panel;
+            Rectangle { y: 0px; height: 1px; width: parent.width; background: CabinTheme.line; }
+            HorizontalLayout {
+                padding-left: 18px; padding-right: 18px; spacing: 12px;
+                Text { text: root.texts.saved-hint; color: CabinTheme.muted; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; }
+                VerticalLayout { width: 80px; alignment: center; CabinButton { width: 80px; text: root.texts.back; clicked => { root.dismissed(); } } }
             }
         }
     }

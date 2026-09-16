@@ -17,8 +17,7 @@
 ; - 升级路径：/S 静默覆盖安装（SetOverwrite on，同目录重入，先读注册表
 ;   InstallLocation 复用旧目录，/D= 优先于注册表值）。安装开始时轮询等待
 ;   CommandCabin.exe 退出（应用侧更新编排：spawn 安装包 /S 后立即退出事件）。
-;   等待预算 30s（30 x 1s 轮询 tasklist）；超时后继续安装——文件被占用时
-;   交互模式弹重试框，静默模式 NSIS 置错误位继续（旧 exe 保留）。
+;   等待预算 30s（30 x 1s 轮询 tasklist）；超时终止，避免静默模式误报成功。
 ; - 卸载：删除 exe / LICENSE / 卸载器 / 开始菜单与桌面快捷方式 / HKLM 卸载键；
 ;   **绝不触碰 %APPDATA%\CommandCabin（userData 永久保留；本脚本对 APPDATA
 ;   无任何 Delete / RMDir 指令——数据连续性红线）**。$INSTDIR 仅在清空后移除。
@@ -104,7 +103,7 @@ LangString LngDesktopTitle     ${LANG_SIMPCHINESE} "快捷方式"
 LangString LngDesktopSubtitle  ${LANG_SIMPCHINESE} "选择是否创建桌面快捷方式。"
 LangString LngDesktopCheckbox  ${LANG_SIMPCHINESE} "创建桌面快捷方式(&D)"
 LangString LngWaitRunning      ${LANG_SIMPCHINESE} "检测到 ${APP_EXE} 正在运行，等待其退出（最多 ${WAIT_FOR_EXIT_SECONDS} 秒）…"
-LangString LngWaitTimeout      ${LANG_SIMPCHINESE} "等待超时，继续安装。若文件被占用导致失败，请关闭 ${APP_NAME} 后重试。"
+LangString LngWaitTimeout      ${LANG_SIMPCHINESE} "等待超时，操作已停止。请关闭 ${APP_NAME} 后重试。"
 LangString LngAppRunning       ${LANG_SIMPCHINESE} "检测到 ${APP_NAME} 正在运行。$\n$\n点击 [确定] 自动关闭它并继续安装，或点击 [取消] 退出安装程序。"
 LangString LngUnAppRunning     ${LANG_SIMPCHINESE} "检测到 ${APP_NAME} 正在运行。$\n$\n点击 [确定] 自动关闭它并继续卸载，或点击 [取消] 退出卸载程序。"
 
@@ -112,7 +111,7 @@ LangString LngDesktopTitle     ${LANG_ENGLISH} "Shortcuts"
 LangString LngDesktopSubtitle  ${LANG_ENGLISH} "Choose whether to create a desktop shortcut."
 LangString LngDesktopCheckbox  ${LANG_ENGLISH} "Create &desktop shortcut"
 LangString LngWaitRunning      ${LANG_ENGLISH} "${APP_EXE} is running; waiting up to ${WAIT_FOR_EXIT_SECONDS} s for it to exit..."
-LangString LngWaitTimeout      ${LANG_ENGLISH} "Wait timed out; continuing. If installation fails because files are locked, close ${APP_NAME} and retry."
+LangString LngWaitTimeout      ${LANG_ENGLISH} "Wait timed out; operation stopped. Close ${APP_NAME} and retry."
 LangString LngAppRunning       ${LANG_ENGLISH} "${APP_NAME} is currently running.$\n$\nClick OK to close it automatically and continue, or Cancel to quit setup."
 LangString LngUnAppRunning     ${LANG_ENGLISH} "${APP_NAME} is currently running.$\n$\nClick OK to close it automatically and continue, or Cancel to quit uninstall."
 
@@ -138,13 +137,13 @@ wait_running_loop:
     ${EndIf}
     ${If} $R9 >= ${WAIT_FOR_EXIT_SECONDS}
       DetailPrint "$(LngWaitTimeout)"
-      Goto wait_running_done
+      SetErrorLevel 1
+      Abort "$(LngWaitTimeout)"
     ${EndIf}
     Sleep 1000
     IntOp $R9 $R9 + 1
     Goto wait_running_loop
   ${EndIf}
-wait_running_done:
 !macroend
 
 ; --- 关闭运行中的应用（UI 修复 9：安装/卸载前主动提示关闭，不再让用户手动退）--
@@ -162,7 +161,7 @@ close_app_check:
   Pop $R1
   ${${un}StrStr} $R2 $R1 "${APP_EXE}"
   ${If} $R2 == ""
-    Return                ; 未在运行
+    Goto close_app_done   ; 结束宏，但仍须继续 .onInit 的安装目录恢复
   ${EndIf}
   ${If} ${Silent}
     Goto close_app_kill
@@ -179,6 +178,7 @@ close_app_kill:
   ${If} $R9 < 3
     Goto close_app_check
   ${EndIf}
+close_app_done:
 !macroend
 
 Function .onInit
@@ -221,7 +221,12 @@ Section "-Install"
   SetOutPath "$INSTDIR"
   SetOverwrite on
   ; 构建产物改名安装：cabin-app-release.exe -> CommandCabin.exe
+  ClearErrors
   File "/oname=${APP_EXE}" "${EXE_SOURCE}"
+  ${If} ${Errors}
+    SetErrorLevel 1
+    Abort "Could not replace ${APP_EXE}. Close ${APP_NAME} and retry."
+  ${EndIf}
   ; LICENSE 有则装；OFL 字体许可随内嵌字体进 exe，第三方声明文件列 M6
   File "/nonfatal" "${LICENSE_SOURCE}"
   File "/nonfatal" "/oname=LICENSE-LiberationSans.txt" "${FONT_LICENSE_SOURCE}"

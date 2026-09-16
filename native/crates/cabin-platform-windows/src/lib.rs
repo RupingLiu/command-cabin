@@ -12,4 +12,6 @@ pub mod save_dialog;
 pub mod single_instance;
 pub mod translate;
 pub mod tray;
+pub mod update_installer;
+mod update_proxy;
 pub mod updater;

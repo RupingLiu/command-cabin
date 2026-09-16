@@ -12,6 +12,17 @@ use cabin_core::settings::Language;
 /// 设置窗口界面文案（字段对应 settings.slint 的 `SettingsTexts`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsUiTexts {
+    pub shortcuts_nav: &'static str,
+    pub general_title: &'static str,
+    pub data_title: &'static str,
+    pub advanced_title: &'static str,
+    pub general_description: &'static str,
+    pub hotkeys_description: &'static str,
+    pub favorites_description: &'static str,
+    pub data_description: &'static str,
+    pub about_description: &'static str,
+    pub saved_hint: &'static str,
+
     pub window_title: &'static str,
     pub hotkeys_title: &'static str,
     pub launcher_hotkey_label: &'static str,
@@ -58,6 +69,11 @@ pub struct SettingsUiTexts {
 /// 启动器新增界面文案（首页分组头 + 固定按钮）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HomeUiTexts {
+    pub keyboard_hint: &'static str,
+    pub empty_hint: &'static str,
+    pub no_results_hint: &'static str,
+    pub home_action_ocr: &'static str,
+
     /// 空查询首页 "最近使用" 分组头。
     pub recent_group: &'static str,
     /// 空查询首页 "固定" 分组头。
@@ -159,6 +175,17 @@ pub fn favorite_kind_label(
 /// 各字段注释标注；`ts` 键不存在的 M2 新控件标注 “TS 无此键”。
 pub fn settings_texts(language: Language) -> SettingsUiTexts {
     let zh_cn = SettingsUiTexts {
+        shortcuts_nav: "快捷键",
+        general_title: "通用",
+        data_title: "数据",
+        advanced_title: "高级搜索设置",
+        general_description: "让启动器更符合你的使用习惯。",
+        hotkeys_description: "随时呼出启动器和截图工具。修改后按回车或移开焦点保存。",
+        favorites_description: "管理固定应用和收藏内容。",
+        data_description: "管理保存在本机的剪贴板历史。",
+        about_description: "版本信息、更新与许可。",
+        saved_hint: "设置在修改后自动保存",
+
         window_title: "设置",                   // settings.title
         hotkeys_title: "全局快捷键",            // settings.shortcutsTitle
         launcher_hotkey_label: "启动器快捷键",  // settings.hotkey.title
@@ -197,6 +224,17 @@ pub fn settings_texts(language: Language) -> SettingsUiTexts {
         back: "返回",              // settings.back
     };
     let zh_tw = SettingsUiTexts {
+        shortcuts_nav: "快捷鍵",
+        general_title: "一般",
+        data_title: "資料",
+        advanced_title: "進階搜尋設定",
+        general_description: "讓啟動器更符合你的使用習慣。",
+        hotkeys_description: "隨時叫出啟動器和截圖工具。修改後按 Enter 或移開焦點儲存。",
+        favorites_description: "管理固定應用程式與收藏內容。",
+        data_description: "管理儲存在本機的剪貼簿歷史。",
+        about_description: "版本資訊、更新與授權。",
+        saved_hint: "設定於修改後自動儲存",
+
         window_title: "設定",
         hotkeys_title: "全域快捷鍵",
         launcher_hotkey_label: "啟動器快捷鍵",
@@ -235,6 +273,18 @@ pub fn settings_texts(language: Language) -> SettingsUiTexts {
         back: "返回",
     };
     let en_us = SettingsUiTexts {
+        shortcuts_nav: "Shortcuts",
+        general_title: "General",
+        data_title: "Data",
+        advanced_title: "Advanced search",
+        general_description: "Make the launcher work the way you do.",
+        hotkeys_description:
+            "Open your tools from anywhere. Press Enter or leave the field to save.",
+        favorites_description: "Manage pinned apps and favorites in one place.",
+        data_description: "Manage clipboard history stored on this device.",
+        about_description: "Version, updates and license.",
+        saved_hint: "Changes are saved automatically",
+
         window_title: "Settings",
         hotkeys_title: "Global shortcuts",
         launcher_hotkey_label: "Launcher shortcut",
@@ -397,33 +447,48 @@ pub fn format_template(template: &str, values: &[(&str, &str)]) -> String {
 pub fn home_texts(language: Language) -> HomeUiTexts {
     match language {
         Language::ZhCn => HomeUiTexts {
+            keyboard_hint: "方向键 选择    Enter 打开    Esc 隐藏",
+            empty_hint: "搜索应用并固定到首页，常用工具将在这里显示。",
+            no_results_hint: "未找到匹配项，试试其他关键词。",
+            home_action_ocr: "识别文字",
+
             recent_group: "最近使用",
             pinned_group: "固定",
             pin_app: "固定到首页",
             home_actions_label: "首页功能",
             home_action_screenshot: "截图",
             search_label: "搜索",
-            search_placeholder: "输入命令",
+            search_placeholder: "搜索应用、命令，或输入算式…",
             open_settings: "打开设置",
         },
         Language::ZhTw => HomeUiTexts {
+            keyboard_hint: "方向鍵 選取    Enter 開啟    Esc 隱藏",
+            empty_hint: "搜尋應用程式並固定到首頁，常用工具將顯示於此。",
+            no_results_hint: "未找到符合項目，試試其他關鍵字。",
+            home_action_ocr: "辨識文字",
+
             recent_group: "最近使用",
             pinned_group: "固定",
             pin_app: "固定到首頁",
             home_actions_label: "首頁功能",
             home_action_screenshot: "截圖",
             search_label: "搜尋",
-            search_placeholder: "輸入指令",
+            search_placeholder: "搜尋應用程式、指令，或輸入算式…",
             open_settings: "開啟設定",
         },
         Language::EnUs => HomeUiTexts {
+            keyboard_hint: "Arrows Select    Enter Open    Esc Hide",
+            empty_hint: "Search for an app and pin it here for quick access.",
+            no_results_hint: "No matches. Try another search.",
+            home_action_ocr: "Recognize text",
+
             recent_group: "Recent",
             pinned_group: "Pinned",
             pin_app: "Pin to home",
             home_actions_label: "Home actions",
             home_action_screenshot: "Screenshot",
             search_label: "Search",
-            search_placeholder: "Type a command",
+            search_placeholder: "Search apps, commands, or calculate…",
             open_settings: "Open settings",
         },
     }
@@ -590,6 +655,16 @@ mod tests {
             let mut values: Vec<&str> = Vec::new();
             // 显式列出字段，确保新增字段不会漏翻译（编译期也保证数量一致）。
             let SettingsUiTexts {
+                shortcuts_nav,
+                general_title,
+                data_title,
+                advanced_title,
+                general_description,
+                hotkeys_description,
+                favorites_description,
+                data_description,
+                about_description,
+                saved_hint,
                 window_title,
                 hotkeys_title,
                 launcher_hotkey_label,
@@ -628,6 +703,16 @@ mod tests {
                 back,
             } = texts;
             values.extend([
+                shortcuts_nav,
+                general_title,
+                data_title,
+                advanced_title,
+                general_description,
+                hotkeys_description,
+                favorites_description,
+                data_description,
+                about_description,
+                saved_hint,
                 window_title,
                 hotkeys_title,
                 launcher_hotkey_label,
@@ -681,10 +766,9 @@ mod tests {
         // UI 修复 3：TS i18n.ts:35-39 逐字（homeActionsLabel / homeActions.screenshot）。
         assert_eq!(zh_cn.home_actions_label, "首页功能");
         assert_eq!(zh_cn.home_action_screenshot, "截图");
-        // UI 复刻轮：TS i18n.ts:45-47 / :40 逐字（search.label / search.placeholder /
-        // openSettings）。
+        // A 方案扩展占位文案，让应用、命令和计算功能更易发现。
         assert_eq!(zh_cn.search_label, "搜索");
-        assert_eq!(zh_cn.search_placeholder, "输入命令");
+        assert_eq!(zh_cn.search_placeholder, "搜索应用、命令，或输入算式…");
         assert_eq!(zh_cn.open_settings, "打开设置");
         let zh_tw = home_texts(Language::ZhTw);
         assert_eq!(zh_tw.recent_group, "最近使用");
@@ -692,7 +776,7 @@ mod tests {
         assert_eq!(zh_tw.home_actions_label, "首頁功能");
         assert_eq!(zh_tw.home_action_screenshot, "截圖");
         assert_eq!(zh_tw.search_label, "搜尋");
-        assert_eq!(zh_tw.search_placeholder, "輸入指令");
+        assert_eq!(zh_tw.search_placeholder, "搜尋應用程式、指令，或輸入算式…");
         assert_eq!(zh_tw.open_settings, "開啟設定");
         let en_us = home_texts(Language::EnUs);
         assert_eq!(en_us.recent_group, "Recent");
@@ -701,7 +785,10 @@ mod tests {
         assert_eq!(en_us.home_actions_label, "Home actions");
         assert_eq!(en_us.home_action_screenshot, "Screenshot");
         assert_eq!(en_us.search_label, "Search");
-        assert_eq!(en_us.search_placeholder, "Type a command");
+        assert_eq!(
+            en_us.search_placeholder,
+            "Search apps, commands, or calculate…"
+        );
         assert_eq!(en_us.open_settings, "Open settings");
     }
 

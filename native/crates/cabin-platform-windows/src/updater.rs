@@ -96,8 +96,15 @@ fn http_failure(error: ureq::Error) -> HttpFailure {
 }
 
 /// ureq Agent：GitHub 要求的 UA + Accept 头统一在此注入。
-fn github_agent(timeout: Option<Duration>, read_timeout: Option<Duration>) -> ureq::Agent {
+fn github_agent(
+    url: &str,
+    timeout: Option<Duration>,
+    read_timeout: Option<Duration>,
+) -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new();
+    if let Some(proxy) = crate::update_proxy::for_url(url) {
+        builder = builder.proxy(proxy);
+    }
     if let Some(timeout) = timeout {
         builder = builder.timeout(timeout);
     }
@@ -109,7 +116,7 @@ fn github_agent(timeout: Option<Duration>, read_timeout: Option<Duration>) -> ur
 
 /// GET 并读取 2xx 响应体（字符串）——检查与边车取数共用。
 fn http_get_text(url: &str, timeout: Duration) -> Result<String, HttpFailure> {
-    match github_agent(Some(timeout), None)
+    match github_agent(url, Some(timeout), None)
         .get(url)
         .set("User-Agent", GITHUB_API_USER_AGENT)
         .set("Accept", GITHUB_API_ACCEPT)
@@ -128,7 +135,7 @@ fn http_open_stream(
     url: &str,
     read_timeout: Duration,
 ) -> Result<(Option<u64>, impl Read), HttpFailure> {
-    match github_agent(None, Some(read_timeout))
+    match github_agent(url, None, Some(read_timeout))
         .get(url)
         .set("User-Agent", GITHUB_API_USER_AGENT)
         .set("Accept", GITHUB_API_ACCEPT)
@@ -415,18 +422,16 @@ mod tests {
 
     /// v1.0.1 下载 URL 安全校验：https-only + GitHub 域白名单。
     #[test]
-    fn validate_download_url_accepts_github_https_only() {        assert!(validate_download_url(
+    fn validate_download_url_accepts_github_https_only() {
+        assert!(validate_download_url(
             "https://github.com/RupingLiu/command-cabin/releases/download/v1.0.1/x.exe"
         )
         .is_ok());
-        assert!(validate_download_url(
-            "https://objects.githubusercontent.com/some/path?query=1"
-        )
-        .is_ok());
-        assert!(validate_download_url(
-            "https://release-assets.githubusercontent.com/a/b"
-        )
-        .is_ok());
+        assert!(
+            validate_download_url("https://objects.githubusercontent.com/some/path?query=1")
+                .is_ok()
+        );
+        assert!(validate_download_url("https://release-assets.githubusercontent.com/a/b").is_ok());
         assert!(validate_download_url("https://api.github.com/repos/x").is_ok());
         // 大小写与端口不敏感。
         assert!(validate_download_url("https://GITHUB.COM/x").is_ok());
@@ -465,7 +470,9 @@ mod tests {
         let error = service
             .download(&asset, &target, None)
             .expect_err("foreign host must be refused");
-        assert!(matches!(error, PlatformError::UpdateDownload(message) if message.contains("refusing update download")));
+        assert!(
+            matches!(error, PlatformError::UpdateDownload(message) if message.contains("refusing update download"))
+        );
         assert!(!target.exists());
     }
 

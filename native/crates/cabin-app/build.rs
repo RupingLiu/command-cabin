@@ -16,6 +16,8 @@ fn main() {
         resource.set("FileDescription", "CommandCabin launcher");
         resource.set("ProductName", "CommandCabin");
         resource.set("LegalCopyright", "Copyright 2026 CommandCabin");
-        resource.compile().expect("failed to embed windows icon resources");
+        resource
+            .compile()
+            .expect("failed to embed windows icon resources");
     }
 }

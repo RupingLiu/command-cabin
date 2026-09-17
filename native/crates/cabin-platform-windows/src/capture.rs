@@ -281,7 +281,7 @@ fn alloc_pixel_buffer(width: i32, height: i32) -> Result<Vec<u8>, PlatformError>
 /// GetDIBits 输出为 BGRA：交换 R/B 并强制不透明 alpha（屏幕 DC 不写入
 /// alpha，原始值不定；TS desktopCapturer 产物同为不透明）。
 fn swap_bgra_to_rgba(bytes: &mut [u8]) {
-    for pixel in bytes.chunks_exact_mut(4) {
+    for pixel in bytes.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
         pixel[3] = 255;
     }

@@ -251,15 +251,32 @@ fn app_command_identity_key(command: &Command) -> String {
     let working_directory = normalize_identity_path(payload_str(payload, "workingDirectory"));
 
     if !aumid.is_empty() {
-        return ["app-user-model-id", &title, &aumid, &arguments, &working_directory].join("|");
+        return [
+            "app-user-model-id",
+            &title,
+            &aumid,
+            &arguments,
+            &working_directory,
+        ]
+        .join("|");
     }
     if !executable.is_empty() {
-        return ["executable", &title, &executable, &arguments, &working_directory].join("|");
+        return [
+            "executable",
+            &title,
+            &executable,
+            &arguments,
+            &working_directory,
+        ]
+        .join("|");
     }
     format!("id:{}", command.id)
 }
 
-fn payload_str<'p>(payload: &'p crate::command::types::CommandPayload, key: &str) -> Option<&'p str> {
+fn payload_str<'p>(
+    payload: &'p crate::command::types::CommandPayload,
+    key: &str,
+) -> Option<&'p str> {
     payload.get(key).and_then(serde_json::Value::as_str)
 }
 
@@ -488,8 +505,16 @@ mod tests {
     #[test]
     fn merge_app_commands_keeps_same_title_different_targets() {
         let shortcut_commands = commands_from_shortcuts(&[
-            shortcut("MATLAB", r"C:\a\matlab.lnk", Some(r"C:\R2025b\bin\matlab.exe")),
-            shortcut("MATLAB", r"C:\b\matlab.lnk", Some(r"C:\R2024a\bin\matlab.exe")),
+            shortcut(
+                "MATLAB",
+                r"C:\a\matlab.lnk",
+                Some(r"C:\R2025b\bin\matlab.exe"),
+            ),
+            shortcut(
+                "MATLAB",
+                r"C:\b\matlab.lnk",
+                Some(r"C:\R2024a\bin\matlab.exe"),
+            ),
         ]);
         let merged = merge_app_commands(shortcut_commands, vec![]);
         assert_eq!(merged.len(), 2);

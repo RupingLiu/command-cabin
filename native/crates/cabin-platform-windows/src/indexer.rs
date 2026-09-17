@@ -229,4 +229,87 @@ mod tests {
             .as_ref()
             .is_some_and(|p| p.to_string_lossy().to_lowercase().contains("notepad.exe")));
     }
+
+    #[test]
+    fn rescanning_discovers_new_install_and_removes_deleted_shortcuts() {
+        use cabin_core::indexer::app_commands::{commands_from_shortcuts, merge_app_commands};
+        use cabin_core::search::engine::{SearchEngine, SearchOptions};
+
+        let dir = TempDir::create("cabin-indexer-refresh-test");
+        let desktop = dir.0.join("Desktop");
+        let programs = dir.0.join("Programs");
+        std::fs::create_dir_all(&desktop).unwrap();
+        std::fs::create_dir_all(&programs).unwrap();
+        let indexer = WindowsStartMenuIndexer::with_roots(vec![programs.clone(), desktop.clone()]);
+        create_test_lnk(&programs.join("Editor.lnk"), r"C:\Apps\Editor\Editor.exe");
+        let mut engine = SearchEngine::new(commands_from_shortcuts(&indexer.scan().shortcuts));
+        assert!(engine
+            .search("Editor Code", SearchOptions::default())
+            .iter()
+            .all(|item| item.command.title != "Editor Code"));
+
+        // Reproduce installing a similarly named app while the launcher is resident.
+        let target = r"C:\Apps\Editor Code\Editor Code.exe";
+        let desktop_link = desktop.join("Editor Code.lnk");
+        let menu_link = programs.join("Editor Code.lnk");
+        create_test_lnk(&desktop_link, target);
+        create_test_lnk(&menu_link, target);
+        let scan = indexer.scan();
+        assert!(scan.failures.is_empty());
+        engine.update(merge_app_commands(
+            commands_from_shortcuts(&scan.shortcuts),
+            vec![],
+        ));
+        let found = engine.search("editor code", SearchOptions::default());
+        assert_eq!(
+            found
+                .iter()
+                .filter(|item| item.command.title == "Editor Code")
+                .count(),
+            1
+        );
+        assert_eq!(found[0].command.title, "Editor Code");
+        assert_eq!(found[0].command.action.payload["executablePath"], target);
+
+        std::fs::remove_file(desktop_link).unwrap();
+        std::fs::remove_file(menu_link).unwrap();
+        engine.update(commands_from_shortcuts(&indexer.scan().shortcuts));
+        assert!(engine
+            .search("editor code", SearchOptions::default())
+            .iter()
+            .all(|item| item.command.title != "Editor Code"));
+    }
+
+    /// Explicit local probe; no application is launched and no user data is changed.
+    #[test]
+    #[ignore = "requires CABIN_INDEX_PROBE_QUERY and installed Windows shortcuts"]
+    fn installed_app_is_searchable() {
+        use cabin_core::indexer::app_commands::{commands_from_shortcuts, merge_app_commands};
+        use cabin_core::search::engine::{SearchEngine, SearchOptions};
+
+        let query = std::env::var("CABIN_INDEX_PROBE_QUERY").expect("set CABIN_INDEX_PROBE_QUERY");
+        let scan = WindowsStartMenuIndexer::new().scan();
+        let commands = merge_app_commands(commands_from_shortcuts(&scan.shortcuts), vec![]);
+        let engine = SearchEngine::new(commands);
+        let found = engine.search(&query, SearchOptions::default());
+        let exact: Vec<_> = found
+            .iter()
+            .filter(|item| item.command.title.eq_ignore_ascii_case(&query))
+            .collect();
+        assert_eq!(
+            exact.len(),
+            1,
+            "expected one deduplicated match for {query}"
+        );
+        let command = &exact[0].command;
+        let target = command.action.payload["executablePath"]
+            .as_str()
+            .expect("executable path");
+        assert!(Path::new(target).is_file(), "target must exist: {target}");
+        assert_eq!(
+            found[0].command.id, command.id,
+            "exact title should rank first"
+        );
+        println!("Verified: {} -> {target}", command.title);
+    }
 }

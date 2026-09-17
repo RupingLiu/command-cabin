@@ -15,6 +15,7 @@
 // 发布形态为窗口应用：从资源管理器/Start-Process 启动时不附带控制台窗口。
 #![windows_subsystem = "windows"]
 
+mod app_index_refresh;
 mod controller;
 mod i18n;
 mod screenshot_controller;
@@ -29,7 +30,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cabin_core::command::executor::{CommandExecutionResult, CommandExecutor};
 use cabin_core::command::types::{Command, CommandActionType};
@@ -477,7 +478,16 @@ impl AppState {
     }
 
     /// 后台索引扫描完成后整体替换 app 命令并重建引擎。
-    fn replace_app_commands(&mut self, commands: Vec<Command>) {
+    fn replace_app_commands(&mut self, commands: Vec<Command>) -> bool {
+        // A repeated scan with no changes must not reset the current result selection.
+        if commands.len() == self.app_command_ids.len()
+            && commands.iter().all(|command| {
+                self.app_command_ids.contains(&command.id)
+                    && self.commands_by_id.get(&command.id) == Some(command)
+            })
+        {
+            return false;
+        }
         for command_id in &self.app_command_ids {
             self.commands_by_id.remove(command_id);
         }
@@ -487,6 +497,7 @@ impl AppState {
             self.commands_by_id.insert(command.id.clone(), command);
         }
         self.rebuild_engine();
+        true
     }
 }
 
@@ -648,6 +659,7 @@ struct AppContext {
     /// 截图热键注册表（M3 Task 8 位移语义的状态侧；与热键操作同在 UI 线程
     /// 的设置流闭包内触达，Mutex 仅满足 Send+Sync）。
     screenshot_registrations: Mutex<state::ScreenshotHotkeyRegistrations>,
+    app_index_refresh: Mutex<app_index_refresh::AppIndexRefresh>,
     executor: CommandExecutor,
 }
 
@@ -673,7 +685,7 @@ impl AppContext {
         window.hide().expect("hide launcher");
     }
 
-    fn show_window(&self) {
+    fn show_window(self: &Arc<Self>) {
         Self::show_launcher_window(self);
     }
 
@@ -681,7 +693,7 @@ impl AppContext {
     ///
     /// 呼出实现抽成自由函数：截图控制器（M3 Task 7）的会话收束钩子以
     /// `Weak<AppContext>` 调用同一行为（Weak 打破 controller ↔ context 的 Arc 环）。
-    fn show_launcher_window(context: &AppContext) {
+    fn show_launcher_window(context: &Arc<AppContext>) {
         let Some(window) = context.window.upgrade() else {
             return;
         };
@@ -710,10 +722,11 @@ impl AppContext {
             .with_winit_window(|winit_window| winit_window.focus_window());
         window.invoke_focus_input();
         window.window().request_redraw();
+        start_app_index_refresh(context);
     }
 
     /// TS `toggleLauncherWindow` 语义：可见则隐藏，否则呼出。
-    fn toggle_window(&self) {
+    fn toggle_window(self: &Arc<Self>) {
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -906,6 +919,63 @@ impl AppContext {
         }
         self.refresh_results();
         push_settings_view(self);
+    }
+}
+
+/// Startup, launcher-show and periodic refresh share one background scan. Publish the
+/// complete snapshot on the UI thread, then rerun the query currently in the input.
+fn start_app_index_refresh(context: &Arc<AppContext>) {
+    if !context
+        .app_index_refresh
+        .lock()
+        .unwrap()
+        .try_start(Instant::now())
+    {
+        return;
+    }
+    let worker_context = Arc::clone(context);
+    if let Err(error) = std::thread::Builder::new()
+        .name("app-index-refresh".into())
+        .spawn(move || {
+            let scan = WindowsStartMenuIndexer::new().scan();
+            for failure in &scan.failures {
+                eprintln!(
+                    "CommandCabin: shortcut skipped: {}: {}",
+                    failure.path.display(),
+                    failure.message
+                );
+            }
+            let packaged = enumerate_packaged_apps();
+            for failure in &packaged.failures {
+                eprintln!("CommandCabin: packaged app entry skipped: {failure}");
+            }
+            let commands = merge_app_commands(
+                commands_from_shortcuts(&scan.shortcuts),
+                commands_from_packaged_apps(&packaged.apps),
+            );
+            let _ = slint::invoke_from_event_loop(move || {
+                let changed = worker_context
+                    .state
+                    .lock()
+                    .unwrap()
+                    .replace_app_commands(commands);
+                worker_context
+                    .app_index_refresh
+                    .lock()
+                    .unwrap()
+                    .finish(Instant::now());
+                if changed {
+                    worker_context.refresh_results();
+                }
+            });
+        })
+    {
+        context
+            .app_index_refresh
+            .lock()
+            .unwrap()
+            .finish(Instant::now());
+        append_diag_log(&format!("app index refresh could not start: {error}"));
     }
 }
 
@@ -2217,6 +2287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         hide_on_blur: Arc::clone(&hide_on_blur),
         focused_since_shown: AtomicBool::new(false),
         screenshot_registrations: Mutex::new(state::ScreenshotHotkeyRegistrations::default()),
+        app_index_refresh: Mutex::new(app_index_refresh::AppIndexRefresh::default()),
         executor,
     });
 
@@ -2661,29 +2732,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         window.on_open_settings(move || context.show_settings_window());
     }
 
-    // ---- 后台索引扫描，完成后回 UI 线程替换 app 命令并刷新。 ----
+    // TS startAutoRefresh: keep refreshing for the entire tray-resident lifetime.
+    start_app_index_refresh(&context);
+    let app_index_timer = slint::Timer::default();
     {
         let context = Arc::clone(&context);
-        std::thread::spawn(move || {
-            let scan = WindowsStartMenuIndexer::new().scan();
-            let shortcut_commands = commands_from_shortcuts(&scan.shortcuts);
-            // UI 修复 4（Issue A）：MSIX/APPX 打包应用（商店应用，开始菜单无
-            // .lnk）经 PackageManager 枚举为命令（open-app +
-            // shell:AppsFolder\{AUMID}）；UI 修复 7（用户实测飞书重复）：
-            // merge_app_commands 补齐 TS dedupeAppCommands 的 identity 键去重
-            //（title+exe/aumid+args+workdir），桌面与开始菜单指向同一 exe 的
-            // 双 .lnk 合并为一条。单包失败只记诊断，不中断其余应用。
-            let packaged = enumerate_packaged_apps();
-            for failure in &packaged.failures {
-                eprintln!("CommandCabin: packaged app entry skipped: {failure}");
-            }
-            let packaged_commands = commands_from_packaged_apps(&packaged.apps);
-            let commands = merge_app_commands(shortcut_commands, packaged_commands);
-            let _ = slint::invoke_from_event_loop(move || {
-                context.state.lock().unwrap().replace_app_commands(commands);
-                context.refresh_results();
-            });
-        });
+        app_index_timer.start(
+            slint::TimerMode::Repeated,
+            app_index_refresh::AUTO_REFRESH_INTERVAL,
+            move || start_app_index_refresh(&context),
+        );
     }
 
     // ---- 托盘事件："显示" → 呼出窗口；"设置" → 打开设置窗口（M2 Task 10）；
@@ -2831,7 +2889,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 收尾：丢弃调度信号通道（调度线程断开后补一次 flush），再显式兜底 flush。
     drop(flush_signal);
     let _ = icon_cache.lock().unwrap().flush();
-    // 两个 Timer 均须存活至事件循环结束。
+    // Timers must stay alive until the event loop exits.
+    let _ = app_index_timer;
     let _ = hide_on_blur_timer;
     let _ = clipboard_watch_timer;
     let _ = update_check_timer;
@@ -2849,6 +2908,60 @@ mod query_pipeline_tests {
         CommandAction, CommandActionType, CommandPayload, CommandSource,
     };
     use cabin_core::features::exchange_rate::ExchangeRatePeek;
+
+    #[test]
+    fn refreshing_apps_updates_search_and_preserves_other_command_groups() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        let mut state = AppState {
+            settings: Settings::default(),
+            engine: SearchEngine::new(Vec::new()),
+            commands_by_id: HashMap::new(),
+            app_command_ids: HashSet::new(),
+            pinned_app_commands: Vec::new(),
+            pinned_app_command_ids: HashSet::new(),
+            pinned_shortcut_keys: HashSet::new(),
+            rate_cache: ExchangeRateCache::load(
+                &std::env::temp_dir().join("cabin-index-refresh-rates.json"),
+            ),
+            rate_fetch_in_flight: false,
+            clipboard_command_ids: HashSet::new(),
+            clipboard_commands_dirty: false,
+            clipboard_poll_state: PollState::default(),
+            clipboard_read_failed: false,
+            update: updater_controller::UpdateOrchestration::new(false),
+            selected_tile: None,
+            conn,
+        };
+        let system = screenshot_system_commands().remove(0);
+        let favorite = app_command("favorite.editor", "Pinned Editor", &[]);
+        state
+            .commands_by_id
+            .insert(system.id.clone(), system.clone());
+        state
+            .commands_by_id
+            .insert(favorite.id.clone(), favorite.clone());
+        let original = app_command("app.editor", "Editor", &[]);
+        let installed = app_command("app.editor-code", "Editor Code", &[]);
+        assert!(state.replace_app_commands(vec![original.clone()]));
+        assert!(state
+            .engine
+            .search("editor code", SearchOptions::default())
+            .is_empty());
+        assert!(state.replace_app_commands(vec![original.clone(), installed.clone()]));
+        let found = state.engine.search("editor code", SearchOptions::default());
+        assert_eq!(found[0].command, installed);
+        // Input order can change between scans; an unchanged snapshot needs no UI reset.
+        assert!(!state.replace_app_commands(vec![installed, original.clone()]));
+        assert!(state.replace_app_commands(vec![original]));
+        assert!(state
+            .engine
+            .search("editor code", SearchOptions::default())
+            .is_empty());
+        assert_eq!(state.commands_by_id.get(&system.id), Some(&system));
+        assert_eq!(state.commands_by_id.get(&favorite.id), Some(&favorite));
+    }
+
     fn app_command(id: &str, title: &str, keywords: &[&str]) -> Command {
         Command {
             id: id.into(),

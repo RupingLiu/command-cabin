@@ -22,8 +22,8 @@ use cabin_platform::traits::PlatformError;
 use windows::core::{Interface, GUID, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, SIZE};
 use windows::Win32::Graphics::Gdi::{
-    BITMAP, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, DeleteObject, GetDC, GetDIBits,
-    GetObjectW, HBITMAP, HGDIOBJ, ReleaseDC,
+    DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER,
+    BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
 };
 use windows::Win32::Graphics::GdiPlus::{
     BitmapData, GdipBitmapLockBits, GdipBitmapUnlockBits, GdipCreateBitmapFromHICON,
@@ -676,7 +676,13 @@ fn encode_hbitmap_to_png(hbitmap: HBITMAP, context: &str) -> Result<Vec<u8>, Pla
     };
     // SAFETY: bitmap 有效；data2 为有效出参。
     let lock2 = unsafe {
-        GdipBitmapLockBits(bitmap, &rect as *const Rect, IMAGE_LOCK_MODE_WRITE, PIXEL_FORMAT_32BPP_ARGB, &mut data2)
+        GdipBitmapLockBits(
+            bitmap,
+            &rect as *const Rect,
+            IMAGE_LOCK_MODE_WRITE,
+            PIXEL_FORMAT_32BPP_ARGB,
+            &mut data2,
+        )
     };
     if lock2 != GDIPLUS_OK || data2.Scan0.is_null() {
         unsafe { GdipDisposeImage(bitmap as *mut GpImage) };

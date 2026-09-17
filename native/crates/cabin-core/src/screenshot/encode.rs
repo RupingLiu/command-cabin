@@ -142,7 +142,7 @@ pub fn jpeg_encode_rgba(img: &RgbaImage, quality: f64) -> Vec<u8> {
     // The image crate's JPEG encoder has no RGBA input, so strip the alpha
     // channel first (keep the raw RGB values; see the doc note above).
     let mut rgb = Vec::with_capacity(img.data.len() / 4 * 3);
-    for pixel in img.data.chunks_exact(4) {
+    for pixel in img.data.as_chunks::<4>().0 {
         rgb.extend_from_slice(&pixel[..3]);
     }
     let mut bytes = Vec::new();

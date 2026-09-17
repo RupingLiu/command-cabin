@@ -58,3 +58,9 @@ Release EXE，不重新构建或改动程序。
 - 7-Zip 完整性测试通过；从安装包解出的 EXE 与本地测试版 SHA256 完全一致。
 - 同名 `.sha512` 文件：159 字节，无 BOM，摘要及资产名匹配安装包：
   `fbc910c8427dfc1049c3713233cb50d97d532e94d51ab90f2c98342fb4963470b92da1e55561030e8deb8a14f6964aad4f620e6ad4cf1a8bf70325b742ef779a`。
+- GitHub `releases/latest` 确认为 v1.0.8，非草稿、非预发布，两个资产均 uploaded。
+- 从公开下载地址重新下载安装包和校验文件，尺寸和 SHA512 与本地已验证安装包一致。
+- 显式运行 `updater::tests::real_endpoint_probe` 通过：解析版本 1.0.8、两个资产，
+  安装包为 `CommandCabin-Setup-1.0.8.exe`。
+- 探针构建缓存已通过 `cargo clean` 清除（1,019.2 MiB），解包和重复下载的临时文件
+  已删除；保留已提供给用户的本地测试 EXE。

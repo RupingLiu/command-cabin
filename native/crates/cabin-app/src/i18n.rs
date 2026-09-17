@@ -80,6 +80,7 @@ pub struct HomeUiTexts {
     pub pinned_group: &'static str,
     /// 搜索结果 app 行的 "固定到首页" 按钮。
     pub pin_app: &'static str,
+    pub unpin_app: &'static str,
     /// 空查询首页 "首页功能" 分区头（UI 修复 3；TS `launcher.homeActionsLabel`）。
     pub home_actions_label: &'static str,
     /// "首页功能" 分区里的截图入口（UI 修复 3；TS `launcher.homeActions.screenshot`）。
@@ -455,6 +456,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             recent_group: "最近使用",
             pinned_group: "固定",
             pin_app: "固定到首页",
+            unpin_app: "取消固定",
             home_actions_label: "首页功能",
             home_action_screenshot: "截图",
             search_label: "搜索",
@@ -470,6 +472,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             recent_group: "最近使用",
             pinned_group: "固定",
             pin_app: "固定到首頁",
+            unpin_app: "取消固定",
             home_actions_label: "首頁功能",
             home_action_screenshot: "截圖",
             search_label: "搜尋",
@@ -485,6 +488,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             recent_group: "Recent",
             pinned_group: "Pinned",
             pin_app: "Pin to home",
+            unpin_app: "Unpin from home",
             home_actions_label: "Home actions",
             home_action_screenshot: "Screenshot",
             search_label: "Search",

@@ -331,7 +331,7 @@ export component SettingsWindow inherits Window {
             HorizontalLayout {
                 padding-left: 18px; padding-right: 18px; spacing: 12px;
                 Text { text: root.texts.saved-hint; color: CabinTheme.muted; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; }
-                VerticalLayout { width: 80px; alignment: center; CabinButton { width: 80px; text: root.texts.back; clicked => { root.dismissed(); } } }
+                VerticalLayout { width: 80px; alignment: center; CabinButton { width: 80px; text: root.texts.back; quiet: true; centered: true; clicked => { root.dismissed(); } } }
             }
         }
     }

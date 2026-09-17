@@ -27,18 +27,16 @@ export struct PinnedTile {
 }
 
 
-component HomeTileView inherits Rectangle {
+component HomeTileFace inherits Rectangle {
     in property <PinnedTile> tile;
     in property <bool> selected;
-    callback run(string);
+    in property <bool> hovered;
+    in property <bool> drop-target;
     height: 85px;
     border-radius: 9px;
     border-width: 1px;
-    border-color: selected ? CabinTheme.accent : touch.has-hover ? CabinTheme.line : transparent;
-    background: selected ? CabinTheme.soft : touch.has-hover ? CabinTheme.panel : transparent;
-    accessible-role: button;
-    accessible-label: tile.title;
-    accessible-action-default => { root.run(root.tile.command-id); }
+    border-color: selected || drop-target ? CabinTheme.accent : hovered ? CabinTheme.line : transparent;
+    background: selected || drop-target ? CabinTheme.soft : hovered ? CabinTheme.panel : transparent;
     Image {
         x: (parent.width - 32px) / 2;
         y: 10px;
@@ -68,9 +66,152 @@ component HomeTileView inherits Rectangle {
         border-radius: 2px;
         background: CabinTheme.accent;
     }
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.run(root.tile.command-id); }
+}
+
+component HomeTileView inherits Rectangle {
+    in property <PinnedTile> tile;
+    in property <bool> selected;
+    in property <bool> drop-target;
+    in property <bool> dimmed;
+    in property <string> unpin-label;
+    property <bool> dragged: false;
+    property <PinnedTile> pressed-tile;
+    callback run(string);
+    callback unpin(string);
+    callback begin-drag(PinnedTile, length, length);
+    callback drag-moved(length, length);
+    callback end-drag(length, length);
+    callback cancel-drag();
+    height: 85px;
+    accessible-role: button;
+    accessible-label: tile.title;
+    accessible-action-default => { root.run(root.tile.command-id); }
+    HomeTileFace {
+        tile: root.tile; selected: root.selected; hovered: touch.has-hover;
+        drop-target: root.drop-target; opacity: root.dimmed ? 0.35 : 1;
+    }
+    menu := ContextMenuArea {
+        Menu {
+            MenuItem { title: root.unpin-label; activated => { root.unpin(root.tile.command-id); } }
+        }
+        touch := TouchArea {
+            mouse-cursor: root.dragged && self.pressed ? move : pointer;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.cancel {
+                    root.dragged = true;
+                    root.cancel-drag();
+                } else if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.dragged = true;
+                    root.cancel-drag();
+                    menu.show({ x: self.mouse-x, y: self.mouse-y });
+                } else if event.button == PointerEventButton.left {
+                    if event.kind == PointerEventKind.down {
+                        root.dragged = false;
+                        root.pressed-tile = root.tile;
+                        root.begin-drag(root.pressed-tile, root.x + self.mouse-x, root.y + self.mouse-y);
+                    } else if event.kind == PointerEventKind.up {
+                        if root.dragged { root.end-drag(root.x + self.mouse-x, root.y + self.mouse-y); }
+                        else { root.cancel-drag(); }
+                    }
+                }
+            }
+            moved => {
+                if self.pressed && (root.dragged || abs(self.mouse-x - self.pressed-x) > 6px || abs(self.mouse-y - self.pressed-y) > 6px) {
+                    root.dragged = true;
+                    root.drag-moved(root.x + self.mouse-x, root.y + self.mouse-y);
+                }
+            }
+            clicked => { if !root.dragged { root.run(root.pressed-tile.command-id); } }
+        }
+    }
+}
+
+component PinnedGrid inherits Rectangle {
+    in property <[PinnedTile]> first-row;
+    in property <[PinnedTile]> second-row;
+    in property <int> selected;
+    in property <string> unpin-label;
+    callback run(string);
+    callback unpin(string);
+    callback reorder(string, string);
+    in-out property <bool> drag-active: false;
+    in property <int> gesture-reset;
+    changed gesture-reset => { root.cancel-drag(); }
+    property <PinnedTile> dragged-tile;
+    property <string> drag-id: "";
+    property <int> target: -1;
+    property <length> drag-x;
+    property <length> drag-y;
+    property <length> offset-x;
+    property <length> offset-y;
+    property <length> cell-step: (self.width + 7px) / 5;
+    height: first-row.length == 0 ? 0px : second-row.length > 0 ? 180px : 85px;
+    function tile-at(index: int) -> PinnedTile {
+        return index < 5 ? root.first-row[index] : root.second-row[index - 5];
+    }
+    function index-at(x: length, y: length) -> int {
+        if x < 0px || x >= root.width || y < 0px || y >= root.height { return -1; }
+        let column = floor(x / root.cell-step);
+        let row = floor(y / 95px);
+        if x - column * root.cell-step > root.cell-step - 7px || y - row * 95px >= 85px { return -1; }
+        let index = row * 5 + column;
+        return index < root.first-row.length + root.second-row.length ? index : -1;
+    }
+    function begin(tile: PinnedTile, x: length, y: length) {
+        root.dragged-tile = tile;
+        root.drag-id = tile.command-id;
+        root.drag-active = false;
+        root.offset-x = x - floor(x / root.cell-step) * root.cell-step;
+        root.offset-y = y - floor(y / 95px) * 95px;
+    }
+    function move(x: length, y: length) {
+        if root.drag-id == "" { return; }
+        root.drag-active = true;
+        root.drag-x = x - root.offset-x;
+        root.drag-y = y - root.offset-y;
+        root.target = root.index-at(x, y);
+    }
+    public function cancel-drag() {
+        root.drag-active = false;
+        root.drag-id = "";
+        root.target = -1;
+    }
+    function drop(x: length, y: length) {
+        let source = root.drag-id;
+        let index = root.index-at(x, y);
+        let target = index >= 0 ? root.tile-at(index).command-id : "";
+        root.cancel-drag();
+        if source != "" && target != "" && source != target { root.reorder(source, target); }
+    }
+    for tile[t] in root.first-row: HomeTileView {
+        x: t * root.cell-step; y: 0px; width: root.cell-step - 7px;
+        tile: tile; selected: root.selected == t;
+        drop-target: root.drag-active && root.target == t;
+        dimmed: root.drag-active && root.drag-id == tile.command-id;
+        unpin-label: root.unpin-label;
+        run(id) => { root.run(id); }
+        unpin(id) => { root.unpin(id); }
+        begin-drag(tile, x, y) => { root.begin(tile, x, y); }
+        drag-moved(x, y) => { root.move(x, y); }
+        end-drag(x, y) => { root.drop(x, y); }
+        cancel-drag => { root.cancel-drag(); }
+    }
+    for tile[t] in root.second-row: HomeTileView {
+        x: t * root.cell-step; y: 95px; width: root.cell-step - 7px;
+        tile: tile; selected: root.selected == t + 5;
+        drop-target: root.drag-active && root.target == t + 5;
+        dimmed: root.drag-active && root.drag-id == tile.command-id;
+        unpin-label: root.unpin-label;
+        run(id) => { root.run(id); }
+        unpin(id) => { root.unpin(id); }
+        begin-drag(tile, x, y) => { root.begin(tile, x, y); }
+        drag-moved(x, y) => { root.move(x, y); }
+        end-drag(x, y) => { root.drop(x, y); }
+        cancel-drag => { root.cancel-drag(); }
+    }
+    if root.drag-active: HomeTileFace {
+        x: root.drag-x; y: root.drag-y; width: root.cell-step - 7px;
+        tile: root.dragged-tile; selected: true; opacity: 0.9;
     }
 }
 
@@ -82,6 +223,7 @@ export component LauncherWindow inherits Window {
     in property <string> recent-group: "";
     in property <string> pinned-group: "";
     in property <string> pin-label: "";
+    in property <string> unpin-label: "";
     /// 搜索区标签与占位文案（UI 复刻轮新增；TS launcher.search.label /
     /// .placeholder，Rust push_launcher_texts 按语言 push）。
     in property <string> search-label: "";
@@ -128,6 +270,8 @@ export component LauncherWindow inherits Window {
     callback apply-settings(string) -> string;
     // 固定到首页（M2 Task 10）：command-id 参数；Rust 侧写收藏并刷新视图。
     callback pin-app(string);
+    callback move-pinned-app(string, string);
+    callback unpin-app(string);
     // M5 Task 3：横幅动作——重启安装已下载的更新 / 打开设置查看更新状态。
     callback install-update();
     callback open-update-settings();
@@ -144,6 +288,13 @@ export component LauncherWindow inherits Window {
     in property <string> hotkey-hint;
     callback run-ocr();
     property <bool> home: root.current-query == "";
+    property <bool> home-drag-active: false;
+    property <int> gesture-reset: 0;
+    public function cancel-home-drag() {
+        root.gesture-reset += 1;
+        root.home-drag-active = false;
+    }
+    changed current-query => { root.cancel-home-drag(); }
     // Shared constant keeps scrolling correct when changing result density.
     property <length> result-height: 56px;
     function apply-theme() {
@@ -216,6 +367,10 @@ export component LauncherWindow inherits Window {
                         accessible-label: root.search-label;
                         edited => { root.query-changed(self.text); }
                         key-pressed(event) => {
+                            if root.home-drag-active {
+                                if event.text == Key.Escape { root.cancel-home-drag(); }
+                                return accept;
+                            }
                             if root.home && root.pinned-tiles.length > 0 {
                                 if event.text == Key.UpArrow { root.move-tile-selection(0, -1); return accept; }
                                 if event.text == Key.DownArrow { root.move-tile-selection(0, 1); return accept; }
@@ -245,23 +400,14 @@ export component LauncherWindow inherits Window {
                     spacing: 10px;
                     alignment: start;
                     Text { text: root.pinned-group; font-size: 12px; font-weight: 600; color: CabinTheme.muted; }
-                    if root.pinned-tiles.length > 0: Rectangle {
-                        height: 85px;
-                        for tile[t] in root.pinned-tiles: HomeTileView {
-                            x: t * (parent.width + 7px) / 5;
-                            width: (parent.width - 28px) / 5;
-                            tile: tile; selected: root.selected-tile == t;
-                            run(id) => { root.run-command-id(id); }
-                        }
-                    }
-                    if root.pinned-tiles-row-2.length > 0: Rectangle {
-                        height: 85px;
-                        for tile[t] in root.pinned-tiles-row-2: HomeTileView {
-                            x: t * (parent.width + 7px) / 5;
-                            width: (parent.width - 28px) / 5;
-                            tile: tile; selected: root.selected-tile == t + 5;
-                            run(id) => { root.run-command-id(id); }
-                        }
+                    if root.pinned-tiles.length > 0: PinnedGrid {
+                        first-row: root.pinned-tiles; second-row: root.pinned-tiles-row-2;
+                        selected: root.selected-tile; unpin-label: root.unpin-label;
+                        drag-active <=> root.home-drag-active;
+                        gesture-reset: root.gesture-reset;
+                        run(id) => { root.run-command-id(id); }
+                        unpin(id) => { root.unpin-app(id); }
+                        reorder(source, target) => { root.move-pinned-app(source, target); }
                     }
                     if root.pinned-tiles.length == 0: Text {
                         text: root.empty-hint; height: 110px; color: CabinTheme.muted;

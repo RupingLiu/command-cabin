@@ -27,7 +27,10 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{Map, Value};
 
-use cabin_core::favorites::{FavoriteKind, FavoriteRecord};
+use cabin_core::favorites::{
+    is_launcher_pinned_app, ordered_pinned_apps, FavoriteKind, FavoriteRecord,
+    LAUNCHER_PINNED_APP_METADATA_KEY, LAUNCHER_PINNED_APP_ORDER_METADATA_KEY,
+};
 
 use crate::error::StorageError;
 use crate::migrations::iso_now;
@@ -323,12 +326,32 @@ impl<'a> FavoritesRepository<'a> {
         let title = validate_favorite_title(&title)?;
         let (path, url) = validate_favorite_target(kind, path.as_deref(), url.as_deref())?;
         let keywords = validate_favorite_keywords(&keywords, None)?;
-        let metadata = metadata.unwrap_or_default();
+        let mut metadata = metadata.unwrap_or_default();
         let created_at = normalize_favorite_date(created_at.as_deref(), "createdAt")?;
         let updated_at = match updated_at.as_deref() {
             Some(value) => normalize_favorite_date(Some(value), "updatedAt")?,
             None => created_at.clone(),
         };
+
+        // Once the user arranges the home grid, each subsequent pin goes last.
+        if kind == FavoriteKind::File
+            && metadata.get(LAUNCHER_PINNED_APP_METADATA_KEY) == Some(&Value::Bool(true))
+            && !metadata.contains_key(LAUNCHER_PINNED_APP_ORDER_METADATA_KEY)
+        {
+            if let Some(next) = ordered_pinned_apps(&self.list()?)
+                .iter()
+                .filter_map(|favorite| {
+                    favorite
+                        .metadata
+                        .get(LAUNCHER_PINNED_APP_ORDER_METADATA_KEY)
+                        .and_then(Value::as_u64)
+                })
+                .max()
+                .and_then(|last| last.checked_add(1))
+            {
+                metadata.insert(LAUNCHER_PINNED_APP_ORDER_METADATA_KEY.into(), next.into());
+            }
+        }
 
         // 已校验的 keywords/metadata 序列化不会失败（TS `stringifyStorageJson`）。
         let keywords_json = serde_json::to_string(&keywords)
@@ -416,6 +439,50 @@ impl<'a> FavoritesRepository<'a> {
         rows.iter().map(map_favorite_row).collect()
     }
 
+    /// Move to the target's position, shifting intervening pins. Persist all pins
+    /// atomically (including ones beyond the visible grid), preserving metadata.
+    pub fn move_pinned_app(&self, source_id: &str, target_id: &str) -> Result<bool, StorageError> {
+        let transaction = self.conn.unchecked_transaction()?;
+        let mut pinned = ordered_pinned_apps(&self.list()?);
+        let Some(source) = pinned.iter().position(|favorite| favorite.id == source_id) else {
+            return Ok(false);
+        };
+        let Some(target) = pinned.iter().position(|favorite| favorite.id == target_id) else {
+            return Ok(false);
+        };
+        if source == target {
+            return Ok(false);
+        }
+        let moved = pinned.remove(source);
+        pinned.insert(target, moved);
+        let updated_at = iso_now();
+        for (index, mut favorite) in pinned.into_iter().enumerate() {
+            favorite.metadata.insert(
+                LAUNCHER_PINNED_APP_ORDER_METADATA_KEY.into(),
+                Value::from(index),
+            );
+            let metadata = serde_json::to_string(&favorite.metadata)
+                .expect("serializing favorite metadata cannot fail");
+            transaction.execute(
+                "UPDATE favorites SET metadata = ?1, updated_at = ?2 WHERE id = ?3",
+                params![metadata, updated_at, favorite.id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(true)
+    }
+
+    /// The home menu can only remove application pins, never other favorites.
+    pub fn remove_pinned_app(&self, id: &str) -> Result<bool, StorageError> {
+        if !self
+            .get(id)?
+            .is_some_and(|favorite| is_launcher_pinned_app(&favorite))
+        {
+            return Ok(false);
+        }
+        self.remove(id)
+    }
+
     /// TS `removeFavorite`：返回是否有行被删除。
     pub fn remove(&self, id: &str) -> Result<bool, StorageError> {
         Ok(self
@@ -433,6 +500,159 @@ mod tests {
         let conn = Connection::open_in_memory().expect("open in-memory database");
         crate::migrations::run_migrations(&conn).expect("run migrations");
         conn
+    }
+
+    fn add_pin(repository: &FavoritesRepository<'_>, title: &str) -> FavoriteRecord {
+        let mut input = file_input(title, &format!(r"C:\Apps\{title}.lnk"));
+        input.metadata = Some(
+            serde_json::json!({
+                "launcherPinnedApp": true,
+                "launcherPinnedAppIconPath": "C:\\Apps\\icon.ico",
+                "custom": {"keep": true}
+            })
+            .as_object()
+            .unwrap()
+            .clone(),
+        );
+        repository.add(input).unwrap()
+    }
+
+    fn pinned_titles(repository: &FavoritesRepository<'_>) -> Vec<String> {
+        ordered_pinned_apps(&repository.list().unwrap())
+            .into_iter()
+            .map(|favorite| favorite.title)
+            .collect()
+    }
+
+    #[test]
+    fn pinned_order_survives_reopen_and_new_pins_append() {
+        let path = std::env::temp_dir().join(format!("cabin-pins-{}.sqlite", uuid::Uuid::new_v4()));
+        {
+            let conn = Connection::open(&path).unwrap();
+            crate::migrations::run_migrations(&conn).unwrap();
+            let repository = FavoritesRepository::new(&conn);
+            let pins: Vec<_> = ["A", "B", "C", "D", "E", "F", "中文"]
+                .into_iter()
+                .map(|title| add_pin(&repository, title))
+                .collect();
+            assert_eq!(
+                pinned_titles(&repository),
+                ["A", "B", "C", "D", "E", "F", "中文"]
+            );
+            assert!(repository
+                .move_pinned_app(&pins[0].id, &pins[6].id)
+                .unwrap());
+            assert_eq!(
+                pinned_titles(&repository),
+                ["B", "C", "D", "E", "F", "中文", "A"]
+            );
+            assert!(repository
+                .move_pinned_app(&pins[6].id, &pins[2].id)
+                .unwrap());
+            assert_eq!(
+                pinned_titles(&repository),
+                ["B", "中文", "C", "D", "E", "F", "A"]
+            );
+            for pin in &pins {
+                let saved = repository.get(&pin.id).unwrap().unwrap();
+                assert_eq!(saved.path, pin.path);
+                for (key, value) in &pin.metadata {
+                    assert_eq!(saved.metadata.get(key), Some(value));
+                }
+            }
+        }
+        {
+            let conn = Connection::open(&path).unwrap();
+            let repository = FavoritesRepository::new(&conn);
+            assert_eq!(
+                pinned_titles(&repository),
+                ["B", "中文", "C", "D", "E", "F", "A"]
+            );
+            add_pin(&repository, "AA");
+            assert_eq!(
+                pinned_titles(&repository),
+                ["B", "中文", "C", "D", "E", "F", "A", "AA"]
+            );
+            add_pin(&repository, "AB");
+            add_pin(&repository, "AAA");
+            assert_eq!(
+                pinned_titles(&repository),
+                ["B", "中文", "C", "D", "E", "F", "A", "AA", "AB", "AAA"]
+            );
+            // Settings retains its existing title order.
+            assert_eq!(repository.list().unwrap()[0].title, "A");
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn home_edits_ignore_stale_ids_and_regular_favorites() {
+        let conn = open_db();
+        let repository = FavoritesRepository::new(&conn);
+        let first = add_pin(&repository, "First");
+        let second = add_pin(&repository, "Second");
+        let file = repository
+            .add(file_input("Document", r"C:\notes.txt"))
+            .unwrap();
+        let original = repository.list().unwrap();
+        for (source, target) in [
+            (&first.id, &first.id),
+            (&file.id, &first.id),
+            (&first.id, &file.id),
+            (&first.id, &"missing".into()),
+        ] {
+            assert!(!repository.move_pinned_app(source, target).unwrap());
+        }
+        assert!(!repository.remove_pinned_app(&file.id).unwrap());
+        assert!(!repository.remove_pinned_app("missing").unwrap());
+        assert_eq!(repository.list().unwrap(), original);
+        assert!(repository.move_pinned_app(&second.id, &first.id).unwrap());
+        assert!(repository.remove_pinned_app(&first.id).unwrap());
+        assert_eq!(pinned_titles(&repository), ["Second"]);
+        assert!(!repository.move_pinned_app(&first.id, &second.id).unwrap());
+        assert_eq!(repository.get(&file.id).unwrap(), Some(file));
+    }
+
+    #[test]
+    fn pin_reorder_rolls_back_the_entire_write_on_failure() {
+        let conn = open_db();
+        let repository = FavoritesRepository::new(&conn);
+        let first = add_pin(&repository, "A");
+        let second = add_pin(&repository, "B");
+        let original = repository.list().unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER reject_pin_update BEFORE UPDATE ON favorites
+            WHEN NEW.title = 'A' BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END;",
+        )
+        .unwrap();
+        assert!(repository.move_pinned_app(&first.id, &second.id).is_err());
+        assert_eq!(repository.list().unwrap(), original);
+    }
+
+    #[test]
+    fn pin_reorder_preserves_hidden_pins_beyond_grid_limit() {
+        let conn = open_db();
+        let repository = FavoritesRepository::new(&conn);
+        let pins: Vec<_> = (0..12)
+            .map(|index| add_pin(&repository, &format!("App {index:02}")))
+            .collect();
+        repository
+            .move_pinned_app(&pins[0].id, &pins[9].id)
+            .unwrap();
+        let sorted = ordered_pinned_apps(&repository.list().unwrap());
+        assert_eq!(sorted[9].id, pins[0].id);
+        assert_eq!(
+            sorted[10..],
+            pins[10..]
+                .iter()
+                .map(|pin| repository.get(&pin.id).unwrap().unwrap())
+                .collect::<Vec<_>>()
+        );
+        repository.remove_pinned_app(&pins[5].id).unwrap();
+        assert_eq!(
+            ordered_pinned_apps(&repository.list().unwrap())[9].id,
+            pins[10].id
+        );
     }
 
     fn file_input(title: &str, path: &str) -> AddFavorite {

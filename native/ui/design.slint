@@ -39,6 +39,7 @@ export component CabinButton inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> selected: false;
     in property <bool> quiet: false;
+    in property <bool> centered: false;
     callback clicked();
     forward-focus: focus;
     min-width: text == "" ? 34px : copy.preferred-width + (icon-kind == "" ? 24px : 50px);
@@ -74,6 +75,7 @@ export component CabinButton inherits Rectangle {
         font-weight: root.selected ? 600 : 400;
         color: root.selected ? CabinTheme.accent : CabinTheme.text;
         vertical-alignment: center;
+        horizontal-alignment: root.centered ? center : left;
         overflow: elide;
     }
     touch := TouchArea {

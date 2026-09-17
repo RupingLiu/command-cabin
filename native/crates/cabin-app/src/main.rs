@@ -322,12 +322,12 @@ impl AppState {
         let commands = commands_from_favorites(&favorites);
         self.commands_by_id
             .retain(|command_id, _| !state::is_favorite_command_id(command_id));
-        let mut pinned_app_commands = Vec::new();
+        let pinned_app_commands =
+            commands_from_favorites(&cabin_core::favorites::ordered_pinned_apps(&favorites));
         let mut pinned_app_command_ids = HashSet::new();
         for command in commands {
             if is_app_command(&command) {
                 pinned_app_command_ids.insert(command.id.clone());
-                pinned_app_commands.push(command.clone());
             }
             self.commands_by_id.insert(command.id.clone(), command);
         }
@@ -682,6 +682,7 @@ impl AppContext {
         let Some(window) = self.window.upgrade() else {
             return;
         };
+        window.invoke_cancel_home_drag();
         window.hide().expect("hide launcher");
     }
 
@@ -697,6 +698,7 @@ impl AppContext {
         let Some(window) = context.window.upgrade() else {
             return;
         };
+        window.invoke_cancel_home_drag();
         // 复位“已聚焦”标记：每次呼出后须重新观测到焦点，hideOnBlur 才会在失焦
         // 沿隐藏（TS blur-transition 语义：从未获得焦点的窗口保持可见，不因
         // focus_window 被前台锁延迟/拒绝而被轮询闪隐）。复位须先于 show——
@@ -892,6 +894,61 @@ impl AppContext {
         }
         drop(guard);
         self.refresh_results();
+        push_settings_view(self);
+    }
+
+    /// Home gestures use stable command IDs, so refreshes cannot retarget a write.
+    fn edit_pinned_app(&self, command_id: &str, target_command_id: Option<&str>) {
+        let mut guard = self.state.lock().unwrap();
+        let favorite_id = |id: &str| {
+            if !guard.pinned_app_command_ids.contains(id) {
+                return None;
+            }
+            guard
+                .commands_by_id
+                .get(id)?
+                .action
+                .payload
+                .get("favoriteId")?
+                .as_str()
+                .map(str::to_owned)
+        };
+        let Some(source_id) = favorite_id(command_id) else {
+            return;
+        };
+        let repository = FavoritesRepository::new(&guard.conn);
+        let result = match target_command_id {
+            Some(target) => {
+                let Some(target_id) = favorite_id(target) else {
+                    return;
+                };
+                repository.move_pinned_app(&source_id, &target_id)
+            }
+            None => repository.remove_pinned_app(&source_id),
+        };
+        match result {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                eprintln!("CommandCabin: edit-pinned-app: {error}");
+                return;
+            }
+        }
+        if let Err(error) = guard.reload_favorites() {
+            eprintln!("CommandCabin: edit-pinned-app: reloading favorites failed: {error}");
+            return;
+        }
+        let selection = state::home_pinned_tiles(&guard.pinned_app_commands)
+            .iter()
+            .position(|command| command.id == command_id);
+        drop(guard);
+        self.refresh_results();
+        if let Some(selection) = selection {
+            self.state.lock().unwrap().selected_tile = Some(selection);
+            if let Some(window) = self.window.upgrade() {
+                window.set_selected_tile(selection as i32);
+            }
+        }
         push_settings_view(self);
     }
 
@@ -1497,6 +1554,7 @@ fn push_launcher_texts(window: &LauncherWindow, language: cabin_core::settings::
     window.set_recent_group(texts.recent_group.into());
     window.set_pinned_group(texts.pinned_group.into());
     window.set_pin_label(texts.pin_app.into());
+    window.set_unpin_label(texts.unpin_app.into());
     window.set_home_actions_label(texts.home_actions_label.into());
     window.set_home_action_screenshot(texts.home_action_screenshot.into());
     window.set_search_label(texts.search_label.into());
@@ -2534,6 +2592,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let context = Arc::clone(&context);
         window.on_pin_app(move |command_id| context.pin_app(command_id.as_str()));
+    }
+    {
+        let context = Arc::clone(&context);
+        window.on_move_pinned_app(move |source, target| {
+            context.edit_pinned_app(source.as_str(), Some(target.as_str()));
+        });
+    }
+    {
+        let context = Arc::clone(&context);
+        window.on_unpin_app(move |command_id| context.edit_pinned_app(command_id.as_str(), None));
     }
     // 首页固定磁贴点击执行（UI 修复 1）：commands_by_id 直查（见
     // execute_command_by_id 的 radar 注）。

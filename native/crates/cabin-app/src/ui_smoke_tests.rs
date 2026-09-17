@@ -15,7 +15,13 @@ impl Platform for PreviewPlatform {
     }
 }
 
-fn render(adapter: &MinimalSoftwareWindow, name: &str, width: f32, height: f32, scale: f32) {
+fn render(
+    adapter: &MinimalSoftwareWindow,
+    name: &str,
+    width: f32,
+    height: f32,
+    scale: f32,
+) -> slint::SharedPixelBuffer<slint::Rgb8Pixel> {
     adapter
         .window()
         .dispatch_event(WindowEvent::ScaleFactorChanged {
@@ -47,6 +53,64 @@ fn render(adapter: &MinimalSoftwareWindow, name: &str, width: f32, height: f32, 
         )
         .unwrap();
     }
+    buffer
+}
+
+#[test]
+fn settings_back_label_is_centered_and_button_stays_accessible() {
+    use cabin_core::settings::Language;
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let settings = SettingsWindow::new().unwrap();
+    let adapter = adapters.borrow()[0].clone();
+    let dismissed = Rc::new(std::cell::Cell::new(0));
+    let dismissed_copy = dismissed.clone();
+    settings.on_dismissed(move || dismissed_copy.set(dismissed_copy.get() + 1));
+    settings.show().unwrap();
+    for (language, label) in [
+        (Language::ZhCn, "cn"),
+        (Language::ZhTw, "tw"),
+        (Language::EnUs, "en"),
+    ] {
+        settings.set_texts(settings_texts_for_view(language));
+        for theme in [1, 2] {
+            settings.set_theme_mode(theme);
+            for scale in [1., 1.5, 2.] {
+                let name = format!("settings-back-{label}-{theme}-{scale}");
+                let buffer = render(&adapter, &name, 680., 500., scale);
+                let mut bounds = (usize::MAX, 0, usize::MAX, 0);
+                for y in (461. * scale) as usize..(491. * scale) as usize {
+                    for x in (594. * scale) as usize..(650. * scale) as usize {
+                        let pixel = buffer.as_slice()[y * buffer.width() as usize + x];
+                        let is_text = if theme == 1 {
+                            pixel.r < 80 && pixel.g < 90 && pixel.b < 100
+                        } else {
+                            pixel.r > 200 && pixel.g > 210 && pixel.b > 210
+                        };
+                        if is_text {
+                            bounds.0 = bounds.0.min(x);
+                            bounds.1 = bounds.1.max(x);
+                            bounds.2 = bounds.2.min(y);
+                            bounds.3 = bounds.3.max(y);
+                        }
+                    }
+                }
+                assert_ne!(bounds.0, usize::MAX, "{name}: back text must be visible");
+                let center_x = (bounds.0 + bounds.1 + 1) as f32 / 2. / scale;
+                let center_y = (bounds.2 + bounds.3 + 1) as f32 / 2. / scale;
+                assert!((center_x - 622.).abs() <= 2., "{name}: x={center_x}");
+                assert!((center_y - 476.).abs() <= 3., "{name}: y={center_y}");
+            }
+        }
+    }
+    click(settings.window(), 622., 476.);
+    assert_eq!(dismissed.get(), 1);
+    key(settings.window(), Key::Return);
+    assert_eq!(
+        dismissed.get(),
+        2,
+        "the frameless button must remain keyboard accessible"
+    );
 }
 
 fn key(window: &slint::Window, key: Key) {
@@ -65,6 +129,251 @@ fn click(window: &slint::Window, x: f32, y: f32) {
         button: slint::platform::PointerEventButton::Left,
     });
     slint::platform::update_timers_and_animations();
+}
+
+fn set_home_tiles(window: &LauncherWindow, tiles: &[PinnedTile]) {
+    let split = tiles.len().min(5);
+    window.set_pinned_tiles(ModelRc::new(VecModel::from(tiles[..split].to_vec())));
+    window.set_pinned_tiles_row_2(ModelRc::new(VecModel::from(tiles[split..].to_vec())));
+}
+
+#[test]
+fn home_drag_and_context_menu_use_real_pointer_events() {
+    use slint::platform::PointerEventButton::{Left, Right};
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let launcher = LauncherWindow::new().unwrap();
+    let adapter = adapters.borrow()[0].clone();
+    let icon = slint::Image::load_from_path(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/icon.png"),
+    )
+    .unwrap();
+    let tiles = Rc::new(RefCell::new(
+        (0..7)
+            .map(|index| PinnedTile {
+                title: format!("应用 {}", index + 1).into(),
+                icon: icon.clone(),
+                command_id: format!("app.{index}").into(),
+            })
+            .collect::<Vec<_>>(),
+    ));
+    set_home_tiles(&launcher, &tiles.borrow());
+    push_launcher_texts(&launcher, cabin_core::settings::Language::ZhCn);
+    launcher.set_theme_mode(1);
+    launcher.set_selected_tile(0);
+    let launched = Rc::new(RefCell::new(Vec::new()));
+    let launched_copy = launched.clone();
+    launcher.on_run_command_id(move |id| launched_copy.borrow_mut().push(id.to_string()));
+    let moves = Rc::new(RefCell::new(Vec::new()));
+    let moves_copy = moves.clone();
+    let tiles_copy = tiles.clone();
+    let weak = launcher.as_weak();
+    launcher.on_move_pinned_app(move |source, target| {
+        moves_copy
+            .borrow_mut()
+            .push((source.to_string(), target.to_string()));
+        let mut tiles = tiles_copy.borrow_mut();
+        let from = tiles
+            .iter()
+            .position(|tile| tile.command_id == source)
+            .unwrap();
+        let to = tiles
+            .iter()
+            .position(|tile| tile.command_id == target)
+            .unwrap();
+        let tile = tiles.remove(from);
+        tiles.insert(to, tile);
+        set_home_tiles(&weak.unwrap(), &tiles);
+    });
+    let removed = Rc::new(RefCell::new(Vec::new()));
+    let removed_copy = removed.clone();
+    let tiles_copy = tiles.clone();
+    let weak = launcher.as_weak();
+    launcher.on_unpin_app(move |id| {
+        removed_copy.borrow_mut().push(id.to_string());
+        let mut tiles = tiles_copy.borrow_mut();
+        tiles.retain(|tile| tile.command_id != id);
+        set_home_tiles(&weak.unwrap(), &tiles);
+    });
+    let dismissed = Rc::new(std::cell::Cell::new(0));
+    let dismissed_copy = dismissed.clone();
+    launcher.on_dismissed(move || dismissed_copy.set(dismissed_copy.get() + 1));
+    launcher.show().unwrap();
+    let point = slint::LogicalPosition::new;
+    for scale in [1., 1.5, 2.] {
+        render(&adapter, &format!("home-pins-{scale}"), 640., 520., scale);
+        launcher.invoke_focus_input();
+        click(launcher.window(), 70., 195.);
+        assert_eq!(
+            launched.borrow().last().unwrap(),
+            &tiles.borrow()[0].command_id.to_string()
+        );
+        launched.borrow_mut().clear();
+        // Small mouse movement is still a normal click.
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerPressed {
+                position: point(70., 195.),
+                button: Left,
+            });
+        launcher.window().dispatch_event(WindowEvent::PointerMoved {
+            position: point(72., 197.),
+        });
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position: point(72., 197.),
+                button: Left,
+            });
+        assert_eq!(launched.borrow().len(), 1);
+        launched.borrow_mut().clear();
+        let source = tiles.borrow()[0].command_id.to_string();
+        let target = tiles.borrow()[6].command_id.to_string();
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerPressed {
+                position: point(70., 195.),
+                button: Left,
+            });
+        launcher.window().dispatch_event(WindowEvent::PointerMoved {
+            position: point(200., 290.),
+        });
+        render(&adapter, &format!("home-drag-{scale}"), 640., 520., scale);
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position: point(200., 290.),
+                button: Left,
+            });
+        assert_eq!(moves.borrow().last(), Some(&(source.clone(), target)));
+        assert_eq!(tiles.borrow()[6].command_id.as_str(), source);
+        assert!(
+            launched.borrow().is_empty(),
+            "dragging must never launch an app"
+        );
+        render(
+            &adapter,
+            &format!("home-reordered-{scale}"),
+            640.,
+            520.,
+            scale,
+        );
+        // Reverse direction across the row boundary.
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerPressed {
+                position: point(200., 290.),
+                button: Left,
+            });
+        launcher.window().dispatch_event(WindowEvent::PointerMoved {
+            position: point(70., 195.),
+        });
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position: point(70., 195.),
+                button: Left,
+            });
+        assert_eq!(tiles.borrow()[0].command_id.as_str(), source);
+        let count = moves.borrow().len();
+        // Outside/empty cells and the source itself are not drop targets.
+        for (x, y) in [(620., 430.), (570., 290.), (90., 205.)] {
+            launcher
+                .window()
+                .dispatch_event(WindowEvent::PointerPressed {
+                    position: point(70., 195.),
+                    button: Left,
+                });
+            launcher.window().dispatch_event(WindowEvent::PointerMoved {
+                position: point(x, y),
+            });
+            launcher
+                .window()
+                .dispatch_event(WindowEvent::PointerReleased {
+                    position: point(x, y),
+                    button: Left,
+                });
+        }
+        assert_eq!(moves.borrow().len(), count);
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerPressed {
+                position: point(70., 195.),
+                button: Left,
+            });
+        launcher.window().dispatch_event(WindowEvent::PointerMoved {
+            position: point(200., 290.),
+        });
+        key(launcher.window(), Key::Escape);
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position: point(200., 290.),
+                button: Left,
+            });
+        assert_eq!(moves.borrow().len(), count);
+        assert_eq!(
+            dismissed.get(),
+            0,
+            "Esc cancels the drag before dismissing the launcher"
+        );
+        assert!(launched.borrow().is_empty());
+    }
+    launcher
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed {
+            position: point(70., 195.),
+            button: Right,
+        });
+    launcher
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position: point(70., 195.),
+            button: Right,
+        });
+    render(&adapter, "home-context-menu", 640., 520., 1.5);
+    key(launcher.window(), Key::Escape);
+    assert!(removed.borrow().is_empty());
+    assert!(launched.borrow().is_empty());
+    let first = tiles.borrow()[0].command_id.to_string();
+    launcher
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed {
+            position: point(70., 195.),
+            button: Right,
+        });
+    launcher
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position: point(70., 195.),
+            button: Right,
+        });
+    key(launcher.window(), Key::DownArrow);
+    key(launcher.window(), Key::Return);
+    assert_eq!(*removed.borrow(), [first]);
+    assert_eq!(tiles.borrow().len(), 6);
+    assert!(launched.borrow().is_empty());
+    render(&adapter, "home-unpinned", 640., 520., 1.5);
+    // The remaining second-row pin can also be removed entirely with the mouse.
+    let last = tiles.borrow()[5].command_id.to_string();
+    launcher
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed {
+            position: point(70., 290.),
+            button: Right,
+        });
+    launcher
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position: point(70., 290.),
+            button: Right,
+        });
+    slint::platform::update_timers_and_animations();
+    click(launcher.window(), 120., 310.);
+    assert_eq!(removed.borrow().last(), Some(&last));
+    assert_eq!(tiles.borrow().len(), 5);
+    assert!(launched.borrow().is_empty());
+    render(&adapter, "home-unpinned-one-row", 640., 520., 1.5);
 }
 
 #[test]

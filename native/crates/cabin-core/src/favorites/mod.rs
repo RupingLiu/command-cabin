@@ -69,6 +69,26 @@ pub struct FavoriteRecord {
 
 /// 启动器固定应用元数据键（TS `LAUNCHER_PINNED_APP_METADATA_KEY`）。
 pub const LAUNCHER_PINNED_APP_METADATA_KEY: &str = "launcherPinnedApp";
+/// Persisted home position. Missing/invalid positions retain the legacy title order.
+pub const LAUNCHER_PINNED_APP_ORDER_METADATA_KEY: &str = "launcherPinnedAppOrder";
+
+/// Input is the repository's title-sorted list. Stable sorting preserves that
+/// fallback for old records and appends newly pinned apps after a custom order.
+pub fn ordered_pinned_apps(favorites: &[FavoriteRecord]) -> Vec<FavoriteRecord> {
+    let mut pinned: Vec<_> = favorites
+        .iter()
+        .filter(|favorite| is_launcher_pinned_app(favorite))
+        .cloned()
+        .collect();
+    pinned.sort_by_key(|favorite| {
+        favorite
+            .metadata
+            .get(LAUNCHER_PINNED_APP_ORDER_METADATA_KEY)
+            .and_then(Value::as_u64)
+            .unwrap_or(u64::MAX)
+    });
+    pinned
+}
 /// TS `LAUNCHER_PINNED_APP_EXECUTABLE_PATH_METADATA_KEY`。
 pub const LAUNCHER_PINNED_APP_EXECUTABLE_PATH_METADATA_KEY: &str =
     "launcherPinnedAppExecutablePath";

@@ -29,3 +29,13 @@
 - `cargo fmt --all --check` 和 `git diff --check` 通过。
 - 测试未修改本机系统主题或用户数据库；软件窗口测试不等同于真实桌面人工验收。
   本次用户授权在测试通过后发布 Release。
+
+## 安装包验证
+
+- 正式 Release 构建成功；EXE 内嵌版本 1.0.9，17,268,736 字节。
+  SHA256：`901a44e5a53e2972531eba474fdf79b8b7d4e4535ec3e6045d45e61368cc5bdc`。
+- 使用现有 `native/scripts/installer.nsi` 与 NSIS 3.11 打包，安装逻辑未变。
+- `CommandCabin-Setup-1.0.9.exe` 为 6,475,236 字节，内嵌版本 1.0.9.0。
+- 7-Zip 完整性检查通过；从安装包解出的 `CommandCabin.exe` 与 Release EXE
+  的 SHA256 完全一致。
+- 同名 `.sha512` 文件为 159 字节、无 BOM、LF 结尾；摘要和资产名均与安装包匹配。

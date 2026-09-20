@@ -10,6 +10,7 @@ pub mod ocr;
 pub mod packaged_apps;
 pub mod save_dialog;
 pub mod single_instance;
+pub mod theme;
 pub mod translate;
 pub mod tray;
 pub mod update_installer;

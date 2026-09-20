@@ -57,6 +57,100 @@ fn render(
 }
 
 #[test]
+fn system_theme_refreshes_both_windows_after_hiding_and_respects_overrides() {
+    use std::cell::Cell;
+
+    struct SystemPreference {
+        light: Cell<Option<bool>>,
+        reads: Cell<usize>,
+    }
+    impl SystemThemeProvider for SystemPreference {
+        fn prefers_light_theme(&self) -> Option<bool> {
+            self.reads.set(self.reads.get() + 1);
+            self.light.get()
+        }
+    }
+
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let launcher = LauncherWindow::new().unwrap();
+    let settings = SettingsWindow::new().unwrap();
+    let launcher_adapter = adapters.borrow()[0].clone();
+    let settings_adapter = adapters.borrow()[1].clone();
+    push_launcher_texts(&launcher, cabin_core::settings::Language::ZhCn);
+    settings.set_texts(settings_texts_for_view(
+        cabin_core::settings::Language::ZhCn,
+    ));
+    let system = SystemPreference {
+        light: Cell::new(Some(false)),
+        reads: Cell::new(0),
+    };
+    let assert_colors = |label: &str, dark: bool| {
+        for (name, adapter, width, height) in [
+            ("launcher", &launcher_adapter, 640., 520.),
+            ("settings", &settings_adapter, 720., 550.),
+        ] {
+            let pixels = render(adapter, &format!("theme-{label}-{name}"), width, height, 1.);
+            let background = pixels.as_slice()[0];
+            assert!(
+                if dark {
+                    background.r < 80
+                } else {
+                    background.r > 230
+                },
+                "{label}: {name} must render the resolved theme"
+            );
+        }
+    };
+
+    // TS ThemeSettings.tsx: `return prefersLight() ? 'light' : 'dark';`
+    // Both surfaces must use one OS preference, even if no theme event arrives.
+    apply_theme_to_windows(&launcher, &settings, Theme::System, &system);
+    assert_eq!(system.reads.get(), 1);
+    launcher.show().unwrap();
+    settings.show().unwrap();
+    assert_colors("night", true);
+
+    launcher.hide().unwrap();
+    settings.hide().unwrap();
+    system.light.set(Some(true));
+    apply_theme_to_windows(&launcher, &settings, Theme::System, &system);
+    launcher.show().unwrap();
+    settings.show().unwrap();
+    assert_colors("morning", false);
+    assert_eq!(
+        settings.get_theme_choice(),
+        0,
+        "keep the saved System choice"
+    );
+
+    system.light.set(Some(false));
+    apply_theme_to_windows(&launcher, &settings, Theme::System, &system);
+    assert_colors("visible-night", true);
+    system.light.set(Some(true));
+    apply_theme_to_windows(&launcher, &settings, Theme::System, &system);
+    assert_colors("visible-day", false);
+
+    // TS: `return theme;` for an explicit preference. Do not read the OS at all.
+    let reads = system.reads.get();
+    apply_theme_to_windows(&launcher, &settings, Theme::Dark, &system);
+    assert_colors("forced-dark", true);
+    system.light.set(Some(false));
+    apply_theme_to_windows(&launcher, &settings, Theme::Light, &system);
+    assert_colors("forced-light", false);
+    assert_eq!(system.reads.get(), reads);
+
+    system.light.set(None);
+    apply_theme_to_windows(&launcher, &settings, Theme::System, &system);
+    assert_eq!(
+        launcher.get_theme_mode(),
+        0,
+        "unavailable OS uses backend fallback"
+    );
+    assert_eq!(settings.get_theme_mode(), 0);
+}
+
+#[test]
 fn settings_back_label_is_centered_and_button_stays_accessible() {
     use cabin_core::settings::Language;
     let adapters = Rc::new(RefCell::new(Vec::new()));

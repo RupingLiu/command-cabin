@@ -60,7 +60,7 @@ use cabin_core::search::engine::{SearchEngine, SearchOptions};
 use cabin_core::settings::{Settings, Theme};
 use cabin_platform::traits::{
     AppIndexer, AutostartManager, ClipboardReader, GlobalHotkeyProvider, ImageClipboard, Launcher,
-    SingleInstance, TrayEvent, TrayProvider, UpdateService,
+    SingleInstance, SystemThemeProvider, TrayEvent, TrayProvider, UpdateService,
 };
 use cabin_platform::{is_login_startup, parse_accelerator};
 use cabin_platform_windows::autostart::WindowsAutostart;
@@ -72,6 +72,7 @@ use cabin_platform_windows::indexer::WindowsStartMenuIndexer;
 use cabin_platform_windows::launcher::WindowsLauncher;
 use cabin_platform_windows::packaged_apps::enumerate_packaged_apps;
 use cabin_platform_windows::single_instance::WindowsSingleInstance;
+use cabin_platform_windows::theme::WindowsSystemTheme;
 use cabin_platform_windows::tray::WindowsTray;
 use cabin_platform_windows::update_installer::{launch_installer, InstallerLaunch};
 use cabin_platform_windows::updater::GitHubUpdateService;
@@ -128,6 +129,7 @@ const HISTORY_RANKING_LIMIT: u32 = 100;
 const ICON_EXTRACT_SIZE_PX: u32 = 96;
 /// hideOnBlur 轮询间隔（winit `has_focus`；Slint Window 无失焦回调）。
 const HIDE_ON_BLUR_POLL_MS: u64 = 200;
+const SYSTEM_THEME_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// 首页固定磁贴网格列数（UI 修复 1：每行 5 个、至多 2 行；上限见
 /// `state::HOME_TILE_LIMIT`。与 UI 修复 2 的键盘导航决策表共用
 /// `state::HOME_TILE_COLUMNS`，保证切行模型与导航列语义一致）。
@@ -713,7 +715,9 @@ impl AppContext {
             // 空查询走首页合成（分组头见 render_results）。
             context.refresh_results();
         }
+        refresh_window_themes(context);
         window.show().expect("show launcher");
+        apply_native_window_theme(window.window(), window.get_theme_mode());
         // M5 收口（窗口居中）：稳定 Slint 无屏幕几何 API，经 winit 通道取当前
         // 显示器矩形把窗口摆到屏幕中心（M1/M2 连续两轮验收不通过项）。
         center_window_on_monitor(&window);
@@ -1391,6 +1395,7 @@ fn install_downloaded_update(context: &Arc<AppContext>) {
 
 fn show_settings_surface(window: &SettingsWindow) -> Result<(), slint::PlatformError> {
     window.show()?;
+    apply_native_window_theme(window.window(), window.get_theme_mode());
     // Slint 1.17.1's Windows software surface can lose its pixels on hide/show
     // while still reporting buffer age=1. request_redraw only schedules a frame;
     // unchanged sidebar/header items would then be skipped by partial rendering.
@@ -1586,11 +1591,52 @@ fn push_screenshot_texts(window: &ScreenshotWindow, language: cabin_core::settin
     });
 }
 
-/// 把主题（0 system / 1 light / 2 dark）应用到两个窗口（theme-mode 属性）。
-fn apply_theme_to_windows(launcher: &LauncherWindow, settings: &SettingsWindow, theme: Theme) {
-    let mode = state::theme_index(theme) as i32;
-    launcher.set_theme_mode(mode);
-    settings.set_theme_mode(mode);
+/// Resolve system once for both windows. Slint/winit's cached per-window theme
+/// can be stale after hiding overnight; the saved preference remains System.
+fn apply_theme_to_windows(
+    launcher: &LauncherWindow,
+    settings: &SettingsWindow,
+    theme: Theme,
+    system: &dyn SystemThemeProvider,
+) {
+    let resolved = match theme {
+        Theme::System => match system.prefers_light_theme() {
+            Some(true) => Theme::Light,
+            Some(false) => Theme::Dark,
+            None => Theme::System,
+        },
+        explicit => explicit,
+    };
+    let mode = state::theme_index(resolved) as i32;
+    if launcher.get_theme_mode() != mode {
+        launcher.set_theme_mode(mode);
+        apply_native_window_theme(launcher.window(), mode);
+    }
+    if settings.get_theme_mode() != mode {
+        settings.set_theme_mode(mode);
+        apply_native_window_theme(settings.window(), mode);
+    }
+}
+
+fn apply_native_window_theme(window: &slint::Window, mode: i32) {
+    use slint::winit_030::winit::window::Theme as NativeTheme;
+    window.with_winit_window(|native| {
+        native.set_theme(match mode {
+            1 => Some(NativeTheme::Light),
+            2 => Some(NativeTheme::Dark),
+            _ => None,
+        });
+    });
+}
+
+fn refresh_window_themes(context: &AppContext) {
+    let (Some(launcher), Some(settings)) =
+        (context.window.upgrade(), context.settings_window.upgrade())
+    else {
+        return;
+    };
+    let theme = context.state.lock().unwrap().settings.theme;
+    apply_theme_to_windows(&launcher, &settings, theme, &WindowsSystemTheme);
 }
 
 // Keep presentation text construction independent of the database for UI smoke tests.
@@ -1707,7 +1753,12 @@ fn push_settings_view(context: &AppContext) {
 
     if let Some(launcher) = context.window.upgrade() {
         push_launcher_texts(&launcher, settings.language);
-        apply_theme_to_windows(&launcher, &settings_window, settings.theme);
+        apply_theme_to_windows(
+            &launcher,
+            &settings_window,
+            settings.theme,
+            &WindowsSystemTheme,
+        );
     }
     // 截图覆盖窗口文案随语言热切换（窗口可能未创建会话，推送无副作用）。
     if let Some(screenshot) = context.screenshot_window.upgrade() {
@@ -2838,6 +2889,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         });
+    }
+
+    // Keep visible windows in sync even if Windows' theme-change notification
+    // was missed. Hidden windows refresh before show; no polling IO while idle.
+    let system_theme_timer = slint::Timer::default();
+    {
+        let context = Arc::clone(&context);
+        system_theme_timer.start(
+            slint::TimerMode::Repeated,
+            SYSTEM_THEME_POLL_INTERVAL,
+            move || {
+                let visible = context
+                    .window
+                    .upgrade()
+                    .is_some_and(|window| window.window().is_visible())
+                    || context
+                        .settings_window
+                        .upgrade()
+                        .is_some_and(|window| window.window().is_visible());
+                if visible {
+                    refresh_window_themes(&context);
+                }
+            },
+        );
     }
 
     // ---- hideOnBlur（简报 5）：Slint 无失焦回调，经 winit `has_focus` 以

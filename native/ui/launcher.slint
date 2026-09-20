@@ -242,7 +242,7 @@ export component LauncherWindow inherits Window {
     /// 设置齿轮无障碍文案（TS launcher.openSettings；tooltip 层面暂以
     /// accessible 角色提供，UI 复刻轮新增 open-settings 回调配套）。
     in property <string> open-settings-label: "";
-    /// 0 system / 1 light / 2 dark（Rust push；与 settings.slint 同语义）。
+    /// Rust 解析后的主题：1 light / 2 dark；0 为系统读取失败时的后端兜底。
     in property <int> theme-mode: 0;
     /// M5 Task 3 更新横幅（downloading 纯文本 / downloaded 文本 + "立即安装" /
     /// error checkFailed + 详情 + "查看设置"；其余状态无横幅）。

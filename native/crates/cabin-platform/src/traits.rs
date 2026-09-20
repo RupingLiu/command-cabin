@@ -75,6 +75,12 @@ pub trait AutostartManager: Send + Sync {
     fn set_enabled(&self, enabled: bool) -> Result<(), PlatformError>;
 }
 
+/// Current OS preference for application colors (independent of the clock and
+/// the shell/taskbar theme). None lets the UI backend provide its fallback.
+pub trait SystemThemeProvider {
+    fn prefers_light_theme(&self) -> Option<bool>;
+}
+
 /// 单实例守卫；析构时释放 OS 锁。非主实例进程应立即退出。
 pub trait SingleInstance: Send {
     fn is_primary(&self) -> bool;

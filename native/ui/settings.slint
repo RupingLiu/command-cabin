@@ -106,7 +106,7 @@ component HotkeyRow inherits FormRow {
 
 export component SettingsWindow inherits Window {
     in property <SettingsTexts> texts;
-    /// 0 system / 1 light / 2 dark（对齐 cabin-core Theme 三值；Rust push）。
+    /// Rust 解析后的主题：1 light / 2 dark；0 为系统读取失败时的后端兜底。
     in property <int> theme-mode: 0;
     /// 收藏列表（Rust 整包 push）。
     in property <[FavoriteRowView]> favorites: [];

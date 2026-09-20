@@ -39,3 +39,14 @@
 - 7-Zip 完整性检查通过；从安装包解出的 `CommandCabin.exe` 与 Release EXE
   的 SHA256 完全一致。
 - 同名 `.sha512` 文件为 159 字节、无 BOM、LF 结尾；摘要和资产名均与安装包匹配。
+
+## 发布后验证
+
+- GitHub `releases/latest` 返回 v1.0.9，非草稿、非预发布，安装包和校验文件均已上传。
+- 显式执行 `ui_smoke_tests::live_update_download_and_install_prompt` 通过：
+  模拟 1.0.8 → 1.0.9，使用实际 HTTP 客户端完成公开安装包下载和 SHA512 校验，
+  首页、搜索和设置 About 页的安装提示均就绪；未执行安装器。
+- 公开下载的 6,475,236 字节安装包与本地验证包的 SHA512 相同；GitHub 返回的
+  两个上传资产 SHA256 也与本地文件一致。
+- `cargo clean` 清理 8.8 GiB 编译产物，`native/target` 已移除；解包和公开下载的
+  重复 EXE 已删除，验证日志与渲染截图保留在本机 `native/artifacts/system-theme/`。

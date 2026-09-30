@@ -226,9 +226,323 @@ fn click(window: &slint::Window, x: f32, y: f32) {
 }
 
 fn set_home_tiles(window: &LauncherWindow, tiles: &[PinnedTile]) {
-    let split = tiles.len().min(5);
-    window.set_pinned_tiles(ModelRc::new(VecModel::from(tiles[..split].to_vec())));
-    window.set_pinned_tiles_row_2(ModelRc::new(VecModel::from(tiles[split..].to_vec())));
+    window.set_pinned_tiles(ModelRc::new(VecModel::from(tiles.to_vec())));
+}
+
+#[test]
+fn standalone_unit_converter_restores_ts_page_behavior() {
+    use cabin_core::settings::Language;
+    use std::cell::Cell;
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let launcher = LauncherWindow::new().unwrap();
+    let adapter = adapters.borrow()[0].clone();
+    let language = Rc::new(Cell::new(Language::ZhCn));
+    let language_copy = language.clone();
+    wire_unit_converter(&launcher, move || language_copy.get());
+    push_launcher_texts(&launcher, language.get());
+    launcher.set_theme_mode(1);
+    launcher.show().unwrap();
+    render(&adapter, "converter-home-entry", 560., 520., 1.5);
+    click(launcher.window(), 260., 457.);
+    assert!(
+        launcher.get_converter_open(),
+        "home action must open the page"
+    );
+    render(&adapter, "converter-default", 560., 520., 1.5);
+    assert_eq!(launcher.get_converter_from_choice(), 0);
+    assert_eq!(launcher.get_converter_to_choice(), 3);
+    assert_eq!(
+        launcher.get_converter_unit_labels().row_data(0).unwrap(),
+        "千克 kg"
+    );
+    type_text(launcher.window(), "1");
+    assert_eq!(launcher.get_converter_from_value(), "1");
+    assert_eq!(launcher.get_converter_to_value(), "2.20462");
+    click(launcher.window(), 280., 244.);
+    assert_eq!(launcher.get_converter_from_choice(), 3);
+    assert_eq!(launcher.get_converter_to_choice(), 0);
+    assert_eq!(launcher.get_converter_from_value(), "2.20462");
+    assert_eq!(launcher.get_converter_to_value(), "1");
+    // TS regression example: swap 1 kg then change the left unit to oz.
+    click(launcher.window(), 80., 278.);
+    key(launcher.window(), Key::DownArrow);
+    key(launcher.window(), Key::Return);
+    assert_eq!(launcher.get_converter_from_choice(), 4);
+    assert_eq!(launcher.get_converter_from_value(), "35.274");
+    assert_eq!(launcher.get_converter_to_value(), "1");
+    click(launcher.window(), 350., 210.);
+    key(launcher.window(), Key::End);
+    key(launcher.window(), Key::Backspace);
+    type_text(launcher.window(), "2");
+    assert_eq!(launcher.get_converter_to_value(), "2");
+    assert_eq!(launcher.get_converter_from_value(), "70.5479");
+    click(launcher.window(), 155., 99.);
+    assert_eq!(launcher.get_converter_category(), 1);
+    assert_eq!(launcher.get_converter_from_value(), "");
+    assert_eq!(launcher.get_converter_to_value(), "");
+    assert_eq!(
+        launcher.get_converter_unit_labels().row_data(0).unwrap(),
+        "厘米 cm"
+    );
+    click(launcher.window(), 350., 210.);
+    type_text(launcher.window(), "1");
+    assert_eq!(launcher.get_converter_from_value(), "2.54");
+    click(launcher.window(), 80., 278.);
+    key(launcher.window(), Key::DownArrow);
+    key(launcher.window(), Key::Return);
+    assert_eq!(launcher.get_converter_from_value(), "25.4");
+    assert_eq!(launcher.get_converter_to_value(), "1");
+    for lang in [Language::ZhCn, Language::ZhTw, Language::EnUs] {
+        language.set(lang);
+        push_launcher_texts(&launcher, lang);
+        for scale in [1., 1.5, 2.] {
+            for theme in [1, 2] {
+                launcher.set_theme_mode(theme);
+                render(
+                    &adapter,
+                    &format!(
+                        "converter-{lang:?}-{scale}-{}",
+                        if theme == 1 { "light" } else { "dark" }
+                    ),
+                    560.,
+                    520.,
+                    scale,
+                );
+            }
+        }
+    }
+    assert_eq!(
+        adapters.borrow().len(),
+        1,
+        "converter stays in the launcher window"
+    );
+    click(launcher.window(), 515., 44.);
+    assert!(!launcher.get_converter_open());
+    render(&adapter, "converter-back-home", 560., 520., 1.5);
+    launcher.invoke_open_unit_converter();
+    assert_eq!(launcher.get_converter_category(), 0);
+    assert_eq!(launcher.get_converter_from_value(), "");
+    assert_eq!(launcher.get_converter_to_value(), "");
+    type_text(launcher.window(), "abc");
+    assert_eq!(launcher.get_converter_from_value(), "abc");
+    assert_eq!(launcher.get_converter_to_value(), "");
+    key(launcher.window(), Key::Escape);
+    assert!(!launcher.get_converter_open());
+    launcher.hide().unwrap();
+}
+
+fn type_text(window: &slint::Window, text: &str) {
+    for character in text.chars() {
+        let text: SharedString = character.to_string().into();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
+    }
+}
+
+#[test]
+fn home_three_rows_fit_and_remain_interactive() {
+    use slint::platform::PointerEventButton::{Left, Right};
+    use std::cell::Cell;
+
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let launcher = LauncherWindow::new().unwrap();
+    let adapter = adapters.borrow()[0].clone();
+    let icon = slint::Image::load_from_path(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/icon.png"),
+    )
+    .unwrap();
+    let tiles: Vec<_> = (0..15)
+        .map(|index| PinnedTile {
+            title: format!("应用 {} — 多行名称", index + 1).into(),
+            icon: icon.clone(),
+            command_id: format!("app.{index}").into(),
+        })
+        .collect();
+    set_home_tiles(&launcher, &tiles);
+    push_launcher_texts(&launcher, cabin_core::settings::Language::ZhCn);
+    launcher.set_hotkey_hint("Alt+Space".into());
+    let launched = Rc::new(RefCell::new(Vec::new()));
+    let calls = launched.clone();
+    launcher.on_run_command_id(move |id| calls.borrow_mut().push(id.to_string()));
+    let calls = launched.clone();
+    let weak = launcher.as_weak();
+    launcher.on_execute_selected(move || {
+        let window = weak.unwrap();
+        let tiles = window.get_pinned_tiles();
+        let index =
+            state::execute_tile_route(window.get_selected_tile(), tiles.row_count()).unwrap();
+        calls
+            .borrow_mut()
+            .push(tiles.row_data(index).unwrap().command_id.to_string());
+    });
+    let weak = launcher.as_weak();
+    launcher.on_move_tile_selection(move |dx, dy| {
+        let window = weak.unwrap();
+        if let Some(next) = state::move_tile_selection(
+            dx as isize,
+            dy as isize,
+            window.get_selected_tile() as usize,
+            window.get_pinned_tiles().row_count(),
+        ) {
+            window.set_selected_tile(next as i32);
+        }
+    });
+    let captures = Rc::new(Cell::new(0));
+    let calls = captures.clone();
+    launcher.on_run_screenshot(move || calls.set(calls.get() + 1));
+    let ocr = Rc::new(Cell::new(0));
+    let calls = ocr.clone();
+    launcher.on_run_ocr(move || calls.set(calls.get() + 1));
+    launcher.show().unwrap();
+
+    // The same 520px window must show all three rows at its minimum width and
+    // default width, including two-line labels and the bottom of the last tile.
+    for width in [560., 640.] {
+        for scale in [1., 1.5, 2.] {
+            for theme in [1, 2] {
+                launcher.set_theme_mode(theme);
+                launcher.set_selected_tile(14);
+                render(
+                    &adapter,
+                    &format!(
+                        "home-three-rows-{width}-{scale}-{}",
+                        if theme == 1 { "light" } else { "dark" }
+                    ),
+                    width,
+                    520.,
+                    scale,
+                );
+                assert_eq!(launcher.get_home_viewport_y(), 0.);
+                for index in 0..15 {
+                    let x = 20. + (width - 40. + 7.) / 5. * (index % 5) as f32 + 42.;
+                    let y = 180. + (index / 5) as f32 * 95.;
+                    click(launcher.window(), x, y);
+                    assert_eq!(launched.borrow().last(), Some(&format!("app.{index}")));
+                }
+                click(launcher.window(), width - 70., 409.);
+                assert_eq!(launched.borrow().last().unwrap(), "app.14");
+                let before = (captures.get(), ocr.get());
+                click(launcher.window(), 55., 457.);
+                click(launcher.window(), 155., 457.);
+                assert_eq!((captures.get(), ocr.get()), (before.0 + 1, before.1 + 1));
+            }
+        }
+    }
+    launcher.invoke_focus_input();
+    launcher.set_selected_tile(9);
+    key(launcher.window(), Key::DownArrow);
+    assert_eq!(launcher.get_selected_tile(), 14);
+    key(launcher.window(), Key::DownArrow);
+    key(launcher.window(), Key::RightArrow);
+    assert_eq!(launcher.get_selected_tile(), 14);
+    key(launcher.window(), Key::Return);
+    assert_eq!(launched.borrow().last().unwrap(), "app.14");
+    key(launcher.window(), Key::UpArrow);
+    assert_eq!(launcher.get_selected_tile(), 9);
+
+    let moves = Rc::new(RefCell::new(Vec::new()));
+    let calls = moves.clone();
+    launcher.on_move_pinned_app(move |source, target| {
+        calls
+            .borrow_mut()
+            .push((source.to_string(), target.to_string()));
+    });
+    let point = slint::LogicalPosition::new;
+    for (from, to, expected) in [
+        ((70., 180.), (200., 370.), ("app.0", "app.11")),
+        ((200., 370.), (70., 180.), ("app.11", "app.0")),
+    ] {
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerPressed {
+                position: point(from.0, from.1),
+                button: Left,
+            });
+        launcher.window().dispatch_event(WindowEvent::PointerMoved {
+            position: point(to.0, to.1),
+        });
+        launcher
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position: point(to.0, to.1),
+                button: Left,
+            });
+        assert_eq!(
+            moves.borrow().last(),
+            Some(&(expected.0.to_string(), expected.1.to_string()))
+        );
+    }
+    let removed = Rc::new(RefCell::new(Vec::new()));
+    let calls = removed.clone();
+    let weak = launcher.as_weak();
+    launcher.on_unpin_app(move |id| {
+        calls.borrow_mut().push(id.to_string());
+        let window = weak.unwrap();
+        let tiles: Vec<_> = window
+            .get_pinned_tiles()
+            .iter()
+            .filter(|tile| tile.command_id != id)
+            .collect();
+        set_home_tiles(&window, &tiles);
+    });
+    launcher
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed {
+            position: point(200., 370.),
+            button: Right,
+        });
+    launcher
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position: point(200., 370.),
+            button: Right,
+        });
+    key(launcher.window(), Key::DownArrow);
+    key(launcher.window(), Key::Return);
+    assert_eq!(*removed.borrow(), ["app.11"]);
+    assert_eq!(launcher.get_pinned_tiles().row_count(), 14);
+    render(&adapter, "home-three-rows-unpinned", 640., 520., 1.5);
+
+    // An update banner reduces the viewport, so keyboard navigation must scroll
+    // the last row into view while the action buttons stay reachable.
+    launcher.set_update_banner_text("更新已准备好".into());
+    launcher.set_selected_tile(0);
+    render(&adapter, "home-three-rows-update-top", 560., 520., 1.5);
+    launcher.invoke_focus_input();
+    key(launcher.window(), Key::DownArrow);
+    key(launcher.window(), Key::DownArrow);
+    render(&adapter, "home-three-rows-update-selected", 560., 520., 1.5);
+    assert_eq!(launcher.get_selected_tile(), 10);
+    assert!(launcher.get_home_viewport_y() < 0.);
+    key(launcher.window(), Key::Return);
+    assert_eq!(launched.borrow().last().unwrap(), "app.10");
+    launcher.set_update_banner_text("".into());
+    render(
+        &adapter,
+        "home-three-rows-update-dismissed",
+        560.,
+        520.,
+        1.5,
+    );
+    assert_eq!(launcher.get_home_viewport_y(), 0.);
+    click(launcher.window(), 70., 180.);
+    assert_eq!(launched.borrow().last().unwrap(), "app.0");
+
+    launcher.set_update_banner_text("正在下载更新".into());
+    launcher.set_selected_tile(10);
+    render(&adapter, "home-three-rows-update-scroll", 560., 520., 1.5);
+    assert!(launcher.get_home_viewport_y() < 0.);
+    set_home_tiles(&launcher, &tiles[..5]);
+    launcher.set_selected_tile(0);
+    render(&adapter, "home-one-row-update", 560., 520., 1.5);
+    assert_eq!(launcher.get_home_viewport_y(), 0.);
+    set_home_tiles(&launcher, &[]);
+    launcher.set_selected_tile(-1);
+    render(&adapter, "home-empty-update", 560., 520., 1.5);
+    assert_eq!(launcher.get_home_viewport_y(), 0.);
+    launcher.hide().unwrap();
 }
 
 #[test]
@@ -582,8 +896,7 @@ fn native_ui_navigation_and_dpi_smoke() {
             command_id: format!("app.{index}").into(),
         })
         .collect();
-    launcher.set_pinned_tiles(ModelRc::new(VecModel::from(tiles[..5].to_vec())));
-    launcher.set_pinned_tiles_row_2(ModelRc::new(VecModel::from(tiles[5..].to_vec())));
+    set_home_tiles(&launcher, &tiles);
     launcher.set_selected_tile(0);
     launcher.set_theme_mode(1);
     launcher.set_hotkey_hint("Alt+Space".into());

@@ -20,6 +20,7 @@ mod controller;
 mod i18n;
 mod screenshot_controller;
 mod state;
+mod unit_converter;
 mod updater_controller;
 
 #[cfg(test)]
@@ -106,7 +107,7 @@ mod ui_pin {
 mod ui_translate {
     include!(concat!(env!("OUT_DIR"), "/translate-window.rs"));
 }
-use ui_launcher::{LauncherWindow, PinnedTile, ResultItem};
+use ui_launcher::{LauncherWindow, PinnedTile, ResultItem, UnitConverterTexts};
 use ui_screenshot::{ScreenshotTexts, ScreenshotWindow};
 use ui_settings::{FavoriteRowView, SettingsTexts, SettingsWindow};
 
@@ -130,9 +131,7 @@ const ICON_EXTRACT_SIZE_PX: u32 = 96;
 /// hideOnBlur 轮询间隔（winit `has_focus`；Slint Window 无失焦回调）。
 const HIDE_ON_BLUR_POLL_MS: u64 = 200;
 const SYSTEM_THEME_POLL_INTERVAL: Duration = Duration::from_secs(1);
-/// 首页固定磁贴网格列数（UI 修复 1：每行 5 个、至多 2 行；上限见
-/// `state::HOME_TILE_LIMIT`。与 UI 修复 2 的键盘导航决策表共用
-/// `state::HOME_TILE_COLUMNS`，保证切行模型与导航列语义一致）。
+/// 首页固定磁贴网格每行 5 个、至多 3 行；与键盘导航共用列数。
 const HOME_TILE_COLUMNS: usize = state::HOME_TILE_COLUMNS;
 /// flush 调度线程无信号时的最大阻塞等待（任意长即可，信号到达即醒）。
 const FLUSH_SCHEDULER_MAX_IDLE: Duration = Duration::from_secs(3600);
@@ -771,19 +770,13 @@ impl AppContext {
         // selected-tile 有效 → 执行选中磁贴，与磁贴点击同一条
         // execute_command_by_id（commands_by_id 直查 + miss 重渲染重试）路径。
         // 路由决策见 state::execute_tile_route（-1 / 越界 / 空网格 → 列表路径）。
-        let tile_count =
-            window.get_pinned_tiles().row_count() + window.get_pinned_tiles_row_2().row_count();
+        let tiles = window.get_pinned_tiles();
+        let tile_count = tiles.row_count();
         let tile_command = state::execute_tile_route(window.get_selected_tile(), tile_count)
             .and_then(|tile_index| {
-                let row_1 = window.get_pinned_tiles();
-                let tile = if tile_index < row_1.row_count() {
-                    row_1.row_data(tile_index)
-                } else {
-                    window
-                        .get_pinned_tiles_row_2()
-                        .row_data(tile_index - row_1.row_count())
-                };
-                tile.map(|tile| tile.command_id)
+                tiles
+                    .row_data(tile_index)
+                    .map(|tile| tile.command_id)
                     .filter(|command_id| !command_id.is_empty())
             });
         if let Some(command_id) = tile_command {
@@ -1418,7 +1411,7 @@ fn show_settings_surface(window: &SettingsWindow) -> Result<(), slint::PlatformE
 /// M2 Task 10：空查询首页平铺模型带 "最近使用" 分组头行（`ResultItem.group`
 /// 非空）；分组头不可选中/执行。
 ///
-/// UI 修复 1：pinned 改走横向磁贴网格（`state::home_pinned_tiles` 截断 10 个 +
+/// pinned 走横向磁贴网格（`state::home_pinned_tiles` 截断 15 个 +
 /// 身份键去重），由 `pinned-tiles` 模型单独渲染，不再进入平铺模型。
 ///
 /// UI 修复 2（用户需求迭代）：首页（空查询）平铺结果恒为空——"最近使用"列表
@@ -1461,8 +1454,7 @@ fn render_results(
     // UI 修复 1：磁贴模型（仅空查询首页；图标与平铺行走同一条水合/后台提取
     // 管线）。数据源是 `pinned_app_commands` 全量收藏而非 home_sections 的
     // pinned 分组——后者受 TS 总上限 10 约束（recent 满员时恒空，磁贴会隐没）；
-    // 网格自带 5×2=10 上限。网格每行 5 个 → Rust 侧切分两行模型（Slint 的 for
-    // 委托不支持条件元素，无法按下标分槽）。
+    // 网格自带 5×3=15 上限；Slint 按下标计算行列，执行与导航读取同一个模型。
     let all_tiles: Vec<PinnedTile> = if is_home {
         state::home_pinned_tiles(&guard.pinned_app_commands)
             .iter()
@@ -1477,20 +1469,15 @@ fn render_results(
     } else {
         Vec::new()
     };
-    // 网格总磁贴数（切行前计数；选中复位与导航决策共用）。
+    // 网格总磁贴数（选中复位与导航决策共用）。
     let tile_count = all_tiles.len();
-    let mut tiles_row_2 = all_tiles;
-    let tiles_row_1: Vec<PinnedTile> = if tiles_row_2.len() > HOME_TILE_COLUMNS {
-        tiles_row_2.drain(..HOME_TILE_COLUMNS).collect()
-    } else {
-        std::mem::take(&mut tiles_row_2)
-    };
-    window.set_pinned_tiles(ModelRc::new(VecModel::from(tiles_row_1)));
-    window.set_pinned_tiles_row_2(ModelRc::new(VecModel::from(tiles_row_2)));
+    window.set_tile_columns(HOME_TILE_COLUMNS as i32);
+    window.set_pinned_tiles(ModelRc::new(VecModel::from(all_tiles)));
     if reset_selection {
         // UI 修复 2：新模型从顶部展示。滚动复位必须显式做——若新旧
         // selected-index 相同，下方 changed 回调不会触发。
         window.set_results_viewport_y(0.0);
+        window.set_home_viewport_y(0.0);
         // 首个可选中行（跳过分组头；首页列表恒为空，无可选行）。
         let mut first = 0usize;
         for (index, item) in window.get_results().iter().enumerate() {
@@ -1555,6 +1542,8 @@ fn push_launcher_texts(window: &LauncherWindow, language: cabin_core::settings::
     window.set_empty_hint(texts.empty_hint.into());
     window.set_no_results_hint(texts.no_results_hint.into());
     window.set_home_action_ocr(texts.home_action_ocr.into());
+    window.set_home_action_unit_converter(texts.home_action_unit_converter.into());
+    push_converter_texts(window, language);
 
     window.set_recent_group(texts.recent_group.into());
     window.set_pinned_group(texts.pinned_group.into());
@@ -1565,6 +1554,120 @@ fn push_launcher_texts(window: &LauncherWindow, language: cabin_core::settings::
     window.set_search_label(texts.search_label.into());
     window.set_search_placeholder(texts.search_placeholder.into());
     window.set_open_settings_label(texts.open_settings.into());
+}
+
+fn push_converter_texts(window: &LauncherWindow, language: cabin_core::settings::Language) {
+    use cabin_core::unit_conversion::Category;
+    let category = if window.get_converter_category() == 1 {
+        Category::Length
+    } else {
+        Category::Weight
+    };
+    let texts = i18n::converter_texts(language, category);
+    window.set_converter_texts(UnitConverterTexts {
+        title: texts.title.into(),
+        back: texts.back.into(),
+        weight: texts.weight.into(),
+        length: texts.length.into(),
+        from_value: texts.from_value.into(),
+        to_value: texts.to_value.into(),
+        from_unit: texts.from_unit.into(),
+        to_unit: texts.to_unit.into(),
+        swap: texts.swap.into(),
+    });
+    window.set_converter_unit_labels(ModelRc::new(VecModel::from(
+        texts.units.map(SharedString::from).to_vec(),
+    )));
+}
+
+fn push_converter_state(window: &LauncherWindow, state: &unit_converter::ConverterState) {
+    use cabin_core::unit_conversion::Category;
+    window.set_converter_category(if state.category == Category::Weight {
+        0
+    } else {
+        1
+    });
+    let units = state.category.units();
+    window.set_converter_from_choice(
+        units
+            .iter()
+            .position(|unit| *unit == state.from_unit)
+            .unwrap() as i32,
+    );
+    window.set_converter_to_choice(
+        units
+            .iter()
+            .position(|unit| *unit == state.to_unit)
+            .unwrap() as i32,
+    );
+    window.set_converter_from_value(state.from_value.clone().into());
+    window.set_converter_to_value(state.to_value.clone().into());
+}
+
+/// Same bindings in production and UI smoke tests, without needing the database
+/// or a second native window. Opening the page resets it like the TS mount.
+fn wire_unit_converter(
+    window: &LauncherWindow,
+    language: impl Fn() -> cabin_core::settings::Language + 'static,
+) {
+    use std::cell::RefCell;
+    use unit_converter::{ConverterState, Side};
+    let language = Rc::new(language);
+    let state = Rc::new(RefCell::new(ConverterState::default()));
+    let weak = window.as_weak();
+    let state_copy = state.clone();
+    let language_copy = language.clone();
+    window.on_open_unit_converter(move || {
+        let window = weak.unwrap();
+        window.invoke_cancel_home_drag();
+        *state_copy.borrow_mut() = ConverterState::default();
+        push_converter_state(&window, &state_copy.borrow());
+        push_converter_texts(&window, language_copy());
+        window.set_converter_open(true);
+        window.invoke_focus_input();
+    });
+    let weak = window.as_weak();
+    window.on_close_unit_converter(move || {
+        let window = weak.unwrap();
+        window.set_converter_open(false);
+        window.invoke_focus_input();
+    });
+    let weak = window.as_weak();
+    let state_copy = state.clone();
+    let language_copy = language.clone();
+    window.on_converter_category_changed(move |index| {
+        let window = weak.unwrap();
+        state_copy.borrow_mut().select_category(index);
+        push_converter_state(&window, &state_copy.borrow());
+        push_converter_texts(&window, language_copy());
+    });
+    let weak = window.as_weak();
+    let state_copy = state.clone();
+    window.on_converter_value_edited(move |side, value| {
+        let side = match side {
+            0 => Side::From,
+            1 => Side::To,
+            _ => return,
+        };
+        state_copy.borrow_mut().edit_value(side, value.to_string());
+        push_converter_state(&weak.unwrap(), &state_copy.borrow());
+    });
+    let weak = window.as_weak();
+    let state_copy = state.clone();
+    window.on_converter_unit_changed(move |side, index| {
+        let side = match side {
+            0 => Side::From,
+            1 => Side::To,
+            _ => return,
+        };
+        state_copy.borrow_mut().select_unit(side, index);
+        push_converter_state(&weak.unwrap(), &state_copy.borrow());
+    });
+    let weak = window.as_weak();
+    window.on_converter_swap(move || {
+        state.borrow_mut().swap();
+        push_converter_state(&weak.unwrap(), &state.borrow());
+    });
 }
 
 /// 按设置语言推送截图覆盖窗口文案（M3 Task 7/8/9；键名对齐 TS screenshot.*）。
@@ -2260,6 +2363,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let weak = window.as_weak();
     let settings_window = SettingsWindow::new()?;
     let settings_weak = settings_window.as_weak();
+    let converter_settings = Arc::clone(&state);
+    wire_unit_converter(&window, move || {
+        converter_settings.lock().unwrap().settings.language
+    });
     let screenshot_window = ScreenshotWindow::new()?;
     let screenshot_weak = screenshot_window.as_weak();
     push_screenshot_texts(&screenshot_window, settings.language);
@@ -2601,8 +2708,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let Some(window) = context.window.upgrade() else {
                 return;
             };
-            let count =
-                window.get_pinned_tiles().row_count() + window.get_pinned_tiles_row_2().row_count();
+            let count = window.get_pinned_tiles().row_count();
             let mut guard = context.state.lock().unwrap();
             let current = guard.selected_tile.unwrap_or(0);
             if let Some(next) = state::move_tile_selection(dx as isize, dy as isize, current, count)

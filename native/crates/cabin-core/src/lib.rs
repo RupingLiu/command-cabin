@@ -7,4 +7,5 @@ pub mod indexer;
 pub mod screenshot;
 pub mod search;
 pub mod settings;
+pub mod unit_conversion;
 pub mod updater;

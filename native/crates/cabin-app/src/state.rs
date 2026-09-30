@@ -407,14 +407,14 @@ pub fn home_sections(
     (sections.recent, sections.pinned)
 }
 
-/// 首页固定磁贴上限（UI 修复 1，用户需求：横向图标网格每行 5 个、至多 2 行）。
-pub const HOME_TILE_LIMIT: usize = 10;
+/// 首页固定磁贴上限：横向图标网格每行 5 个、至多 3 行。
+pub const HOME_TILE_LIMIT: usize = HOME_TILE_COLUMNS * 3;
 
 /// 首页固定磁贴命令（UI 修复 1，用户需求；native-only 展示形态——TS 首页是
 /// 单列表，无网格对应物，故不进 cabin-core 的 TS-parity 合成）。
 ///
 /// 语义：pinned 命令按收藏顺序、组内按身份键（`app_result_identity_key`）去重
-/// （先到先得），截断到 [`HOME_TILE_LIMIT`]（5×2）。注意**不做 recent 跨组
+/// （先到先得），截断到 [`HOME_TILE_LIMIT`]（5×3）。注意**不做 recent 跨组
 /// 去重**：磁贴网格与"最近使用"列表是两个独立分区（对齐启动器首页惯例，
 /// 如开始菜单的"已固定/推荐"并存），用户要求"现在能看到固定行"整体变网格，
 /// 若按 recent 排除会把同时近期用过的固定应用从网格里隐没，违背需求。
@@ -433,8 +433,7 @@ pub fn home_pinned_tiles(pinned: &[Command]) -> Vec<Command> {
     tiles
 }
 
-/// 磁贴网格列数（UI 修复 1：每行 5 个；UI 修复 2 的导航决策表与 main.rs 的
-/// 切行模型共用同一常量，保证两侧行/列语义一致）。
+/// 磁贴网格列数：Slint 布局与键盘导航共用同一常量。
 pub const HOME_TILE_COLUMNS: usize = 5;
 
 /// 首页磁贴网格四向键盘导航决策表（UI 修复 2）：`(dx, dy, 当前下标, 磁贴总数)`
@@ -1863,7 +1862,7 @@ mod tests {
         assert_eq!(pinned_ids, vec!["favorite.p1"]);
     }
 
-    // ---- 首页固定磁贴（UI 修复 1：5×2 横向网格的纯逻辑部分）----------------
+    // ---- 首页固定磁贴：5×3 横向网格的纯逻辑部分 ----------------
 
     fn app_command_with_subtitle(id: &str, subtitle: &str) -> Command {
         let mut command = app_command(id);
@@ -1872,8 +1871,8 @@ mod tests {
     }
 
     #[test]
-    fn home_pinned_tiles_caps_at_ten_in_favorite_order() {
-        let pinned: Vec<Command> = (0..12)
+    fn home_pinned_tiles_caps_at_fifteen_in_favorite_order() {
+        let pinned: Vec<Command> = (0..17)
             .map(|i| {
                 app_command_with_subtitle(&format!("favorite.p{i}"), &format!(r"C:\apps\p{i}.exe"))
             })
@@ -1881,6 +1880,7 @@ mod tests {
 
         let tiles = home_pinned_tiles(&pinned);
         assert_eq!(tiles.len(), HOME_TILE_LIMIT);
+        assert_eq!(tiles.len(), 15);
         let ids: Vec<&str> = tiles.iter().map(|command| command.id.as_str()).collect();
         assert_eq!(
             ids,
@@ -1894,7 +1894,12 @@ mod tests {
                 "favorite.p6",
                 "favorite.p7",
                 "favorite.p8",
-                "favorite.p9"
+                "favorite.p9",
+                "favorite.p10",
+                "favorite.p11",
+                "favorite.p12",
+                "favorite.p13",
+                "favorite.p14"
             ]
         );
     }
@@ -1941,6 +1946,10 @@ mod tests {
         // 纵向：下/上各一行（±5）。
         assert_eq!(move_tile_selection(0, 1, 0, 10), Some(5));
         assert_eq!(move_tile_selection(0, -1, 5, 10), Some(0));
+        assert_eq!(move_tile_selection(0, 1, 9, 15), Some(14));
+        assert_eq!(move_tile_selection(0, -1, 14, 15), Some(9));
+        assert_eq!(move_tile_selection(1, 0, 10, 15), Some(11));
+        assert_eq!(move_tile_selection(-1, 0, 14, 15), Some(13));
     }
 
     #[test]
@@ -1951,6 +1960,8 @@ mod tests {
         // 第 4 列右移不动（不回绕到下一行行首）。
         assert_eq!(move_tile_selection(1, 0, 4, 10), None);
         assert_eq!(move_tile_selection(1, 0, 9, 10), None);
+        assert_eq!(move_tile_selection(-1, 0, 10, 15), None);
+        assert_eq!(move_tile_selection(1, 0, 14, 15), None);
     }
 
     #[test]
@@ -1962,6 +1973,9 @@ mod tests {
         // 末行下移不动（满 5 的第二行）。
         assert_eq!(move_tile_selection(0, 1, 5, 10), None);
         assert_eq!(move_tile_selection(0, 1, 9, 10), None);
+        for index in 10..15 {
+            assert_eq!(move_tile_selection(0, 1, index, 15), None, "index {index}");
+        }
     }
 
     #[test]
@@ -1974,6 +1988,10 @@ mod tests {
         assert_eq!(move_tile_selection(1, 0, 7, 8), None);
         assert_eq!(move_tile_selection(1, 0, 6, 8), Some(7));
         assert_eq!(move_tile_selection(0, -1, 7, 8), Some(2));
+        assert_eq!(move_tile_selection(0, 1, 6, 12), Some(11));
+        assert_eq!(move_tile_selection(0, 1, 7, 12), None);
+        assert_eq!(move_tile_selection(1, 0, 11, 12), None);
+        assert_eq!(move_tile_selection(0, -1, 11, 12), Some(6));
     }
 
     #[test]

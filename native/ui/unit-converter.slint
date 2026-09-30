@@ -1,0 +1,121 @@
+// Standalone page parity: renderer/converter/UnitConverterPage.tsx.
+import { ComboBox } from "std-widgets.slint";
+import { CabinTheme, CabinButton } from "design.slint";
+
+export struct UnitConverterTexts {
+    title: string,
+    back: string,
+    weight: string,
+    length: string,
+    from-value: string,
+    to-value: string,
+    from-unit: string,
+    to-unit: string,
+    swap: string,
+}
+
+export component UnitConverterPage inherits FocusScope {
+    in property <UnitConverterTexts> texts;
+    in property <[string]> unit-labels;
+    in property <int> category: 0;
+    in-out property <int> from-choice: 0;
+    in-out property <int> to-choice: 3;
+    in-out property <string> from-value;
+    in-out property <string> to-value;
+    callback back();
+    callback category-changed(int);
+    callback value-edited(int, string);
+    callback unit-changed(int, int);
+    callback swap();
+    forward-focus: from-input;
+    public function focus-input() { from-input.focus(); }
+    key-pressed(event) => {
+        if event.text == Key.Escape { root.back(); return accept; }
+        return reject;
+    }
+
+    Rectangle { background: CabinTheme.background; }
+    VerticalLayout {
+        padding: 24px;
+        spacing: 18px;
+        HorizontalLayout {
+            height: 40px;
+            Text {
+                text: root.texts.title; font-size: 22px; font-weight: 600;
+                color: CabinTheme.text; vertical-alignment: center; horizontal-stretch: 1;
+            }
+            CabinButton { text: root.texts.back; centered: true; clicked => { root.back(); } }
+        }
+        HorizontalLayout {
+            spacing: 8px; alignment: start;
+            CabinButton { width: 90px; text: root.texts.weight; centered: true; selected: root.category == 0; clicked => { root.category-changed(0); } }
+            CabinButton { width: 90px; text: root.texts.length; centered: true; selected: root.category == 1; clicked => { root.category-changed(1); } }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            Rectangle {
+                height: 220px; horizontal-stretch: 1;
+                border-radius: 12px; border-width: 1px; border-color: CabinTheme.line;
+                background: CabinTheme.panel;
+                VerticalLayout {
+                    padding: 16px; spacing: 14px;
+                    Text { text: root.texts.from-value; color: CabinTheme.muted; font-size: 13px; }
+                    Rectangle {
+                        height: 64px; border-radius: 8px; border-width: 1px;
+                        border-color: from-input.has-focus ? CabinTheme.accent : CabinTheme.line;
+                        background: CabinTheme.background;
+                        from-input := TextInput {
+                            x: 12px; width: parent.width - 24px; height: parent.height;
+                            text <=> root.from-value; single-line: true; font-size: 24px;
+                            vertical-alignment: center; color: CabinTheme.text;
+                            selection-background-color: CabinTheme.accent;
+                            selection-foreground-color: CabinTheme.background;
+                            accessible-label: root.texts.from-value;
+                            edited => { root.value-edited(0, self.text); }
+                        }
+                    }
+                    ComboBox {
+                        model: root.unit-labels; current-index <=> root.from-choice;
+                        accessible-label: root.texts.from-unit;
+                        selected => { root.unit-changed(0, self.current-index); }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+            VerticalLayout {
+                width: 44px; alignment: center;
+                CabinButton { width: 44px; height: 44px; icon-kind: "converter"; label: root.texts.swap; clicked => { root.swap(); } }
+            }
+            Rectangle {
+                height: 220px; horizontal-stretch: 1;
+                border-radius: 12px; border-width: 1px; border-color: CabinTheme.line;
+                background: CabinTheme.panel;
+                VerticalLayout {
+                    padding: 16px; spacing: 14px;
+                    Text { text: root.texts.to-value; color: CabinTheme.muted; font-size: 13px; }
+                    Rectangle {
+                        height: 64px; border-radius: 8px; border-width: 1px;
+                        border-color: to-input.has-focus ? CabinTheme.accent : CabinTheme.line;
+                        background: CabinTheme.background;
+                        to-input := TextInput {
+                            x: 12px; width: parent.width - 24px; height: parent.height;
+                            text <=> root.to-value; single-line: true; font-size: 24px;
+                            vertical-alignment: center; color: CabinTheme.text;
+                            selection-background-color: CabinTheme.accent;
+                            selection-foreground-color: CabinTheme.background;
+                            accessible-label: root.texts.to-value;
+                            edited => { root.value-edited(1, self.text); }
+                        }
+                    }
+                    ComboBox {
+                        model: root.unit-labels; current-index <=> root.to-choice;
+                        accessible-label: root.texts.to-unit;
+                        selected => { root.unit-changed(1, self.current-index); }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+    }
+}

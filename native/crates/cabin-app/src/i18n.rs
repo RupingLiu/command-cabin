@@ -8,6 +8,92 @@
 
 use cabin_core::favorites::FavoriteKind;
 use cabin_core::settings::Language;
+use cabin_core::unit_conversion::Category;
+
+/// TS `i18n.ts` unitConverter labels and ordered unit choices, reused verbatim.
+pub struct ConverterUiTexts {
+    pub title: &'static str,
+    pub back: &'static str,
+    pub weight: &'static str,
+    pub length: &'static str,
+    pub from_value: &'static str,
+    pub to_value: &'static str,
+    pub from_unit: &'static str,
+    pub to_unit: &'static str,
+    pub swap: &'static str,
+    pub units: [&'static str; 5],
+}
+
+pub fn converter_texts(language: Language, category: Category) -> ConverterUiTexts {
+    let (
+        title,
+        back,
+        weight,
+        length,
+        from_value,
+        to_value,
+        from_unit,
+        to_unit,
+        swap,
+        weight_units,
+        length_units,
+    ) = match language {
+        Language::ZhCn => (
+            "单位换算",
+            "返回",
+            "重量",
+            "长度",
+            "数值",
+            "结果",
+            "源单位",
+            "目标单位",
+            "交换单位",
+            ["千克 kg", "克 g", "毫克 mg", "磅 lb", "盎司 oz"],
+            ["厘米 cm", "毫米 mm", "米 m", "英寸 in", "英尺 ft"],
+        ),
+        Language::ZhTw => (
+            "單位換算",
+            "返回",
+            "重量",
+            "長度",
+            "數值",
+            "結果",
+            "來源單位",
+            "目標單位",
+            "交換單位",
+            ["公斤 kg", "公克 g", "毫克 mg", "磅 lb", "盎司 oz"],
+            ["公分 cm", "毫米 mm", "公尺 m", "英寸 in", "英尺 ft"],
+        ),
+        Language::EnUs => (
+            "Unit Converter",
+            "Back",
+            "Weight",
+            "Length",
+            "Value",
+            "Result",
+            "From unit",
+            "To unit",
+            "Swap units",
+            ["kg", "g", "mg", "lb", "oz"],
+            ["cm", "mm", "m", "in", "ft"],
+        ),
+    };
+    ConverterUiTexts {
+        title,
+        back,
+        weight,
+        length,
+        from_value,
+        to_value,
+        from_unit,
+        to_unit,
+        swap,
+        units: match category {
+            Category::Weight => weight_units,
+            Category::Length => length_units,
+        },
+    }
+}
 
 /// 设置窗口界面文案（字段对应 settings.slint 的 `SettingsTexts`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +159,7 @@ pub struct HomeUiTexts {
     pub empty_hint: &'static str,
     pub no_results_hint: &'static str,
     pub home_action_ocr: &'static str,
+    pub home_action_unit_converter: &'static str,
 
     /// 空查询首页 "最近使用" 分组头。
     pub recent_group: &'static str,
@@ -452,6 +539,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "搜索应用并固定到首页，常用工具将在这里显示。",
             no_results_hint: "未找到匹配项，试试其他关键词。",
             home_action_ocr: "识别文字",
+            home_action_unit_converter: "单位换算",
 
             recent_group: "最近使用",
             pinned_group: "固定",
@@ -468,6 +556,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "搜尋應用程式並固定到首頁，常用工具將顯示於此。",
             no_results_hint: "未找到符合項目，試試其他關鍵字。",
             home_action_ocr: "辨識文字",
+            home_action_unit_converter: "單位換算",
 
             recent_group: "最近使用",
             pinned_group: "固定",
@@ -484,6 +573,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "Search for an app and pin it here for quick access.",
             no_results_hint: "No matches. Try another search.",
             home_action_ocr: "Recognize text",
+            home_action_unit_converter: "Unit converter",
 
             recent_group: "Recent",
             pinned_group: "Pinned",

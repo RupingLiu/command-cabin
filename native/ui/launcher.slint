@@ -1,6 +1,7 @@
 // A · 清晰原生。键盘导航仍在 TextInput 上拦截，选择与执行由 Rust 决策。
-import { ListView, Palette } from "std-widgets.slint";
+import { ListView, Palette, ScrollView } from "std-widgets.slint";
 import { CabinTheme, CabinIcon, CabinButton } from "design.slint";
+import { UnitConverterPage, UnitConverterTexts } from "unit-converter.slint";
 
 export struct ResultItem {
     title: string,
@@ -127,8 +128,10 @@ component HomeTileView inherits Rectangle {
 }
 
 component PinnedGrid inherits Rectangle {
-    in property <[PinnedTile]> first-row;
-    in property <[PinnedTile]> second-row;
+    in property <[PinnedTile]> tiles;
+    in property <int> columns: 5;
+    out property <length> tile-height: 85px;
+    out property <length> row-step: 95px;
     in property <int> selected;
     in property <string> unpin-label;
     callback run(string);
@@ -144,25 +147,25 @@ component PinnedGrid inherits Rectangle {
     property <length> drag-y;
     property <length> offset-x;
     property <length> offset-y;
-    property <length> cell-step: (self.width + 7px) / 5;
-    height: first-row.length == 0 ? 0px : second-row.length > 0 ? 180px : 85px;
+    property <length> cell-step: (self.width + 7px) / root.columns;
+    height: tiles.length == 0 ? 0px : floor((tiles.length - 1) / root.columns) * root.row-step + root.tile-height;
     function tile-at(index: int) -> PinnedTile {
-        return index < 5 ? root.first-row[index] : root.second-row[index - 5];
+        return root.tiles[index];
     }
     function index-at(x: length, y: length) -> int {
         if x < 0px || x >= root.width || y < 0px || y >= root.height { return -1; }
         let column = floor(x / root.cell-step);
-        let row = floor(y / 95px);
-        if x - column * root.cell-step > root.cell-step - 7px || y - row * 95px >= 85px { return -1; }
-        let index = row * 5 + column;
-        return index < root.first-row.length + root.second-row.length ? index : -1;
+        let row = floor(y / root.row-step);
+        if x - column * root.cell-step >= root.cell-step - 7px || y - row * root.row-step >= root.tile-height { return -1; }
+        let index = row * root.columns + column;
+        return index < root.tiles.length ? index : -1;
     }
     function begin(tile: PinnedTile, x: length, y: length) {
         root.dragged-tile = tile;
         root.drag-id = tile.command-id;
         root.drag-active = false;
         root.offset-x = x - floor(x / root.cell-step) * root.cell-step;
-        root.offset-y = y - floor(y / 95px) * 95px;
+        root.offset-y = y - floor(y / root.row-step) * root.row-step;
     }
     function move(x: length, y: length) {
         if root.drag-id == "" { return; }
@@ -183,23 +186,12 @@ component PinnedGrid inherits Rectangle {
         root.cancel-drag();
         if source != "" && target != "" && source != target { root.reorder(source, target); }
     }
-    for tile[t] in root.first-row: HomeTileView {
-        x: t * root.cell-step; y: 0px; width: root.cell-step - 7px;
+    for tile[t] in root.tiles: HomeTileView {
+        x: (t - floor(t / root.columns) * root.columns) * root.cell-step;
+        y: floor(t / root.columns) * root.row-step;
+        width: root.cell-step - 7px;
         tile: tile; selected: root.selected == t;
         drop-target: root.drag-active && root.target == t;
-        dimmed: root.drag-active && root.drag-id == tile.command-id;
-        unpin-label: root.unpin-label;
-        run(id) => { root.run(id); }
-        unpin(id) => { root.unpin(id); }
-        begin-drag(tile, x, y) => { root.begin(tile, x, y); }
-        drag-moved(x, y) => { root.move(x, y); }
-        end-drag(x, y) => { root.drop(x, y); }
-        cancel-drag => { root.cancel-drag(); }
-    }
-    for tile[t] in root.second-row: HomeTileView {
-        x: t * root.cell-step; y: 95px; width: root.cell-step - 7px;
-        tile: tile; selected: root.selected == t + 5;
-        drop-target: root.drag-active && root.target == t + 5;
         dimmed: root.drag-active && root.drag-id == tile.command-id;
         unpin-label: root.unpin-label;
         run(id) => { root.run(id); }
@@ -216,6 +208,21 @@ component PinnedGrid inherits Rectangle {
 }
 
 export component LauncherWindow inherits Window {
+    in-out property <bool> converter-open: false;
+    in property <UnitConverterTexts> converter-texts;
+    in property <[string]> converter-unit-labels;
+    in property <int> converter-category: 0;
+    in-out property <int> converter-from-choice: 0;
+    in-out property <int> converter-to-choice: 3;
+    in-out property <string> converter-from-value;
+    in-out property <string> converter-to-value;
+    in property <string> home-action-unit-converter;
+    callback open-unit-converter();
+    callback close-unit-converter();
+    callback converter-category-changed(int);
+    callback converter-value-edited(int, string);
+    callback converter-unit-changed(int, int);
+    callback converter-swap();
     in property <[ResultItem]> results: [];
     in-out property <int> selected-index: 0;
     in-out property <string> current-query: "";
@@ -228,11 +235,9 @@ export component LauncherWindow inherits Window {
     /// .placeholder，Rust push_launcher_texts 按语言 push）。
     in property <string> search-label: "";
     in property <string> search-placeholder: "";
-    /// 首页固定磁贴模型（空查询首页由 Rust push——网格第一行，至多 5 个；
-    /// 第二行见 `pinned-tiles-row-2`）。
+    /// 首页固定磁贴模型（空查询首页由 Rust push，按收藏顺序排列，至多 15 个）。
     in property <[PinnedTile]> pinned-tiles: [];
-    /// 固定磁贴网格第二行（至多 5 个，可空）。
-    in property <[PinnedTile]> pinned-tiles-row-2: [];
+    in property <int> tile-columns: 5;
     /// 首页磁贴键盘选中（Rust push 网格下标，-1 = 无选中。高亮与 Enter 执行
     /// 都读它；决策表在 Rust `state::move_tile_selection`）。
     in-out property <int> selected-tile: -1;
@@ -279,6 +284,7 @@ export component LauncherWindow inherits Window {
     /// 结果列表滚动偏移别名：Rust 重渲染后复位到顶部——若新旧
     /// selected-index 相同则 changed 不触发，滚动复位必须由 Rust 显式做。
     in-out property <length> results-viewport-y <=> results-list.viewport-y;
+    in-out property <length> home-viewport-y <=> home-scroll.viewport-y;
 
 
     in property <string> keyboard-hint;
@@ -295,6 +301,20 @@ export component LauncherWindow inherits Window {
         root.home-drag-active = false;
     }
     changed current-query => { root.cancel-home-drag(); }
+    changed selected-tile => { root.ensure-home-selection-visible(); }
+    function ensure-home-selection-visible() {
+        if !root.home || home-scroll.visible-height <= 0px { return; }
+        let max-scroll = max(0px, home-scroll.viewport-height - home-scroll.visible-height);
+        home-scroll.viewport-y = max(-max-scroll, min(0px, home-scroll.viewport-y));
+        if root.selected-tile < 0 || root.selected-tile >= root.pinned-tiles.length { return; }
+        let top = home-grid.y + floor(root.selected-tile / root.tile-columns) * home-grid.row-step;
+        let bottom = top + home-grid.tile-height;
+        if top + home-scroll.viewport-y < 0px {
+            home-scroll.viewport-y = -top;
+        } else if bottom + home-scroll.viewport-y > home-scroll.visible-height {
+            home-scroll.viewport-y = home-scroll.visible-height - bottom;
+        }
+    }
     // Shared constant keeps scrolling correct when changing result density.
     property <length> result-height: 56px;
     function apply-theme() {
@@ -324,13 +344,19 @@ export component LauncherWindow inherits Window {
     default-font-family: "Segoe UI";
     default-font-size: 13px;
     forward-focus: query-input;
-    public function focus-input() { query-input.focus(); }
+    public function focus-input() {
+        if root.converter-open { converter-page.focus-input(); }
+        else { query-input.focus(); }
+    }
 
     VerticalLayout {
+        visible: !root.converter-open;
+        width: root.width; height: root.height;
         spacing: 0px;
         VerticalLayout {
-            padding: 20px;
-            spacing: 14px;
+            padding-left: 20px; padding-right: 20px;
+            padding-top: 16px; padding-bottom: 12px;
+            spacing: 10px;
             vertical-stretch: 1;
             HorizontalLayout {
                 height: 30px;
@@ -395,31 +421,29 @@ export component LauncherWindow inherits Window {
             }
             Rectangle {
                 vertical-stretch: 1;
-                if root.home: VerticalLayout {
+                home-scroll := ScrollView {
+                    visible: root.home;
                     width: parent.width;
-                    spacing: 10px;
-                    alignment: start;
-                    Text { text: root.pinned-group; font-size: 12px; font-weight: 600; color: CabinTheme.muted; }
-                    if root.pinned-tiles.length > 0: PinnedGrid {
-                        first-row: root.pinned-tiles; second-row: root.pinned-tiles-row-2;
-                        selected: root.selected-tile; unpin-label: root.unpin-label;
-                        drag-active <=> root.home-drag-active;
-                        gesture-reset: root.gesture-reset;
-                        run(id) => { root.run-command-id(id); }
-                        unpin(id) => { root.unpin-app(id); }
-                        reorder(source, target) => { root.move-pinned-app(source, target); }
-                    }
-                    if root.pinned-tiles.length == 0: Text {
-                        text: root.empty-hint; height: 110px; color: CabinTheme.muted;
-                        wrap: word-wrap; vertical-alignment: center; horizontal-alignment: center;
-                    }
-                    if root.home: VerticalLayout {
-                        spacing: 14px;
-                        Rectangle { height: 1px; background: CabinTheme.line; }
-                        HorizontalLayout {
-                            spacing: 8px; alignment: start;
-                            CabinButton { icon-kind: "capture"; text: root.home-action-screenshot; clicked => { root.run-screenshot(); } }
-                            CabinButton { icon-kind: "text"; text: root.home-action-ocr; clicked => { root.run-ocr(); } }
+                    height: root.home ? parent.height : 0px;
+                    viewport-width: self.visible-width;
+                    changed height => { root.ensure-home-selection-visible(); }
+                    changed viewport-height => { root.ensure-home-selection-visible(); }
+                    VerticalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text { text: root.pinned-group; font-size: 12px; font-weight: 600; color: CabinTheme.muted; }
+                        home-grid := PinnedGrid {
+                            tiles: root.pinned-tiles; columns: root.tile-columns;
+                            selected: root.selected-tile; unpin-label: root.unpin-label;
+                            drag-active <=> root.home-drag-active;
+                            gesture-reset: root.gesture-reset;
+                            run(id) => { root.run-command-id(id); }
+                            unpin(id) => { root.unpin-app(id); }
+                            reorder(source, target) => { root.move-pinned-app(source, target); }
+                        }
+                        if root.pinned-tiles.length == 0: Text {
+                            text: root.empty-hint; height: 110px; color: CabinTheme.muted;
+                            wrap: word-wrap; vertical-alignment: center; horizontal-alignment: center;
                         }
                     }
                 }
@@ -469,6 +493,17 @@ export component LauncherWindow inherits Window {
                     text: root.no-results-hint; color: CabinTheme.muted; horizontal-alignment: center;
                 }
             }
+            if root.home: VerticalLayout {
+                spacing: 10px;
+                vertical-stretch: 0;
+                Rectangle { height: 1px; background: CabinTheme.line; }
+                HorizontalLayout {
+                    spacing: 8px; alignment: start;
+                    CabinButton { icon-kind: "capture"; text: root.home-action-screenshot; clicked => { root.run-screenshot(); } }
+                    CabinButton { icon-kind: "text"; text: root.home-action-ocr; clicked => { root.run-ocr(); } }
+                    CabinButton { icon-kind: "converter"; text: root.home-action-unit-converter; clicked => { root.open-unit-converter(); } }
+                }
+            }
             if root.update-banner-text != "": Rectangle {
                 height: 48px; background: CabinTheme.soft; border-radius: 8px;
                 HorizontalLayout {
@@ -492,5 +527,21 @@ export component LauncherWindow inherits Window {
                 Text { text: "Made with Slint"; color: CabinTheme.muted; font-size: 10px; vertical-alignment: center; }
             }
         }
+    }
+    converter-page := UnitConverterPage {
+        visible: root.converter-open;
+        enabled: root.converter-open;
+        width: root.width; height: root.height;
+        texts: root.converter-texts; unit-labels: root.converter-unit-labels;
+        category: root.converter-category;
+        from-choice <=> root.converter-from-choice;
+        to-choice <=> root.converter-to-choice;
+        from-value <=> root.converter-from-value;
+        to-value <=> root.converter-to-value;
+        back => { root.close-unit-converter(); }
+        category-changed(index) => { root.converter-category-changed(index); }
+        value-edited(side, value) => { root.converter-value-edited(side, value); }
+        unit-changed(side, index) => { root.converter-unit-changed(side, index); }
+        swap => { root.converter-swap(); }
     }
 }

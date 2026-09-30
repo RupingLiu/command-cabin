@@ -47,3 +47,20 @@ TS 参考 `apps/desktop/src/main/launcher/launcherCommandService.ts` 的
   的 SHA256 完全一致。
 - `.sha512` 校验文件为 160 字节、无 BOM、LF 结尾，摘要和资产名均与安装包匹配。
 - 使用现有 NSIS 3.11 安装脚本，安装逻辑未改变。
+
+## 发布后验证
+
+- 已发布 [v1.0.10](https://github.com/RupingLiu/command-cabin/releases/tag/v1.0.10)，
+  GitHub `releases/latest` 返回该版本，`draft` 和 `prerelease` 均为 false。
+  发布标签对应源代码提交 `2fcf8d3`。
+- 安装包和 `.sha512` 两个资产均为 `uploaded`，GitHub 返回的 SHA256 摘要与
+  本地文件一致。公开地址下载的安装包为 6,525,339 字节，SHA512 同时匹配
+  本地构建和公开校验文件。
+- 使用生产 HTTP 客户端运行忽略的联网测试
+  `live_update_download_and_install_prompt`：1.0.9 → 1.0.10 检查、真实下载、
+  SHA512 校验、首页 / 搜索页 / 设置页安装入口全部通过；下载结果与本地包一致。
+  测试只验证安装命令，不执行安装器。
+- 首次联网检查遇到 GitHub 匿名 API 额度耗尽（403，剩余额度为 0）；额度重置后
+  重试通过。初次及重试日志分别保存在 `live-update.log` 和 `live-update-retry.log`。
+- `cargo clean` 清除 14,296 个文件、8.7 GiB 构建缓存，确认 `native/target` 不存在。
+  解包目录和重复下载文件已移除，正式安装包、截图、日志和校验记录保留。

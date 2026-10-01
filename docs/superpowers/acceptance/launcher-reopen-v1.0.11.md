@@ -60,3 +60,17 @@ Read/Write 导入警告。测试辅助函数改用 `as_chunks`/`as_chunks_mut`�
   SHA512：`4d599f2c8f4fefc7a670a197d5fb81a80b2338b7592795a38760740321cb0adb85057e6a90f744049722cbea49710f980ad62e9325580373cc5ecdbcca442710`。
 - 构建脚本已清除 `native/target`；本机产物校验记录保存为
   `native/artifacts/ui-hotkey-reopen/artifact-verification.json`。
+
+## 发布后验证
+
+- 已发布 [v1.0.11](https://github.com/RupingLiu/command-cabin/releases/tag/v1.0.11)，
+  发布标签对应源码提交 `7605790`。GitHub `releases/latest` 返回该版本，
+  `draft` 和 `prerelease` 均为 false。
+- 安装包和 `.sha512` 两个资产均为 `uploaded`，GitHub 返回的 SHA256 与本地校验一致。
+- 从公开地址实际下载安装包和校验文件，6,525,138 字节，SHA512 与本地构建一致，
+  公开校验文件与本地文件逐字节匹配。
+- 使用本轮编译的测试程序运行生产 HTTP 客户端联网测试
+  `live_update_download_and_install_prompt`：1.0.10 → 1.0.11 检查、真实下载、
+  SHA512 校验及首页/搜索页/设置页安装入口全部通过。测试只验证安装命令，不执行安装器。
+- 构建缓存、临时测试程序、解包目录和重复下载文件已清理；保留正式程序、安装包、
+  校验文件及本轮截图、日志、验证记录。

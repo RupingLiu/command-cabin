@@ -447,7 +447,7 @@ mod tests {
 
     fn img(width: u32, height: u32) -> RgbaImage {
         let mut image = RgbaImage::new(width, height);
-        for pixel in image.data.chunks_exact_mut(4) {
+        for pixel in image.data.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&BG);
         }
         image

@@ -715,18 +715,7 @@ impl AppContext {
             context.refresh_results();
         }
         refresh_window_themes(context);
-        window.show().expect("show launcher");
-        apply_native_window_theme(window.window(), window.get_theme_mode());
-        // M5 收口（窗口居中）：稳定 Slint 无屏幕几何 API，经 winit 通道取当前
-        // 显示器矩形把窗口摆到屏幕中心（M1/M2 连续两轮验收不通过项）。
-        center_window_on_monitor(&window);
-        // show 只映射窗口，不保证前台/焦点：经 winit 句柄做 SetForegroundWindow 级激活，
-        // 再把 Slint 焦点显式交给输入框（forward-focus 仅首次隐式生效，后续呼出需重置）。
-        window
-            .window()
-            .with_winit_window(|winit_window| winit_window.focus_window());
-        window.invoke_focus_input();
-        window.window().request_redraw();
+        show_launcher_surface(&window).expect("show launcher");
         start_app_index_refresh(context);
     }
 
@@ -1386,21 +1375,38 @@ fn install_downloaded_update(context: &Arc<AppContext>) {
     }
 }
 
+fn show_launcher_surface(window: &LauncherWindow) -> Result<(), slint::PlatformError> {
+    window.show()?;
+    apply_native_window_theme(window.window(), window.get_theme_mode());
+    center_window_on_monitor(window);
+    // show maps the window; restore native activation and the search/converter focus.
+    window
+        .window()
+        .with_winit_window(|winit_window| winit_window.focus_window());
+    window.invoke_focus_input();
+    repaint_window_surface(window.window(), "launcher");
+    Ok(())
+}
+
 fn show_settings_surface(window: &SettingsWindow) -> Result<(), slint::PlatformError> {
     window.show()?;
     apply_native_window_theme(window.window(), window.get_theme_mode());
+    repaint_window_surface(window.window(), "settings");
+    Ok(())
+}
+
+fn repaint_window_surface(window: &slint::Window, surface: &str) {
     // Slint 1.17.1's Windows software surface can lose its pixels on hide/show
     // while still reporting buffer age=1. request_redraw only schedules a frame;
     // unchanged sidebar/header items would then be skipped by partial rendering.
     // The public snapshot API performs a full render and invalidates the partial
     // cache when restoring the previous buffer mode. Discard the temporary image
-    // (no file or screen capture), then present a complete frame. This runs only
-    // on an explicit settings-open action, not on each settings/status update.
-    if let Err(error) = window.window().take_snapshot() {
-        eprintln!("CommandCabin: settings full repaint failed: {error}");
+    // (no file or screen capture), then present a complete frame. Only do this
+    // when showing a launcher/settings surface, not on query or status updates.
+    if let Err(error) = window.take_snapshot() {
+        eprintln!("CommandCabin: {surface} full repaint failed: {error}");
     }
-    window.window().request_redraw();
-    Ok(())
+    window.request_redraw();
 }
 
 /// 搜索/首页 → 结果模型：图标命中磁盘缓存则内嵌位图，未命中投递后台提取

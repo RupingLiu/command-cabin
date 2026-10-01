@@ -412,7 +412,6 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use std::io::{Read as _, Write as _};
     use std::net::{TcpListener, TcpStream};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};

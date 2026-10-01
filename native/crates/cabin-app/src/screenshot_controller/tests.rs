@@ -437,14 +437,16 @@ fn pin_window_image_scales_down_only_and_keeps_aspect() {
     assert_eq!((scaled.width, scaled.height), (320, 160));
     // 内容采样：纯色图缩放后仍为纯色。
     let mut solid = RgbaImage::new(600, 300);
-    for pixel in solid.data.chunks_exact_mut(4) {
+    for pixel in solid.data.as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&[10, 20, 30, 255]);
     }
     let (_, _, scaled) = pin_window_image(&solid);
     assert!(scaled
         .data
-        .chunks_exact(4)
-        .all(|pixel| pixel == [10, 20, 30, 255]));
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|pixel| *pixel == [10, 20, 30, 255]));
 }
 
 // ---- M3 Task 9：截图系统命令（TS createScreenshotCommands + modeByCommand） ----

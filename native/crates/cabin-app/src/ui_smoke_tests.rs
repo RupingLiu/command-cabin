@@ -785,6 +785,121 @@ fn home_drag_and_context_menu_use_real_pointer_events() {
 }
 
 #[test]
+fn empty_home_reopen_repaints_chrome_after_windows_surface_loss() {
+    use std::cell::Cell;
+
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let launcher = LauncherWindow::new().unwrap();
+    let adapter = adapters.borrow()[0].clone();
+    push_launcher_texts(&launcher, cabin_core::settings::Language::ZhCn);
+    launcher.set_hotkey_hint("Alt+Space".into());
+    launcher.set_selected_tile(-1);
+    assert_eq!(launcher.get_pinned_tiles().row_count(), 0);
+
+    // TS LauncherPage.tsx renders openSettings and the home tools even with no
+    // pinned applications. Reopening must restore these unchanged UI regions.
+    for theme in [1, 2] {
+        launcher.set_theme_mode(theme);
+        for scale in [1., 1.5, 2.] {
+            adapter
+                .window()
+                .dispatch_event(WindowEvent::ScaleFactorChanged {
+                    scale_factor: scale,
+                });
+            adapter.set_size(slint::LogicalSize::new(640., 520.));
+            show_launcher_surface(&launcher).unwrap();
+            slint::platform::update_timers_and_animations();
+            let size = adapter.window().size();
+            let mut buffer =
+                slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(size.width, size.height);
+            let draw = |buffer: &mut slint::SharedPixelBuffer<slint::Rgb8Pixel>| {
+                adapter.window().request_redraw();
+                assert!(adapter.draw_if_needed(|renderer| {
+                    renderer.set_repaint_buffer_type(RepaintBufferType::ReusedBuffer);
+                    renderer.render(buffer.make_mut_slice(), size.width as usize);
+                }));
+            };
+            draw(&mut buffer);
+            let original = buffer.clone();
+            for cycle in 0..3 {
+                launcher.hide().unwrap();
+                // Windows can clear the pixels without resetting buffer age=1.
+                // Keep the renderer's partial cache and lose only the surface.
+                buffer.make_mut_slice().fill(original.as_slice()[0]);
+                // Match the default hotkey path: reset query/home models before
+                // showing. Empty models cannot dirty the static header/footer.
+                launcher.invoke_cancel_home_drag();
+                launcher.set_current_query("".into());
+                set_home_tiles(&launcher, &[]);
+                show_launcher_surface(&launcher).unwrap();
+                slint::platform::update_timers_and_animations();
+                draw(&mut buffer);
+                if let Some(output) = std::env::var_os("CABIN_UI_SNAPSHOT_DIR") {
+                    let output = PathBuf::from(output);
+                    std::fs::create_dir_all(&output).unwrap();
+                    image::save_buffer(
+                        output.join(format!("launcher-reopen-empty-{theme}-{scale}-{cycle}.png")),
+                        buffer.as_bytes(),
+                        size.width,
+                        size.height,
+                        image::ColorType::Rgb8,
+                    )
+                    .unwrap();
+                }
+                for y in 0..size.height as usize {
+                    // Ignore the search input's blinking caret; compare the
+                    // header, empty home, tool buttons and footer pixel for pixel.
+                    if (60. * scale) as usize <= y && y < (118. * scale) as usize {
+                        continue;
+                    }
+                    for x in 0..size.width as usize {
+                        let index = y * size.width as usize + x;
+                        assert_eq!(
+                            buffer.as_slice()[index],
+                            original.as_slice()[index],
+                            "empty home must survive reopen {cycle}, theme {theme}, scale {scale} at {x},{y}"
+                        );
+                    }
+                }
+            }
+            launcher.hide().unwrap();
+        }
+    }
+
+    // The restored controls and keyboard focus must still work on an empty home.
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let copy = calls.clone();
+    launcher.on_open_settings(move || copy.borrow_mut().push("settings"));
+    let copy = calls.clone();
+    launcher.on_run_screenshot(move || copy.borrow_mut().push("screenshot"));
+    let copy = calls.clone();
+    launcher.on_run_ocr(move || copy.borrow_mut().push("ocr"));
+    let copy = calls.clone();
+    launcher.on_open_unit_converter(move || copy.borrow_mut().push("converter"));
+    show_launcher_surface(&launcher).unwrap();
+    render(&adapter, "launcher-reopen-empty-controls", 640., 520., 1.5);
+    click(launcher.window(), 603., 31.);
+    click(launcher.window(), 55., 457.);
+    click(launcher.window(), 155., 457.);
+    click(launcher.window(), 260., 457.);
+    assert_eq!(
+        *calls.borrow(),
+        ["settings", "screenshot", "ocr", "converter"]
+    );
+    launcher.hide().unwrap();
+    show_launcher_surface(&launcher).unwrap();
+    type_text(launcher.window(), "abc");
+    assert_eq!(launcher.get_current_query(), "abc");
+    let dismissed = Rc::new(Cell::new(0));
+    let copy = dismissed.clone();
+    launcher.on_dismissed(move || copy.set(copy.get() + 1));
+    key(launcher.window(), Key::Escape);
+    assert_eq!(dismissed.get(), 1);
+    launcher.hide().unwrap();
+}
+
+#[test]
 fn settings_reopen_repaints_sidebar_after_windows_surface_loss() {
     let adapters = Rc::new(RefCell::new(Vec::new()));
     slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();

@@ -413,7 +413,9 @@ export component LauncherWindow inherits Window {
                     }
                     Text { text: "Esc"; font-size: 10px; color: CabinTheme.muted; vertical-alignment: center; }
                 }
-                if root.home: Text {
+                // IME preedit is visible before it is committed to current-query.
+                // Match Slint's LineEdit: hide the hint during composition too.
+                if query-input.text == "" && query-input.preedit-text == "": Text {
                     x: 43px; width: parent.width - 90px; height: parent.height;
                     text: root.search-placeholder; font-size: 15px;
                     color: CabinTheme.muted; overflow: elide; vertical-alignment: center;

@@ -1,35 +1,35 @@
 # CommandCabin
 
 <p align="center">
-  <img src="./apps/desktop/build/brand/command-cabin-icon-256.png" width="112" alt="CommandCabin logo" />
+  <img src="./native/assets/icon.png" width="112" alt="CommandCabin icon" />
 </p>
 
 <h1 align="center">CommandCabin</h1>
 
 <p align="center">
-  <strong>Windows 优先的本地桌面命令中枢。</strong>
+  <strong>Windows 优先的原生桌面命令中枢。</strong>
   <br />
-  用一个快速入口连接应用、截图、换算、剪贴板、文本工具和本地插件。
+  用一个快速入口连接应用、截图、换算、汇率、剪贴板和文本工具。
 </p>
 
 <p align="center">
   <a href="https://github.com/RupingLiu/command-cabin/releases">
     <img alt="GitHub release" src="https://img.shields.io/github/v/release/RupingLiu/command-cabin?label=release&color=ff6b35" />
   </a>
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-first-2f8cff?color=2f8cff" />
-  <img alt="Electron" src="https://img.shields.io/badge/Electron-39-111827?color=111827" />
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6?color=3178c6" />
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-2f8cff?color=2f8cff" />
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?color=000000" />
+  <img alt="Slint" src="https://img.shields.io/badge/Slint-1.x-e8462c?color=e8462c" />
   <img alt="License" src="https://img.shields.io/github/license/RupingLiu/command-cabin?color=22c55e" />
 </p>
 
 <p align="center">
-  <a href="./README.en.md">English README</a>
-  ·
   <a href="#界面预览">界面预览</a>
   ·
   <a href="#核心能力">核心能力</a>
   ·
   <a href="#安装使用">安装使用</a>
+  ·
+  <a href="#技术架构">技术架构</a>
   ·
   <a href="#开发">开发</a>
   ·
@@ -39,150 +39,159 @@
 ## 界面预览
 
 <p align="center">
-  <img src="./docs/assets/screenshots/launcher-home.png" alt="CommandCabin 新版主页截图" width="960" />
+  <img src="./docs/assets/screenshots/launcher-home.png" alt="CommandCabin 启动器主页" width="960" />
 </p>
 
-新版主页采用暖色到蓝色的轻量渐变视觉，常用应用优先展示在搜索框下方，单位换算和截图入口固定在右下角，保持启动器的核心路径足够直接。
+启动器采用暖色到蓝色的轻量渐变视觉。空查询时展示固定应用网格、「首页功能」入口和最近使用；输入即切换到搜索结果，方向键选择、回车执行。
 
 ## 产品定位
 
-CommandCabin 是一款轻量、快速、本地优先的桌面效率工具。它把常用应用、系统命令、文件入口、截图工具、单位换算、剪贴板历史、文本处理和插件命令集中到一个键盘友好的入口里。
+CommandCabin 是一款轻量、快速、本地优先的 Windows 桌面效率工具。它把应用启动、截图标注、OCR 取字、翻译、单位与汇率换算、剪贴板历史和文本处理收拢到一个键盘友好的入口里。
+
+它从 v1.0.0 起已由 Electron 迁移为 **Rust + Slint 原生实现**：单文件可执行、无运行时依赖、常驻内存低，安装包约 6MB。
 
 它的目标不是变成复杂工作流平台，而是做一个反应灵敏、安静可靠、随时可唤起的桌面控制台。
 
-| 原则         | 说明                                                                     |
-| ------------ | ------------------------------------------------------------------------ |
-| 本地优先     | 设置、历史、收藏、索引和插件数据优先保存在本机。                         |
-| 键盘友好     | 全局快捷键唤起，输入搜索，方向键选择，回车执行。                         |
-| Windows 优先 | 聚焦 Windows 桌面体验、快捷方式解析、托盘、安装和自动更新。              |
-| 插件扩展     | 核心保持克制，更多场景通过内置命令和本地插件补齐。                       |
-| 体验优先     | 搜索速度、图标解析、截图手感、语言、主题和窗口行为都按真实使用场景打磨。 |
+| 原则         | 说明                                                             |
+| ------------ | ---------------------------------------------------------------- |
+| 本地优先     | 设置、历史、收藏、索引和剪贴板数据保存在本机 SQLite，不上传云端。 |
+| 键盘友好     | 全局快捷键唤起，输入搜索，方向键选择，回车执行。                 |
+| 原生轻量     | Rust + Slint 编译为原生二进制，无 Electron / 浏览器内核。        |
+| Windows 优先 | 聚焦 Windows 桌面体验、快捷方式解析、托盘、安装和自动更新。      |
+| 体验优先     | 搜索速度、图标解析、截图手感、语言、主题和窗口行为按真实场景打磨。 |
 
 ## 核心能力
 
-| 能力           | 说明                                                                             |
-| -------------- | -------------------------------------------------------------------------------- |
-| 快速唤起       | 默认 `Alt+Space` 打开启动器，快捷键可在设置中修改。                              |
-| 应用搜索       | 扫描 Windows 开始菜单、桌面快捷方式和常见安装位置，支持模糊搜索与排序。          |
-| 首页常用入口   | 首页优先展示最近使用和固定应用，并提供单位换算、截图等高频工具按钮。             |
-| 图标解析       | 优先解析真实可执行文件图标，并对快捷方式、AppUserModelID、关联文件和缓存做兜底。 |
-| 截图工具       | 默认 `Ctrl+Alt+A`，支持快速截图、延时截图、标注、马赛克、文字、OCR、贴图和保存。 |
-| 单位换算       | 独立换算页面支持重量和长度，单位下拉显示本地化名称和标准单位符号。               |
-| 剪贴板历史     | 保存常用剪贴板内容，并通过搜索结果统一调用。                                     |
-| 系统托盘       | 关闭窗口后可隐藏到托盘继续运行，托盘菜单跟随界面语言。                           |
-| 开机自启动     | 可在设置中开启登录后自动启动，并支持启动时收纳到托盘。                           |
-| 版本与更新     | 基于 GitHub Releases 检查、后台下载，并在主页提示用户确认安装。                  |
-| 多语言与主题   | 支持简体中文、繁体中文、英文，以及浅色、深色、跟随系统主题。                     |
-| 本地插件运行时 | 内置插件和本地插件统一进入搜索、排序、执行和插件页托管流程。                     |
+| 能力         | 说明                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| 快速唤起     | 默认 `Alt+Space` 呼出启动器，快捷键可在设置中修改。                                        |
+| 应用搜索     | 扫描开始菜单、桌面快捷方式与常见安装位置（含 MSIX/APPX 应用），支持模糊匹配与多因子排序。   |
+| 首页常用入口 | 空查询时展示固定应用网格、截图与单位换算入口，以及最近使用记录。                           |
+| 图标解析     | 解析真实可执行文件图标，对快捷方式、AppUserModelID、关联文件与磁盘缓存做兜底。              |
+| 截图工具     | 默认 `Ctrl+Alt+A`；延时截图为 `Ctrl+Alt+D`。支持矩形、椭圆、箭头、画笔、马赛克和文字标注。   |
+| 截图后处理   | 区域内 OCR 取字、在线翻译、贴图置顶、复制到剪贴板和保存为 PNG。                             |
+| 单位换算     | 独立换算页，覆盖重量（kg/g/mg/lb/oz）与长度（m/cm/mm/in/ft），单位可互换。                  |
+| 汇率换算     | 内置 USD→CNY 汇率查询与换算，结果附数据日期。                                              |
+| 剪贴板历史   | 记录复制的文本内容，可从搜索结果统一检索与调用，支持清空。                                 |
+| 内置命令     | 计算器、文本工具（大小写转换、去空行、格式化 JSON、URL 编解码）、快速换算等以命令进入搜索。 |
+| 系统托盘     | 关闭窗口后隐藏到托盘继续运行，托盘菜单跟随界面语言。                                       |
+| 开机自启动   | 设置中开启登录后自动启动，可配合启动时隐藏窗口。                                           |
+| 版本与更新   | 从 GitHub Releases 检查更新、后台下载安装包并做 SHA512 校验，完成后提示重启安装。           |
+| 多语言与主题 | 简体中文、繁体中文、英文；主题支持浅色、深色与跟随系统。                                   |
 
 ## 安装使用
 
 最新 Windows x64 安装包可在 [GitHub Releases](https://github.com/RupingLiu/command-cabin/releases) 下载。
 
+资产命名固定：
+
+- `CommandCabin-Setup-{version}.exe`
+- `CommandCabin-Setup-{version}.exe.sha512`（校验文件）
+
 安装信息：
 
-- 默认安装目录：`C:\Program Files\command-cabin`
 - 安装时可选择安装路径。
-- 安装后会创建桌面快捷方式和开始菜单入口。
-- 已安装版本可通过设置页检查更新，也会在主页自动检查后台更新。
+- 安装后创建桌面快捷方式与开始菜单入口。
+- 已安装版本可在设置页手动检查更新，启动后也会自动检查。
+
+> 安装包未签名，Windows SmartScreen 可能提示确认运行。可用同名 `.sha512` 校验文件核对下载完整性。
 
 常用操作：
 
-| 操作         | 方式                             |
-| ------------ | -------------------------------- |
-| 打开启动器   | 默认 `Alt+Space`                 |
-| 执行选中命令 | `Enter`                          |
-| 移动选中项   | `Up` / `Down` / `Left` / `Right` |
-| 添加固定应用 | 首页“添加应用”入口               |
-| 管理固定应用 | 右键固定应用卡片                 |
-| 打开单位换算 | 首页“单位换算”按钮               |
-| 快速截图     | 默认 `Ctrl+Alt+A`                |
-| 延时截图     | 设置页可自定义快捷键             |
-| 隐藏到托盘   | 关闭窗口或使用托盘菜单           |
+| 操作         | 方式                                 |
+| ------------ | ------------------------------------ |
+| 打开启动器   | 默认 `Alt+Space`                     |
+| 执行选中命令 | `Enter`                              |
+| 移动选中项   | `Up` / `Down` / `Left` / `Right`     |
+| 关闭启动器   | `Esc`                                |
+| 固定应用     | 搜索结果行内「固定到首页」           |
+| 取消固定     | 右键固定卡片                         |
+| 打开单位换算 | 首页「单位换算」入口                 |
+| 快速截图     | 默认 `Ctrl+Alt+A`                    |
+| 延时截图     | 默认 `Ctrl+Alt+D`                    |
+| 打开设置     | 标题栏齿轮图标或托盘菜单             |
+| 隐藏到托盘   | 关闭窗口或使用托盘菜单               |
 
-## 项目结构
+## 技术架构
+
+原生 Cargo 工作区位于 `native/`，按职责分层：
 
 ```text
-command-cabin/
-├─ apps/
-│  └─ desktop/                 Electron 主应用、预加载脚本和 React 渲染端
-├─ packages/
-│  ├─ core/                    命令模型、搜索排序、设置、存储、索引和插件运行时
-│  ├─ plugin-api/              对外插件类型定义
-│  └─ built-in-plugins/        内置命令提供方
-├─ tests/
-│  └─ unit/                    跨包单元测试和打包烟测
-├─ docs/
-│  ├─ product/                 产品策略、版本策略和发布检查清单
-│  └─ assets/screenshots/      README 和文档使用的截图资源
-├─ native/                     原生版（Rust + Slint）Cargo 工作区，开发中
-└─ release/                    本地打包产物
+native/
+├─ crates/
+│  ├─ cabin-core/              纯业务逻辑：命令模型、搜索排序、设置、索引、截图状态、
+│  │                           单位换算、汇率、剪贴板历史、更新器协议与解析
+│  ├─ cabin-storage/           SQLite 持久化与迁移
+│  ├─ cabin-platform/          平台抽象 trait（热键、托盘、剪贴板、OCR、更新服务等）
+│  ├─ cabin-platform-windows/  Windows 实现（Win32、COM、WinRT）
+│  └─ cabin-app/               应用壳：Slint UI 编排、窗口、事件循环
+├─ ui/                         Slint 界面定义（启动器、设置、截图、换算、置顶图窗）
+├─ assets/                     图标与字体资源
+└─ scripts/                    构建、测试与安装包脚本
 ```
 
-## 技术栈
+分层规则：`cabin-core` / `cabin-storage` / `cabin-platform` 不依赖 Windows 或 UI 框架；平台差异经 `cabin-platform` 的 trait 收敛，由 `cabin-platform-windows` 实现；`cabin-app` 是唯一接触 Slint / winit / Win32 的 crate。
 
-| 层级   | 技术                             |
-| ------ | -------------------------------- |
-| 桌面壳 | Electron                         |
-| 渲染端 | React, Vite                      |
-| 语言   | TypeScript, ESM, NodeNext        |
-| 搜索   | Fuse.js 与 CommandCabin 排序增强 |
-| 存储   | SQLite                           |
-| 测试   | Vitest                           |
-| 打包   | electron-builder                 |
-| 包管理 | pnpm workspace                   |
+| 层级     | 技术                                                  |
+| -------- | ----------------------------------------------------- |
+| 语言     | Rust（stable，GNU 工具链）                            |
+| 界面     | Slint 1.x（软件渲染后端，无 GPU 常驻开销）            |
+| 存储     | SQLite（`rusqlite`，bundled）                          |
+| 系统集成 | Win32 / COM / WinRT（热键、托盘、OCR、Shell、打包应用） |
+| HTTP     | `ureq` + rustls（汇率、翻译、更新检查）               |
+| 打包     | NSIS（`makensis`）                                    |
+| 测试     | `cargo test`（单元测试与源文件同目录）                |
 
 ## 开发
 
-所有命令都建议在仓库根目录执行，并使用 `corepack pnpm`。
-
-安装依赖：
+以下命令在 `native/` 目录执行。工具链需先自举 PATH：
 
 ```powershell
-corepack pnpm install
+$env:PATH = "$env:USERPROFILE\.cargo\bin;C:\msys64\ucrt64\bin;$env:PATH"
 ```
 
-启动桌面应用：
+构建（构建后自动清理 `native/target`，产物复制到 `native/artifacts/`）：
 
 ```powershell
-corepack pnpm dev
+powershell native/scripts/build.ps1
 ```
 
-构建所有包：
+Release 构建：
 
 ```powershell
-corepack pnpm build
+powershell native/scripts/build.ps1 -Release
 ```
 
-常用质量检查：
+测试：
 
 ```powershell
-corepack pnpm test
-corepack pnpm typecheck
-corepack pnpm lint
+powershell native/scripts/build.ps1 -Test
+# 或定向跑单包
+cargo test -p cabin-core
 ```
 
-生成本地免安装测试目录：
+静态检查与格式化：
 
 ```powershell
-corepack pnpm --filter @command-cabin/desktop package:dir
+cargo clippy --workspace -- -D warnings
+cargo fmt
 ```
 
-生成 Windows 安装包：
+生成 Windows 安装包（产出 `CommandCabin-Setup-{version}.exe` 与 `.sha512`）：
 
 ```powershell
-corepack pnpm --filter @command-cabin/desktop dist:win
+powershell native/scripts/build-installer.ps1
 ```
+
+版本单一来源是 `native/Cargo.toml` 的 `[workspace.package] version`。
 
 ## 开发约定
 
-- 仓库使用 TypeScript 项目引用和 ESM 模块。
-- 相对 TypeScript 导入保持 `.js` 后缀。
-- 非 Electron 业务逻辑优先放在 `packages/core`。
-- 渲染端通过 `window.desktopApi` 调用主进程能力，不直接使用 Electron API。
-- IPC 边界需要做输入校验，拒绝未知或不合法数据。
-- 存储迁移位于 `packages/core/src/storage/migrations.ts`，已应用的迁移 ID 视为追加不可改。
-- 触及 IPC、持久化、插件运行时、打包或共享核心契约时，需要配套更充分的测试。
+- 平台相关能力必须经 `cabin-platform` 的 trait 引入，不在核心层直接调用 Win32。
+- 测试与源文件同目录（`#[cfg(test)]` 模块），纯逻辑优先下沉到 `cabin-core`。
+- 边界解析保持严格：未知或畸形输入在进入核心逻辑前拒绝。
+- 触及 IPC、持久化、更新器、打包或共享核心契约时，需要配套更充分的测试。
+- 真机外网探针以 `#[ignore]` 标记，需显式运行。
 
 ## 版本策略
 
@@ -196,35 +205,15 @@ CommandCabin 使用严格的 `x.y.z` 版本号：
 
 详细规则见 [docs/product/versioning-policy.md](./docs/product/versioning-policy.md)。
 
-## 原生版本（开发中）
+## 历史
 
-CommandCabin 正在开发原生（Rust + Slint）版本，目标是更小的安装包与更低的常驻内存，
-功能对齐现有 Windows 版本后作为长期发行形态。当前处于 v1.0 发布前收尾阶段，尚不随
-常规 Release 分发。
+`apps/desktop`（Electron + React）与 `packages/*` 是 v1.0 之前的宿主实现，v1.0.0 起产品已切换为原生版本，这部分代码仅作行为参照保留，不再随 Release 分发。
 
-- 代码位置：`native/`（Cargo 工作区：核心逻辑、存储、平台抽象、Windows 实现、应用壳）。
-- 本地构建：`powershell native/scripts/build.ps1 -Release`（产物输出到 `native/artifacts/`）。
-- Windows 安装包：`powershell native/scripts/build-installer.ps1`（产出
-  `CommandCabin-Setup-{version}.exe` 与 `.sha512` 校验文件）。
-- 测试与静态检查：`powershell native/scripts/build.ps1 -Test`、
-  `cargo clippy --workspace -- -D warnings`（在 `native/` 目录执行，工具链为
-  GNU stable Rust）。
+## 更多文档
 
-## 当前状态
-
-项目处于 Windows 桌面 MVP 持续完善阶段。当前重点包括：
-
-- 应用索引和图标解析稳定性。
-- 启动器交互速度和键盘导航体验。
-- 截图工具响应速度、标注体验和多显示器行为。
-- 设置项、语言、主题、托盘和自动更新一致性。
-- 插件运行时、安全边界和插件管理体验。
-
-更多设计和验证记录可查看：
-
-- [docs/product/beta-release-checklist.md](./docs/product/beta-release-checklist.md)
-- [docs/product/windows-packaging-workflow.md](./docs/product/windows-packaging-workflow.md)
-- [docs/superpowers/specs](./docs/superpowers/specs)
+- [发布检查清单](./docs/superpowers/acceptance/m5-release.md)
+- [Windows 打包流程](./docs/product/windows-packaging-workflow.md)
+- [设计与验证记录](./docs/superpowers/specs)
 
 ## 许可证
 

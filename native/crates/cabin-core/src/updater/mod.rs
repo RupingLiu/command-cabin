@@ -35,8 +35,13 @@
 //! 或格式非法）时必须拒绝安装——宁可拒绝升级，绝不执行未校验的下载物
 //! （实现在平台层 `updater`，本模块提供其解析半步）。
 
+pub mod atom;
 pub mod version;
 
+pub use atom::{
+    parse_releases_atom, release_download_url, release_sidecar_url, AtomParseError, AtomRelease,
+    GITHUB_RELEASES_ATOM_ENDPOINT,
+};
 pub use version::{compare, compare_versions, parse_version, VersionParseError};
 
 use std::cmp::Ordering;
@@ -99,6 +104,16 @@ pub fn strip_release_tag(tag: &str) -> Option<String> {
 /// 版本对应的安装包资产名（发布约定，Task 4 构建脚本逐字对齐）。
 pub fn installer_asset_name(version: &str) -> String {
     format!("{INSTALLER_ASSET_PREFIX}{version}.exe")
+}
+
+/// 下载物资产名（Atom 通道用；与 [`installer_asset_name`] 同源）。
+pub fn update_download_asset_name(version: &str) -> String {
+    installer_asset_name(version)
+}
+
+/// `.sha512` 边车资产名（Atom 通道用；与 [`sidecar_asset_name`] 同源）。
+pub fn update_sidecar_asset_name(version: &str) -> String {
+    sidecar_asset_name(&installer_asset_name(version))
 }
 
 /// 在发布资产清单中精确匹配安装包资产（大小写敏感的全名匹配；blockmap

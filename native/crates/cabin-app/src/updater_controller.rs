@@ -25,6 +25,13 @@
 //!    （debug = dev，release = 已安装形态；`COMMAND_CABIN_ENABLE_UPDATES=1` 供
 //!    调试逃生），见 main.rs `updates_enabled`。
 //! 4. 中途下载无取消（TS electron-updater 亦无取消 API，简报按 M5 最小化确认）。
+//! 5. **v1.0.13 检查失败不清冷却**：`finish_check_failed` 原先顺手把
+//!    `last_manual_check_at_ms` 置 None，等于让失败绕过 10 分钟冷却——v1.0.12
+//!    实测在 GitHub API 限流期间出现"10 秒内连点 10 次、每次照烧配额"的重试
+//!    风暴（TS 参考实现的 catch 分支从不重置该时间戳，属移植偏移）。现在失败
+//!    保留冷却，用户只能在冷却期满后再试。
+//! 6. **v1.0.13 限流退避**：`Retry-After` / `X-RateLimit-Reset` 折算的退避
+//!    窗口（[`FailureBackoff`]）内自动检查直接跳过，不再每 30 分钟撞墙。
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +51,61 @@ pub const MANUAL_CHECK_COOLDOWN_MS: i64 = 10 * 60 * 1000;
 pub const INSTALL_NOT_READY_ERROR: &str = "Update is not ready to install.";
 /// 下载暂存目录名（挂在 `std::env::temp_dir()` 下；计划 Task 3 约定）。
 pub const UPDATE_DOWNLOAD_DIR_NAME: &str = "command-cabin-update";
+
+/// 自动检查的失败退避（v1.0.13）。
+///
+/// **为什么需要**：GitHub 对未认证 API 请求按出口 IP 限 60 次/小时，被限后
+/// 恢复时刻是**已知的**（`X-RateLimit-Reset` / `Retry-After`）。旧实现失败
+/// 后仍按 30 分钟节奏盲试，在限流窗口内每次都必然失败、纯属噪声（v1.0.12
+/// 日志：连续数日每 30 分钟一条 403）。
+///
+/// 语义：**只挡自动检查**——手动检查是用户的显式动作，除 10 分钟冷却外不再
+/// 额外设限（否则“点了没反应”更难解释），但其失败提示会带上恢复时刻。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FailureBackoff {
+    /// 退避截止时刻（unix 毫秒）；None = 无退避。
+    until_ms: Option<i64>,
+}
+
+impl FailureBackoff {
+    /// 退避窗口上限（1 小时）：GitHub 限流按小时重置，退避超过一小时没有意义，
+    /// 且能兜住服务端给出的离谱时间戳。
+    pub const MAX_BACKOFF_MS: i64 = 60 * 60 * 1000;
+
+    /// 成功检查后清除退避。
+    pub fn clear(&mut self) {
+        self.until_ms = None;
+    }
+
+    /// 记录一次失败：`retry_after_seconds` 来自服务端建议（限流恢复时刻的剩余
+    /// 秒数）；None 或 0 时用 [`Self::DEFAULT_FAILURE_BACKOFF_MS`]，并夹取到
+    /// [`Self::MAX_BACKOFF_MS`]。
+    pub fn record_failure(&mut self, now_ms: i64, retry_after_seconds: Option<u64>) {
+        let millis = retry_after_seconds
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| (seconds.min(Self::MAX_BACKOFF_MS as u64 / 1000) * 1000) as i64)
+            .unwrap_or(Self::DEFAULT_FAILURE_BACKOFF_MS)
+            .clamp(0, Self::MAX_BACKOFF_MS);
+        self.until_ms = Some(now_ms.saturating_add(millis));
+    }
+
+    /// 普通传输失败的默认退避（服务端没给建议时）。
+    pub const DEFAULT_FAILURE_BACKOFF_MS: i64 = 5 * 60 * 1000;
+
+    /// 当前是否处于退避窗口内。
+    pub fn is_active(&self, now_ms: i64) -> bool {
+        self.until_ms.is_some_and(|until| now_ms < until)
+    }
+
+    /// 剩余毫秒（无退避 → 0）。生产路径只用 [`Self::is_active`]；此方法供
+    /// 退避窗口的测试与诊断读取。
+    #[cfg(test)]
+    pub fn remaining_ms(&self, now_ms: i64) -> i64 {
+        self.until_ms
+            .map(|until| (until - now_ms).max(0))
+            .unwrap_or(0)
+    }
+}
 
 /// TS `UpdateStatusPhase`（shared/updateApi.ts）的移植。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +148,8 @@ pub struct UpdateOrchestration {
     /// TS `lastManualCheckAt`：只在非 bypass 的检查发起时记录。
     last_manual_check_at_ms: Option<i64>,
     updates_enabled: bool,
+    /// v1.0.13 限流退避：失败（尤其 403 限流）后到该时刻前不再自动检查。
+    backoff: FailureBackoff,
 }
 
 impl UpdateOrchestration {
@@ -120,6 +184,7 @@ impl UpdateOrchestration {
             pending: None,
             last_manual_check_at_ms: None,
             updates_enabled,
+            backoff: FailureBackoff::default(),
         }
     }
 
@@ -141,6 +206,9 @@ impl UpdateOrchestration {
     /// （checking / available / downloading / 已就绪待安装）拒绝；`manual=true`
     /// 时施加冷却并在准入后记录时间戳（bypass 的自动检查不记录——TS 逐字）。
     /// 拒绝返回 false 且状态不变（TS 静默返回当前 status）。
+    ///
+    /// v1.0.13：自动检查额外受 [`FailureBackoff`] 约束（限流恢复前不重试）；
+    /// 手动检查不受退避限制，只受冷却约束。
     pub fn admit_check(&mut self, manual: bool, now_ms: i64, cooldown_ms: i64) -> bool {
         if !self.updates_enabled {
             return false;
@@ -160,6 +228,9 @@ impl UpdateOrchestration {
                 }
             }
             self.last_manual_check_at_ms = Some(now_ms);
+        } else if self.backoff.is_active(now_ms) {
+            // 限流/失败退避窗口内：自动检查静默跳过（不消耗配额）。
+            return false;
         }
         self.status.phase = UpdatePhase::Checking;
         self.status.error = None;
@@ -189,6 +260,7 @@ impl UpdateOrchestration {
         self.status.phase = UpdatePhase::UpToDate;
         self.status.version = latest_version.map(str::to_string);
         self.status.latest_version = latest_version.map(str::to_string);
+        self.backoff.clear();
         self.refresh_flags();
         true
     }
@@ -206,32 +278,63 @@ impl UpdateOrchestration {
         self.status.phase = UpdatePhase::Available;
         self.status.error = None;
         self.pending = Some(info);
+        self.backoff.clear();
         self.refresh_flags();
         true
     }
 
     /// 手动检查失败：可读错误直出（TS `checkForUpdates` catch → phase=error）。
-    pub fn finish_check_failed(&mut self, message: String) -> bool {
+    ///
+    /// **v1.0.13：不动 `last_manual_check_at_ms`**——TS 参考实现的 catch 分支
+    /// 从不重置它。旧实现在这里置 None，使 10 分钟冷却对“失败后重试”完全
+    /// 失效，限流期间连点即连烧配额（见模块注释差异 5）。
+    ///
+    /// `now_ms` 与 `retry_after_seconds` 用于记录 [`FailureBackoff`]
+    /// （后者是服务端限流恢复的剩余秒数，None = 未知）。
+    pub fn finish_check_failed_at(
+        &mut self,
+        message: String,
+        now_ms: i64,
+        retry_after_seconds: Option<u64>,
+    ) -> bool {
         if self.status.phase != UpdatePhase::Checking {
             return false;
         }
         self.status.phase = UpdatePhase::Error;
         self.status.error = Some(message);
-        self.last_manual_check_at_ms = None;
+        // 冷却保留（不清 None）：失败也算一次真实请求，用户须等冷却期满。
+        self.backoff.record_failure(now_ms, retry_after_seconds);
         self.refresh_flags();
         true
     }
 
     /// 自动检查失败静默（差异 2）：Checking → Idle，不显示错误（stderr 诊断在
-    /// 调用方）。
-    pub fn recover_silent_check(&mut self) -> bool {
+    /// 调用方）。同时记录退避，避免限流窗口内的无效重试。
+    pub fn recover_silent_check_at(
+        &mut self,
+        now_ms: i64,
+        retry_after_seconds: Option<u64>,
+    ) -> bool {
         if self.status.phase != UpdatePhase::Checking {
             return false;
         }
         self.status.phase = UpdatePhase::Idle;
         self.status.percent = None;
+        self.backoff.record_failure(now_ms, retry_after_seconds);
         self.refresh_flags();
         true
+    }
+
+    /// 退避剩余毫秒（诊断与测试用）。
+    #[cfg(test)]
+    pub fn backoff_remaining_ms(&self, now_ms: i64) -> i64 {
+        self.backoff.remaining_ms(now_ms)
+    }
+
+    /// 当前是否处于失败退避窗口（测试用）。
+    #[cfg(test)]
+    pub fn backoff_active(&self, now_ms: i64) -> bool {
+        self.backoff.is_active(now_ms)
     }
 
     /// [下载]：从 pending 清单取安装包资产并进入 Downloading(0%)。清单缺
@@ -545,7 +648,7 @@ mod tests {
     fn manual_check_within_cooldown_is_blocked_silently() {
         let mut update = orchestration(true);
         assert!(update.admit_manual_check(1_000));
-        update.recover_silent_check();
+        update.recover_silent_check_at(0, None);
         // 10min 内：拒绝且状态/时间戳不变（TS 静默返回当前 status）。
         assert!(!update.admit_manual_check(1_000 + MANUAL_CHECK_COOLDOWN_MS - 1));
         assert_eq!(update.status.phase, UpdatePhase::Idle);
@@ -557,12 +660,13 @@ mod tests {
     fn automatic_check_bypasses_cooldown_and_does_not_record_timestamp() {
         let mut update = orchestration(true);
         assert!(update.admit_automatic_check(1_000));
-        update.recover_silent_check();
-        // bypass：冷却窗口内也准入；且不写 lastManualCheckAt（随后的手动检查
-        // 立即准入，证明时间戳未被记录）。
-        assert!(update.admit_automatic_check(1_001));
-        update.recover_silent_check();
-        assert!(update.admit_manual_check(1_002));
+        update.recover_silent_check_at(0, None);
+        // bypass：冷却窗口内也准入（v1.0.13 起失败会记退避，故用退避窗口之后的时刻）；
+        // 且不写 lastManualCheckAt（随后的手动检查立即准入，证明时间戳未被记录）。
+        let later = 1_000 + FailureBackoff::DEFAULT_FAILURE_BACKOFF_MS + 1;
+        assert!(update.admit_automatic_check(later));
+        update.recover_silent_check_at(0, None);
+        assert!(update.admit_manual_check(later + 1));
     }
 
     // ---- 检查结果转移 ----
@@ -599,25 +703,76 @@ mod tests {
         assert!(!update.admit_automatic_check(MANUAL_CHECK_COOLDOWN_MS * 10));
     }
 
+    /// v1.0.13 行为变更（差异 5）：失败**不再**清掉手动冷却——限流期间连点
+    /// 只会继续烧配额（v1.0.12 日志实证：10 秒内 10 次）。冷却期满后仍可重试。
     #[test]
-    fn manual_failure_surfaces_error_and_allows_retry() {
+    fn manual_failure_surfaces_error_and_keeps_the_cooldown() {
         let mut update = orchestration(true);
         assert!(update.admit_manual_check(0));
-        update.finish_check_failed("update check failed: HTTP 500".to_string());
+        update.finish_check_failed_at(
+            "update check failed: HTTP 403: rate limit".to_string(),
+            0,
+            Some(900),
+        );
         assert_eq!(update.status.phase, UpdatePhase::Error);
         assert_eq!(
             update.status.error.as_deref(),
-            Some("update check failed: HTTP 500")
+            Some("update check failed: HTTP 403: rate limit")
         );
-        // 错误态可再检查（重试路径）。
-        assert!(update.admit_manual_check(1));
+        // 冷却期内：拒绝（旧实现这里会准入 —— 就是重试风暴的入口）。
+        assert!(!update.admit_manual_check(1));
+        assert!(!update.admit_manual_check(MANUAL_CHECK_COOLDOWN_MS - 1));
+        // 冷却期满：允许重试。
+        assert!(update.admit_manual_check(MANUAL_CHECK_COOLDOWN_MS));
+    }
+
+    /// 自动检查在限流退避窗口内静默跳过（不烧配额）；窗口过后恢复正常。
+    #[test]
+    fn automatic_checks_skip_the_rate_limit_backoff_window() {
+        let mut update = orchestration(true);
+        assert!(update.admit_automatic_check(0));
+        // 服务端说 15 分钟后恢复。
+        update.recover_silent_check_at(0, Some(900));
+        assert_eq!(update.status.phase, UpdatePhase::Idle);
+        assert!(update.backoff_active(0));
+        assert_eq!(update.backoff_remaining_ms(0), 900_000);
+        // 窗口内：自动检查被拒（静默跳过）。
+        assert!(!update.admit_automatic_check(60_000));
+        assert!(!update.admit_automatic_check(899_999));
+        // 手动检查不受退避限制（只受冷却约束）。
+        assert!(update.admit_manual_check(60_000));
+        update.finish_check_up_to_date(Some("1.2.3"));
+        assert!(!update.backoff_active(60_000));
+        // 成功检查后自动检查立即恢复。
+        assert!(update.admit_automatic_check(60_001));
+    }
+
+    /// 无条件失败（无服务端建议）用默认退避窗口。
+    #[test]
+    fn backoff_defaults_and_clamps_without_server_hint() {
+        let mut update = orchestration(true);
+        assert!(update.admit_automatic_check(0));
+        update.recover_silent_check_at(0, None);
+        assert_eq!(
+            update.backoff_remaining_ms(0),
+            FailureBackoff::DEFAULT_FAILURE_BACKOFF_MS
+        );
+
+        // 离谱的服务端时间戳被夹到 1 小时。
+        let mut update = orchestration(true);
+        assert!(update.admit_automatic_check(0));
+        update.recover_silent_check_at(0, Some(86_400));
+        assert_eq!(
+            update.backoff_remaining_ms(0),
+            FailureBackoff::MAX_BACKOFF_MS
+        );
     }
 
     #[test]
     fn automatic_failure_recovers_silently_to_idle() {
         let mut update = orchestration(true);
         assert!(update.admit_automatic_check(0));
-        update.recover_silent_check();
+        update.recover_silent_check_at(0, None);
         assert_eq!(update.status.phase, UpdatePhase::Idle);
         assert!(update.status.error.is_none());
     }

@@ -6,6 +6,13 @@
 //! - `ureq`（rustls，同步、无 tokio）GET，所有请求携带
 //!   `User-Agent: CommandCabin-Updater`（GitHub API 缺省 403 的硬性要求）
 //!   与 `Accept: application/vnd.github+json`；
+//! - **检查通道优先级（v1.0.13）**：主通道是
+//!   [`GITHUB_RELEASES_ATOM_ENDPOINT`]（`github.com/.../releases.atom`）——
+//!   普通网页流量，**不消耗 `api.github.com` 的 60 次/小时未认证配额**，
+//!   因此不受共享出口 IP 被邻居打满导致的 `403 rate limit exceeded` 影响
+//!   （v1.0.12 实机反馈的根因）。Atom 解析失败或版本标签不是稳定版本时
+//!   回退 API 通道。API 若仍返回 403/429，错误消息会带上限流恢复时刻
+//!   （`X-RateLimit-Reset` / `Retry-After`），而不是裸露的 `HTTP 403`；
 //! - 检查：整体超时
 //!   [`cabin_core::updater::DEFAULT_UPDATE_CHECK_TIMEOUT_MS`]（15s，核心层
 //!   常量；无 TS 对应值可移植，本计划自定）；非 2xx →
@@ -39,9 +46,10 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::time::Duration;
 
 use cabin_core::updater::{
-    is_newer, parse_github_release_response, parse_sha512_sidecar, ReleaseAsset, UpdateInfo,
+    is_newer, parse_github_release_response, parse_releases_atom, parse_sha512_sidecar,
+    release_download_url, release_sidecar_url, ReleaseAsset, UpdateInfo,
     DEFAULT_UPDATE_CHECK_TIMEOUT_MS, GITHUB_API_ACCEPT, GITHUB_API_USER_AGENT,
-    GITHUB_RELEASES_LATEST_ENDPOINT, SHA512_SIDECAR_SUFFIX,
+    GITHUB_RELEASES_ATOM_ENDPOINT, GITHUB_RELEASES_LATEST_ENDPOINT, SHA512_SIDECAR_SUFFIX,
 };
 use cabin_platform::{PlatformError, UpdateService};
 use sha2::{Digest, Sha512};
@@ -56,19 +64,87 @@ const STREAM_BUFFER_SIZE: usize = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum HttpFailure {
     Timeout,
-    Status(u16),
+    Status {
+        code: u16,
+        /// 限流恢复时刻：GitHub 的 `X-RateLimit-Reset`（unix 秒）或
+        /// `Retry-After`（秒数，相对当前）。仅 403/429 时采集。
+        rate_limit: Option<RateLimit>,
+    },
     Network(String),
+}
+
+/// 限流恢复信息（403/429 专用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RateLimit {
+    /// 恢复时刻（unix 秒）。`Retry-After` 已折算成绝对时刻。
+    reset_unix_seconds: i64,
+}
+
+impl RateLimit {
+    /// 距恢复的剩余秒数（已过期 → 0）。
+    fn remaining_seconds(self, now_unix_seconds: i64) -> u64 {
+        (self.reset_unix_seconds - now_unix_seconds).max(0) as u64
+    }
 }
 
 impl HttpFailure {
     /// 可读描述（手动检查 / 下载失败直出）。
+    ///
+    /// **403/429 特殊处理**：GitHub 对未认证 API 请求按**出口 IP** 限
+    /// 60 次/小时，被限时返回的 403 响应体写着“rate limit exceeded for
+    /// {ip}”并附 `X-RateLimit-Reset`。裸 `HTTP 403` 会让用户以为是“被禁止/
+    /// 需要登录”，从而反复点击重试（只会继续消耗配额）——这里把恢复时刻
+    /// 折算成人类可读的“约 N 分钟后重试”。
     fn describe(&self) -> String {
         match self {
             HttpFailure::Timeout => "request timed out".to_string(),
-            HttpFailure::Status(status) => format!("HTTP {status}"),
+            HttpFailure::Status { code, rate_limit } => match rate_limit {
+                Some(limit) if *code == 403 || *code == 429 => {
+                    let now = unix_now_seconds();
+                    let remaining = limit.remaining_seconds(now);
+                    if remaining == 0 {
+                        format!(
+                            "HTTP {code}: GitHub API rate limit reached (unauthenticated limit is 60 requests/hour per IP); it should reset within a minute, please retry"
+                        )
+                    } else {
+                        let minutes = remaining.div_ceil(60);
+                        format!(
+                            "HTTP {code}: GitHub API rate limit reached for this network's IP address (unauthenticated limit is 60 requests/hour); retry in about {minutes} min"
+                        )
+                    }
+                }
+                _ => format!("HTTP {code}"),
+            },
             HttpFailure::Network(message) => message.clone(),
         }
     }
+}
+
+/// 当前 unix 秒（限流剩余时间计算用；系统时钟回退按 0 处理）。
+fn unix_now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// 从响应头提取限流恢复时刻：优先 `X-RateLimit-Reset`（unix 秒），
+/// 退化到 `Retry-After`（秒或 HTTP-date；只支持秒）。
+fn rate_limit_from_headers(response: &ureq::Response) -> Option<RateLimit> {
+    if let Some(reset) = response
+        .header("X-RateLimit-Reset")
+        .and_then(|value| value.trim().parse::<i64>().ok())
+    {
+        return Some(RateLimit {
+            reset_unix_seconds: reset,
+        });
+    }
+    response
+        .header("Retry-After")
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .map(|seconds| RateLimit {
+            reset_unix_seconds: unix_now_seconds() + seconds.max(0),
+        })
 }
 
 /// ureq 2.x 的超时信号判定（exchange_rate.rs 同款：ErrorKind::Io +
@@ -84,7 +160,15 @@ fn transport_is_timeout(transport: &ureq::Transport) -> bool {
 
 fn http_failure(error: ureq::Error) -> HttpFailure {
     match error {
-        ureq::Error::Status(status, _) => HttpFailure::Status(status),
+        // 只有 403/429 才可能是限流；其余状态码不采限流头（避免噪声）。
+        ureq::Error::Status(code, response) => HttpFailure::Status {
+            code,
+            rate_limit: if code == 403 || code == 429 {
+                rate_limit_from_headers(&response)
+            } else {
+                None
+            },
+        },
         ureq::Error::Transport(transport) => {
             if transport_is_timeout(&transport) {
                 HttpFailure::Timeout
@@ -151,6 +235,19 @@ fn http_open_stream(
     }
 }
 
+/// [`HttpFailure`] → 平台错误，并把限流恢复时刻折算成 `retry_after_seconds`
+/// （v1.0.13：让应用层能精确退避，而不是按固定间隔盲试）。
+fn failure_to_update_error(failure: HttpFailure) -> PlatformError {
+    let retry_after = match &failure {
+        HttpFailure::Status {
+            rate_limit: Some(limit),
+            ..
+        } => Some(limit.remaining_seconds(unix_now_seconds())),
+        _ => None,
+    };
+    PlatformError::update_retry_after(failure.describe(), retry_after)
+}
+
 /// 更新服务（GitHub Releases 实现）。
 #[derive(Debug, Clone)]
 pub struct GitHubUpdateService {
@@ -187,19 +284,86 @@ impl GitHubUpdateService {
         current_version: &str,
         timeout: Duration,
     ) -> Result<Option<UpdateInfo>, PlatformError> {
-        let body = http_get_text(endpoint, timeout)
-            .map_err(|failure| PlatformError::Update(failure.describe()))?;
+        let body = http_get_text(endpoint, timeout).map_err(failure_to_update_error)?;
         let info = parse_github_release_response(&body)
-            .map_err(|error| PlatformError::Update(error.to_string()))?;
+            .map_err(|error| PlatformError::update(error.to_string()))?;
         let has_update = is_newer(&info.version, current_version)
-            .map_err(|error| PlatformError::Update(error.to_string()))?;
+            .map_err(|error| PlatformError::update(error.to_string()))?;
         Ok(if has_update { Some(info) } else { None })
+    }
+
+    /// Atom 通道（**零 API 配额**，主通道）的可注入端点版本。
+    ///
+    /// Atom 源只给版本标签与发布说明，没有 `assets[]`：资产按发布约定
+    /// 拼装（[`release_download_url`] / [`release_sidecar_url`]），下载侧
+    /// 仍由 `.sha512` 边车把关。`size` 未知记 0——下载时以
+    /// `Content-Length` 为准（[`download_asset`] 的 `expected_size == 0`
+    /// 分支即为此预留）。
+    fn latest_from_atom(
+        endpoint: &str,
+        current_version: &str,
+        timeout: Duration,
+    ) -> Result<Option<UpdateInfo>, PlatformError> {
+        let body = http_get_text(endpoint, timeout).map_err(failure_to_update_error)?;
+        let release =
+            parse_releases_atom(&body).map_err(|error| PlatformError::update(error.to_string()))?;
+        let has_update = is_newer(&release.version, current_version)
+            .map_err(|error| PlatformError::update(error.to_string()))?;
+        if !has_update {
+            return Ok(None);
+        }
+        Ok(Some(UpdateInfo {
+            assets: vec![
+                ReleaseAsset {
+                    name: cabin_core::updater::update_download_asset_name(&release.version),
+                    url: release_download_url(&release.tag, &release.version),
+                    size: 0,
+                },
+                ReleaseAsset {
+                    name: cabin_core::updater::update_sidecar_asset_name(&release.version),
+                    url: release_sidecar_url(&release.tag, &release.version),
+                    size: 0,
+                },
+            ],
+            version: release.version,
+            notes: release.notes,
+        }))
+    }
+
+    /// 生产检查入口：**Atom 优先，API 兜底**。
+    ///
+    /// 只有“Atom 通道不可用”（网络/解析/标签形态）才回退 API——回退决策
+    /// 不区分错误种类，因为 API 兜底对任何一种 Atom 失败都可能有价值，
+    /// 而 API 自身的 403 限流错误会带恢复时刻（见 [`HttpFailure::describe`]）。
+    /// 两个通道都失败时上报 **API 的错误**：它信息量更大（限流恢复时刻）。
+    fn check_latest(
+        atom_endpoint: &str,
+        api_endpoint: &str,
+        current_version: &str,
+        timeout: Duration,
+    ) -> Result<Option<UpdateInfo>, PlatformError> {
+        match Self::latest_from_atom(atom_endpoint, current_version, timeout) {
+            Ok(result) => Ok(result),
+            Err(atom_error) => {
+                eprintln!(
+                    "CommandCabin: atom update check failed ({atom_error}), falling back to API"
+                );
+                Self::latest_from(api_endpoint, current_version, timeout).map_err(|api_error| {
+                    let retry_after = api_error.retry_after_seconds();
+                    PlatformError::update_retry_after(
+                        format!("{api_error} (atom channel also failed: {atom_error})"),
+                        retry_after,
+                    )
+                })
+            }
+        }
     }
 }
 
 impl UpdateService for GitHubUpdateService {
     fn latest(&self, current_version: &str) -> Result<Option<UpdateInfo>, PlatformError> {
-        Self::latest_from(
+        Self::check_latest(
+            GITHUB_RELEASES_ATOM_ENDPOINT,
             GITHUB_RELEASES_LATEST_ENDPOINT,
             current_version,
             self.check_timeout,
@@ -561,6 +725,26 @@ mod tests {
         http_response_bytes(status_line, content_type, body.as_bytes())
     }
 
+    /// 带额外响应头（限流头测试用）。
+    fn http_response_with_headers(
+        status_line: &str,
+        content_type: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> Vec<u8> {
+        let mut response = format!("{status_line}\r\nContent-Type: {content_type}\r\n");
+        for (name, value) in headers {
+            response.push_str(&format!("{name}: {value}\r\n"));
+        }
+        response.push_str(&format!(
+            "Content-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        ));
+        let mut bytes = response.into_bytes();
+        bytes.extend_from_slice(body.as_bytes());
+        bytes
+    }
+
     fn http_response_bytes(status_line: &str, content_type: &str, body: &[u8]) -> Vec<u8> {
         let mut response = format!(
             "{status_line}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -610,6 +794,21 @@ mod tests {
 
     const VERSION: &str = "1.2.3";
     const ASSET_NAME: &str = "CommandCabin-Setup-1.2.3.exe";
+
+    /// Atom 源的最小形状（只含检查所需字段）。
+    fn release_atom() -> String {
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>tag:github.com,2008:Repository/1/v1.2.3</id>
+    <link rel="alternate" type="text/html" href="https://github.com/RupingLiu/command-cabin/releases/tag/v1.2.3"/>
+    <title>CommandCabin v1.2.3</title>
+    <content type="html">&lt;h1&gt;CommandCabin v1.2.3&lt;/h1&gt;
+&lt;p&gt;release notes&lt;/p&gt;</content>
+  </entry>
+</feed>"#
+            .to_string()
+    }
 
     fn release_json() -> String {
         serde_json::json!({
@@ -763,6 +962,236 @@ mod tests {
             elapsed < Duration::from_millis(1_500),
             "elapsed {elapsed:?}"
         );
+    }
+
+    // ---- Atom 通道（v1.0.13 零配额主通道）----
+
+    #[test]
+    fn atom_channel_returns_version_notes_and_constructed_asset_urls() {
+        let mut server = MockServer::single(http_response(
+            "HTTP/1.1 200 OK",
+            "application/atom+xml",
+            &release_atom(),
+        ));
+        let info = GitHubUpdateService::latest_from_atom(
+            &server.url("/releases.atom"),
+            "1.0.0",
+            Duration::from_secs(5),
+        )
+        .expect("atom check succeeds")
+        .expect("newer version");
+
+        assert_eq!(info.version, VERSION);
+        assert_eq!(
+            info.notes.as_deref(),
+            Some("CommandCabin v1.2.3\nrelease notes")
+        );
+        // 资产按发布约定拼装；size 未知记 0（下载时以 Content-Length 为准）。
+        assert_eq!(info.assets.len(), 2);
+        assert_eq!(info.assets[0].name, ASSET_NAME);
+        assert_eq!(
+            info.assets[0].url,
+            "https://github.com/RupingLiu/command-cabin/releases/download/v1.2.3/CommandCabin-Setup-1.2.3.exe"
+        );
+        assert_eq!(info.assets[0].size, 0);
+        assert_eq!(info.assets[1].name, "CommandCabin-Setup-1.2.3.exe.sha512");
+        assert_eq!(
+            info.assets[1].url,
+            "https://github.com/RupingLiu/command-cabin/releases/download/v1.2.3/CommandCabin-Setup-1.2.3.exe.sha512"
+        );
+        assert_eq!(info.assets[1].size, 0);
+
+        // 请求形状：路径 + UA。
+        let request = &server.captured_requests()[0];
+        assert!(
+            request.starts_with("GET /releases.atom HTTP/1.1"),
+            "{request}"
+        );
+        assert!(request.to_ascii_lowercase().contains("user-agent:"));
+    }
+
+    #[test]
+    fn atom_channel_returns_none_when_not_newer() {
+        let mut server = MockServer::start(2, move |_| {
+            http_response("HTTP/1.1 200 OK", "application/atom+xml", &release_atom())
+        });
+        let endpoint = server.url("/releases.atom");
+        assert_eq!(
+            GitHubUpdateService::latest_from_atom(&endpoint, VERSION, Duration::from_secs(5))
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            GitHubUpdateService::latest_from_atom(&endpoint, "2.0.0", Duration::from_secs(5))
+                .unwrap(),
+            None
+        );
+        server.captured_requests();
+    }
+
+    /// 生产入口的通道顺序：Atom 用 `/releases.atom`，API 用 `/releases/latest`。
+    /// 两边都给 1.2.3 时，只应由 Atom 满足（一次请求）。
+    #[test]
+    fn check_latest_prefers_the_atom_channel() {
+        let mut server = MockServer::start(1, move |_| {
+            http_response("HTTP/1.1 200 OK", "application/atom+xml", &release_atom())
+        });
+        let info = GitHubUpdateService::check_latest(
+            &server.url("/releases.atom"),
+            &server.url("/releases/latest"),
+            "1.0.0",
+            Duration::from_secs(5),
+        )
+        .expect("check succeeds")
+        .expect("newer version");
+        assert_eq!(info.version, VERSION);
+        let requests = server.captured_requests();
+        assert_eq!(requests.len(), 1, "API must not be touched: {requests:?}");
+        assert!(
+            requests[0].starts_with("GET /releases.atom"),
+            "{requests:?}"
+        );
+    }
+
+    /// Atom 通道失败 → 回退 API，且不把 Atom 的错误当最终错误。
+    #[test]
+    fn check_latest_falls_back_to_the_api_when_atom_fails() {
+        let atom = http_response("HTTP/1.1 500 Internal Server Error", "text/plain", "boom");
+        let api = http_response("HTTP/1.1 200 OK", "application/json", &release_json());
+        let mut server = MockServer::start(2, move |index| match index {
+            0 => atom.clone(),
+            _ => api.clone(),
+        });
+        let info = GitHubUpdateService::check_latest(
+            &server.url("/releases.atom"),
+            &server.url("/releases/latest"),
+            "1.0.0",
+            Duration::from_secs(5),
+        )
+        .expect("api fallback succeeds")
+        .expect("newer version");
+        assert_eq!(info.version, VERSION);
+        let requests = server.captured_requests();
+        assert_eq!(requests.len(), 2, "{requests:?}");
+        assert!(
+            requests[0].starts_with("GET /releases.atom"),
+            "{requests:?}"
+        );
+        assert!(
+            requests[1].starts_with("GET /releases/latest"),
+            "{requests:?}"
+        );
+    }
+
+    /// 两个通道都失败：报 API 的错误（信息量更大），并附上 Atom 的失败原因。
+    #[test]
+    fn check_latest_reports_the_api_error_when_both_channels_fail() {
+        let atom = http_response(
+            "HTTP/1.1 500 Internal Server Error",
+            "text/plain",
+            "atom down",
+        );
+        let api = http_response(
+            "HTTP/1.1 500 Internal Server Error",
+            "text/plain",
+            "api down",
+        );
+        let mut server = MockServer::start(2, move |index| match index {
+            0 => atom.clone(),
+            _ => api.clone(),
+        });
+        let error = GitHubUpdateService::check_latest(
+            &server.url("/releases.atom"),
+            &server.url("/releases/latest"),
+            "1.0.0",
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+        server.captured_requests();
+        let message = error.to_string();
+        assert!(message.contains("HTTP 500"), "{message}");
+        assert!(message.contains("atom channel also failed"), "{message}");
+    }
+
+    // ---- 限流错误可读化（v1.0.13） ----
+
+    /// 403 + `X-RateLimit-Reset`：提示带“约 N 分钟后重试”，不再是裸 HTTP 403。
+    #[test]
+    fn rate_limited_403_carries_a_readable_retry_hint() {
+        let reset = unix_now_seconds() + 900; // 15 分钟后恢复
+        let mut server = MockServer::single(http_response_with_headers(
+            "HTTP/1.1 403 Forbidden",
+            "application/json",
+            &[
+                ("X-RateLimit-Limit", "60"),
+                ("X-RateLimit-Remaining", "0"),
+                ("X-RateLimit-Reset", &reset.to_string()),
+            ],
+            r#"{"message":"API rate limit exceeded"}"#,
+        ));
+        let error = GitHubUpdateService::latest_from(
+            &server.url("/releases/latest"),
+            "1.0.0",
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+        server.captured_requests();
+        let message = error.to_string();
+        assert!(message.contains("HTTP 403"), "{message}");
+        assert!(message.contains("rate limit"), "{message}");
+        assert!(message.contains("15 min"), "{message}");
+        assert!(message.contains("60 requests/hour"), "{message}");
+    }
+
+    /// `Retry-After`（秒）也认；已过期的 reset → 提示“一分钟内重试”。
+    #[test]
+    fn rate_limit_falls_back_to_retry_after_and_handles_expired_resets() {
+        let mut server = MockServer::start(2, |index| {
+            if index == 0 {
+                http_response_with_headers(
+                    "HTTP/1.1 429 Too Many Requests",
+                    "application/json",
+                    &[("Retry-After", "120")],
+                    "{}",
+                )
+            } else {
+                http_response_with_headers(
+                    "HTTP/1.1 403 Forbidden",
+                    "application/json",
+                    &[("X-RateLimit-Reset", "1")],
+                    "{}",
+                )
+            }
+        });
+        let endpoint = server.url("/releases/latest");
+        let first = GitHubUpdateService::latest_from(&endpoint, "1.0.0", Duration::from_secs(5))
+            .unwrap_err()
+            .to_string();
+        let second = GitHubUpdateService::latest_from(&endpoint, "1.0.0", Duration::from_secs(5))
+            .unwrap_err()
+            .to_string();
+        server.captured_requests();
+        assert!(first.contains("2 min"), "{first}");
+        assert!(second.contains("within a minute"), "{second}");
+    }
+
+    /// 非 403/429 的状态码不带限流话术（避免把 500 说成限流）。
+    #[test]
+    fn non_rate_limit_status_codes_stay_plain() {
+        let mut server = MockServer::single(http_response_with_headers(
+            "HTTP/1.1 503 Service Unavailable",
+            "text/plain",
+            &[("X-RateLimit-Reset", "9999999999")],
+            "down",
+        ));
+        let error = GitHubUpdateService::latest_from(
+            &server.url("/releases/latest"),
+            "1.0.0",
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+        server.captured_requests();
+        assert_eq!(error.to_string(), "update check failed: HTTP 503");
     }
 
     // ---- download：边车 + 流式落盘 + 校验 ----
@@ -1114,42 +1543,100 @@ mod tests {
 
     /// 真实端点探针（需要外网；默认忽略）。运行：
     /// `cargo test -p cabin-platform-windows -- --ignored real_endpoint_probe`。
-    /// 打印 live 状态：200 → 版本与资产数（要求 UA 被接受、响应可被核心层
-    /// 解析）；404 → 仓库尚无发布（客户端基建本身工作正常）；其余 → 失败。
+    /// **两个通道都探测**：Atom（主通道，零 API 配额）与 API（兜底）。
+    /// 任一通道可解析即算通过；两通道都 404 → 仓库尚无发布（基础设施正常）；
+    /// 其余 → 失败。API 的 403 会打印可读的限流提示——这正是 v1.0.12 反馈
+    /// 的场景，探针要能重现它。
     #[test]
     #[ignore = "requires internet access; real endpoint probe"]
     fn real_endpoint_probe() {
         let started = std::time::Instant::now();
-        match http_get_text(
-            GITHUB_RELEASES_LATEST_ENDPOINT,
-            Duration::from_millis(DEFAULT_UPDATE_CHECK_TIMEOUT_MS),
-        ) {
+        let timeout = Duration::from_millis(DEFAULT_UPDATE_CHECK_TIMEOUT_MS);
+
+        let atom = http_get_text(GITHUB_RELEASES_ATOM_ENDPOINT, timeout);
+        match &atom {
+            Ok(body) => match parse_releases_atom(body) {
+                Ok(release) => println!(
+                    "probe: atom OK in {:?} version={} tag={} notes={}",
+                    started.elapsed(),
+                    release.version,
+                    release.tag,
+                    release.notes.is_some(),
+                ),
+                Err(error) => println!("probe: atom body unparseable: {error}"),
+            },
+            Err(failure) => println!("probe: atom failed: {}", failure.describe()),
+        }
+
+        let api_started = std::time::Instant::now();
+        match http_get_text(GITHUB_RELEASES_LATEST_ENDPOINT, timeout) {
             Ok(body) => {
                 let info = parse_github_release_response(&body)
                     .expect("live endpoint should return a parseable release");
                 let installer = cabin_core::updater::find_installer_asset(&info);
                 println!(
-                    "probe: OK in {:?} version={} assets={} installer_asset={:?}",
-                    started.elapsed(),
+                    "probe: api OK in {:?} version={} assets={} installer_asset={:?}",
+                    api_started.elapsed(),
                     info.version,
                     info.assets.len(),
                     installer.map(|asset| asset.name.as_str()),
                 );
             }
-            Err(HttpFailure::Status(404)) => {
+            Err(HttpFailure::Status { code: 404, .. }) => {
                 println!(
-                    "probe: endpoint reachable but no releases published yet (404) in {:?}",
-                    started.elapsed()
+                    "probe: api reachable but no releases published yet (404) in {:?}",
+                    api_started.elapsed()
                 );
             }
-            Err(failure) => {
-                panic!(
-                    "real endpoint probe failed after {:?}: {}",
+            Err(failure) => println!("probe: api failed: {}", failure.describe()),
+        }
+
+        // 至少一个通道可用即通过（这正是生产的兜底语义）。
+        if atom.is_err() {
+            match http_get_text(GITHUB_RELEASES_ATOM_ENDPOINT, timeout) {
+                Ok(_) => {}
+                Err(failure) => panic!(
+                    "both update channels failed after {:?}: {}",
                     started.elapsed(),
                     failure.describe()
-                )
+                ),
             }
         }
+    }
+
+    /// 端到端真机探针（需外网；默认忽略）：Atom 检查 → 按约定构造下载直链
+    /// → 取 `.sha512` 边车 → 流式下载到临时文件 → 尺寸/摘要双重校验。
+    ///
+    /// 覆盖 v1.0.13 的新路径组合：Atom 通道不给 `size`（`expected_size == 0`，
+    /// 以 `Content-Length` 为准），资产 URL 由约定拼装而非 API 返回。
+    /// 运行：`cargo test -p cabin-platform-windows -- --ignored atom_download_probe`
+    #[test]
+    #[ignore = "requires internet access; downloads the real installer"]
+    fn atom_download_probe() {
+        let timeout = Duration::from_millis(DEFAULT_UPDATE_CHECK_TIMEOUT_MS);
+        let body =
+            http_get_text(GITHUB_RELEASES_ATOM_ENDPOINT, timeout).expect("atom endpoint reachable");
+        let release = parse_releases_atom(&body).expect("atom feed parses");
+
+        let asset = ReleaseAsset {
+            name: cabin_core::updater::update_download_asset_name(&release.version),
+            url: release_download_url(&release.tag, &release.version),
+            size: 0,
+        };
+        let dir = TempDir::create("cabin-platform-atom-download");
+        let to = dir.path(&asset.name);
+        let started = std::time::Instant::now();
+        GitHubUpdateService::new()
+            .download(&asset, &to, None)
+            .expect("verified download via constructed URL");
+        let size = std::fs::metadata(&to).expect("downloaded file").len();
+        println!(
+            "probe: atom download OK in {:?} version={} size={size}",
+            started.elapsed(),
+            release.version
+        );
+        assert!(size > 1_000_000, "installer should be megabytes: {size}");
+        assert_eq!(dir.leftover_files(), vec![asset.name.clone()]);
     }
 
     /// 命名约定自检：本测试的资产名与 Task 4 将产出的安装包名一致。

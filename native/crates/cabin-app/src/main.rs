@@ -1195,9 +1195,10 @@ fn apply_update_views(
 }
 
 /// 发起一次更新检查（TS `checkForUpdates(bypassCooldown)`：manual=false 即
-/// bypass 的自动检查）。准入被拒（忙态 / 冷却 / 禁用）静默返回（TS 返回当前
-/// status）。准入后：checking 推送 → 工作线程 `latest()` → 回 UI 线程转移。
-/// 自动检查失败静默回 Idle（计划全局约束），手动失败直出可读错误。
+/// bypass 的自动检查）。准入被拒（忙态 / 冷却 / 禁用 / v1.0.13 失败退避）
+/// 静默返回（TS 返回当前 status）。准入后：checking 推送 → 工作线程
+/// `latest()` → 回 UI 线程转移。自动检查失败静默回 Idle（计划全局约束），
+/// 手动失败直出可读错误；**两者都把服务端限流建议传给编排层做退避**。
 fn start_update_check(context: &Arc<AppContext>, manual: bool) {
     append_diag_log(&format!("update check start (manual={manual})"));
     let admitted = {
@@ -1218,8 +1219,14 @@ fn start_update_check(context: &Arc<AppContext>, manual: bool) {
     std::thread::spawn(move || {
         let result = GitHubUpdateService::new().latest(CURRENT_APP_VERSION);
         let _ = slint::invoke_from_event_loop(move || {
+            // 失败时把限流恢复建议（秒）带到编排层，用于自动检查退避。
+            let retry_after = result
+                .as_ref()
+                .err()
+                .and_then(|error| error.retry_after_seconds());
             let became_available = {
                 let mut guard = context.state.lock().unwrap();
+                let now_ms = unix_millis();
                 match result {
                     Ok(None) => {
                         guard.update.finish_check_up_to_date(None);
@@ -1234,13 +1241,17 @@ fn start_update_check(context: &Arc<AppContext>, manual: bool) {
                     }
                     Err(error) if manual => {
                         append_diag_log(&format!("update check failed (manual): {error}"));
-                        guard.update.finish_check_failed(error.to_string());
+                        guard
+                            .update
+                            .finish_check_failed_at(error.to_string(), now_ms, retry_after);
                         false
                     }
                     Err(error) => {
-                        append_diag_log(&format!("update check failed (auto): {error}"));
+                        append_diag_log(&format!(
+                            "update check failed (auto): {error} (backoff {retry_after:?}s)"
+                        ));
                         eprintln!("CommandCabin: automatic update check failed: {error}");
-                        guard.update.recover_silent_check();
+                        guard.update.recover_silent_check_at(now_ms, retry_after);
                         false
                     }
                 }

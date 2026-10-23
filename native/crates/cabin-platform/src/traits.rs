@@ -52,12 +52,52 @@ pub enum PlatformError {
     // M5 Task 1：更新检查失败路径（HTTP 非 2xx / 超时 / 传输失败 / 响应解析
     // 失败 / 版本串非法）。自动检查静默跳过、手动检查直出消息（对齐 TS
     // 更新器失败语义）。消息可读。
-    #[error("update check failed: {0}")]
-    Update(String),
+    //
+    // v1.0.13：`retry_after_seconds` 承载**服务端建议的重试间隔**（GitHub
+    // 限流头的 `X-RateLimit-Reset` / `Retry-After` 折算成剩余秒数）。调用方
+    // 用它设置自动检查退避——裸 `HTTP 403` 无法区分“配额用尽、14:04 恢复”
+    // 与“权限不足”，退避窗口会退化成瞎猜。
+    #[error("update check failed: {message}")]
+    Update {
+        message: String,
+        retry_after_seconds: Option<u64>,
+    },
     // M5 Task 1：更新下载失败路径（边车/资产取数失败、校验不符、尺寸不符、
     // 落盘失败）。安全红线：缺 .sha512 边车或校验失败 → 拒绝并删除临时文件。
     #[error("update download failed: {0}")]
     UpdateDownload(String),
+}
+
+impl PlatformError {
+    /// 更新检查失败（无服务端重试建议的形态，如解析失败/版本非法）。
+    pub fn update(message: impl Into<String>) -> Self {
+        Self::Update {
+            message: message.into(),
+            retry_after_seconds: None,
+        }
+    }
+
+    /// 更新检查失败 + 服务端建议的重试间隔（限流头折算的剩余秒数）。
+    pub fn update_retry_after(
+        message: impl Into<String>,
+        retry_after_seconds: Option<u64>,
+    ) -> Self {
+        Self::Update {
+            message: message.into(),
+            retry_after_seconds,
+        }
+    }
+
+    /// 服务端建议的重试间隔（秒）；非 `Update` 变体或无建议 → None。
+    pub fn retry_after_seconds(&self) -> Option<u64> {
+        match self {
+            Self::Update {
+                retry_after_seconds,
+                ..
+            } => *retry_after_seconds,
+            _ => None,
+        }
+    }
 }
 
 /// 登录自启动参数；带该参数启动的实例不显示窗口（对齐 TS launchAtLogin.ts）。
@@ -239,10 +279,15 @@ mod tests {
 
     #[test]
     fn update_error_variants_format() {
-        let err = PlatformError::Update("HTTP 403".into());
+        let err = PlatformError::update("HTTP 403");
         assert_eq!(err.to_string(), "update check failed: HTTP 403");
+        assert_eq!(err.retry_after_seconds(), None);
+        let err = PlatformError::update_retry_after("HTTP 403: rate limit", Some(900));
+        assert_eq!(err.to_string(), "update check failed: HTTP 403: rate limit");
+        assert_eq!(err.retry_after_seconds(), Some(900));
         let err = PlatformError::UpdateDownload("checksum mismatch".into());
         assert_eq!(err.to_string(), "update download failed: checksum mismatch");
+        assert_eq!(err.retry_after_seconds(), None);
     }
 
     /// M5 Task 1：更新服务 trait 的对象安全 / Send+Sync / 决策路由。
@@ -260,7 +305,7 @@ mod tests {
                     assets: Vec::new(),
                 };
                 if cabin_core::updater::is_newer(&info.version, current_version)
-                    .map_err(|error| PlatformError::Update(error.to_string()))?
+                    .map_err(|error| PlatformError::update(error.to_string()))?
                 {
                     Ok(Some(info))
                 } else {
@@ -317,7 +362,7 @@ mod tests {
 
         impl UpdateService for FailingService {
             fn latest(&self, _current_version: &str) -> Result<Option<UpdateInfo>, PlatformError> {
-                Err(PlatformError::Update("HTTP 500".into()))
+                Err(PlatformError::update("HTTP 500"))
             }
 
             fn download(

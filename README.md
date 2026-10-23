@@ -23,6 +23,8 @@
 </p>
 
 <p align="center">
+  <a href="./README.en.md">English README</a>
+  ·
   <a href="#界面预览">界面预览</a>
   ·
   <a href="#核心能力">核心能力</a>
@@ -39,10 +41,18 @@
 ## 界面预览
 
 <p align="center">
-  <img src="./docs/assets/screenshots/launcher-home.png" alt="CommandCabin 启动器主页" width="960" />
+  <img src="./docs/assets/screenshots/launcher-home.png" alt="CommandCabin 启动器首页" width="620" />
 </p>
 
-启动器采用暖色到蓝色的轻量渐变视觉。空查询时展示固定应用网格、「首页功能」入口和最近使用；输入即切换到搜索结果，方向键选择、回车执行。
+<p align="center"><sub>空查询首页：固定应用网格、「首页功能」入口与最近使用</sub></p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/launcher-search.png" alt="CommandCabin 搜索结果" width="620" />
+</p>
+
+<p align="center"><sub>输入即切换到搜索结果：方向键选择，回车执行</sub></p>
+
+启动器采用暖色到蓝色的轻量渐变视觉，界面由 Slint 原生渲染，无浏览器内核参与。
 
 ## 产品定位
 

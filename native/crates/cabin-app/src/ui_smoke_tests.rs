@@ -1309,3 +1309,96 @@ fn live_update_download_and_install_prompt() {
     launcher.hide().unwrap();
     settings.hide().unwrap();
 }
+
+/// 生成 README / 文档用界面预览图（`CABIN_UI_SNAPSHOT_DIR` 指定输出目录）。
+///
+/// 与其它 smoke 测试的区别只在**数据**：这里用贴近真实使用的应用名与查询词，
+/// 而不是 `应用 0 — 长名称测试` 这类断言夹具，产出图可直接放进文档。
+/// 不做行为断言，只验证渲染成功（`render` 内部已断言有实际绘制）。
+#[test]
+fn readme_preview_screenshots() {
+    use cabin_core::settings::Language;
+
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let launcher = LauncherWindow::new().unwrap();
+    let adapter = adapters.borrow()[0].clone();
+    let icon = slint::Image::load_from_path(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/icon.png"),
+    )
+    .unwrap();
+
+    launcher.set_theme_mode(1);
+    launcher.set_hotkey_hint("Alt+Space".into());
+    push_launcher_texts(&launcher, Language::ZhCn);
+
+    // ---- 1. 空查询首页：固定应用网格 + 首页功能入口 ----
+    let titles = [
+        "Visual Studio Code",
+        "Clash Verge",
+        "MATLAB R2025b",
+        "draw.io",
+        "WPS Office",
+        "Beyond Compare 5",
+        "UGit",
+        "ZCANPRO",
+    ];
+    let tiles: Vec<_> = titles
+        .iter()
+        .enumerate()
+        .map(|(index, title)| PinnedTile {
+            title: (*title).into(),
+            icon: icon.clone(),
+            command_id: format!("app.{index}").into(),
+        })
+        .collect();
+    set_home_tiles(&launcher, &tiles);
+    launcher.set_selected_tile(-1);
+    launcher.set_current_query("".into());
+    launcher.show().unwrap();
+    render(&adapter, "readme-home", 640., 520., 2.0);
+
+    // ---- 2. 搜索结果：输入 query 后的列表形态 ----
+    let results = [
+        (
+            "Visual Studio Code",
+            r"C:\Program Files\Microsoft VS Code\Code.exe",
+        ),
+        (
+            "Visual Studio Code - Insiders",
+            r"C:\Program Files\Microsoft VS Code Insiders\Code - Insiders.exe",
+        ),
+        (
+            "Visual Studio Installer",
+            r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\setup.exe",
+        ),
+        (
+            "Visio Viewer",
+            r"C:\Program Files\Microsoft Office\root\Office16\VISIO.EXE",
+        ),
+        (
+            "VirtualBox",
+            r"C:\Program Files\Oracle\VirtualBox\VirtualBox.exe",
+        ),
+    ];
+    let items: Vec<ResultItem> = results
+        .iter()
+        .enumerate()
+        .map(|(index, (title, path))| ResultItem {
+            title: (*title).into(),
+            subtitle: (*path).into(),
+            icon: icon.clone(),
+            glyph: "".into(),
+            command_id: format!("app.{index}").into(),
+            app: true,
+            pinned: false,
+            group: "".into(),
+        })
+        .collect();
+    launcher.set_results(ModelRc::new(VecModel::from(items)));
+    launcher.set_current_query("vis".into());
+    launcher.set_selected_index(0);
+    render(&adapter, "readme-search", 640., 520., 2.0);
+
+    launcher.hide().unwrap();
+}

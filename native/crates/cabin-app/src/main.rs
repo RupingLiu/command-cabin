@@ -1925,10 +1925,76 @@ fn hydrate_icon(
 fn image_from_data_url(data_url: &str) -> Option<slint::Image> {
     let bytes = data_url_to_bytes(data_url)?;
     let decoded = image::load_from_memory(&bytes).ok()?;
-    let rgba = decoded.to_rgba8();
+    let rgba = add_contrast_chip_if_needed(decoded.to_rgba8());
     let (width, height) = rgba.dimensions();
     let buffer = slint::SharedPixelBuffer::clone_from_slice(rgba.as_raw(), width, height);
     Some(slint::Image::from_rgba8(buffer))
+}
+
+/// 为透明底的极白/极黑单色图标补中性灰圆角底托。
+///
+/// 部分 packaged app（例如白色 ChatGPT 标志）只提供透明底单色位图；直接画到
+/// 浅色首页会同色隐没（深色主题则轮到黑色标志）。底托在解码层一次生成，磁贴
+/// 与结果行共用，且不依赖当前主题，也无需废弃共享的磁盘图标缓存。彩色、灰色
+/// 及全透明图标逐像素原样返回。
+fn add_contrast_chip_if_needed(icon: image::RgbaImage) -> image::RgbaImage {
+    let mut visible_pixels = 0_u64;
+    let mut channel_sum = 0_u64;
+    let mut monochrome = true;
+    for pixel in icon.pixels().filter(|pixel| pixel[3] > 16) {
+        let [red, green, blue, _] = pixel.0;
+        let darkest = red.min(green).min(blue);
+        let lightest = red.max(green).max(blue);
+        monochrome &= lightest - darkest <= 12;
+        visible_pixels += 1;
+        channel_sum += u64::from(red) + u64::from(green) + u64::from(blue);
+    }
+    let has_transparency = icon.pixels().any(|pixel| pixel[3] <= 16);
+    if visible_pixels == 0 || !has_transparency || !monochrome {
+        return icon;
+    }
+    let mean = channel_sum / (visible_pixels * 3);
+    if !(24..=231).contains(&mean) {
+        return add_rounded_chip(icon);
+    }
+    icon
+}
+
+/// 在原图下方合成约 22% 圆角的灰色底托；原图 alpha 保留用于抗锯齿边缘。
+fn add_rounded_chip(icon: image::RgbaImage) -> image::RgbaImage {
+    const CHIP: [u8; 4] = [99, 114, 124, 255];
+    let (width, height) = icon.dimensions();
+    let radius = f32::from(width.min(height) as u16) * 0.22;
+    let mut output = image::RgbaImage::new(width, height);
+    for (x, y, output_pixel) in output.enumerate_pixels_mut() {
+        let px = x as f32 + 0.5;
+        let py = y as f32 + 0.5;
+        let nearest_x = px.clamp(radius, width as f32 - radius);
+        let nearest_y = py.clamp(radius, height as f32 - radius);
+        let inside = (px - nearest_x).hypot(py - nearest_y) <= radius;
+        let background = if inside { CHIP } else { [0, 0, 0, 0] };
+        *output_pixel = source_over(icon.get_pixel(x, y).0, background);
+    }
+    output
+}
+
+/// 非预乘 RGBA 的 source-over 合成（Slint `from_rgba8` 使用同一像素约定）。
+fn source_over(source: [u8; 4], background: [u8; 4]) -> image::Rgba<u8> {
+    let source_alpha = f32::from(source[3]) / 255.0;
+    let background_alpha = f32::from(background[3]) / 255.0;
+    let output_alpha = source_alpha + background_alpha * (1.0 - source_alpha);
+    if output_alpha == 0.0 {
+        return image::Rgba([0, 0, 0, 0]);
+    }
+    let mut output = [0_u8; 4];
+    for channel in 0..3 {
+        let value = (f32::from(source[channel]) * source_alpha
+            + f32::from(background[channel]) * background_alpha * (1.0 - source_alpha))
+            / output_alpha;
+        output[channel] = value.round().clamp(0.0, 255.0) as u8;
+    }
+    output[3] = (output_alpha * 255.0).round() as u8;
+    image::Rgba(output)
 }
 
 fn hotkey_handler_for(
@@ -3161,6 +3227,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = clipboard_watch_timer;
     let _ = update_check_timer;
     Ok(())
+}
+
+#[cfg(test)]
+mod icon_contrast_tests {
+    use super::*;
+    use image::{Rgba, RgbaImage};
+
+    fn glyph(color: Rgba<u8>) -> RgbaImage {
+        let mut icon = RgbaImage::new(16, 16);
+        for y in 4..12 {
+            for x in 4..12 {
+                icon.put_pixel(x, y, color);
+            }
+        }
+        icon
+    }
+
+    #[test]
+    fn white_transparent_glyph_gets_a_contrasting_chip() {
+        let icon = add_contrast_chip_if_needed(glyph(Rgba([255, 255, 255, 255])));
+
+        assert_eq!(icon.get_pixel(0, 0), &Rgba([0, 0, 0, 0]));
+        assert_eq!(icon.get_pixel(2, 2).0, [99, 114, 124, 255]);
+        assert_eq!(icon.get_pixel(8, 8).0, [255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn black_transparent_glyph_gets_a_contrasting_chip() {
+        let icon = add_contrast_chip_if_needed(glyph(Rgba([0, 0, 0, 255])));
+
+        assert_eq!(icon.get_pixel(2, 2).0, [99, 114, 124, 255]);
+        assert_eq!(icon.get_pixel(8, 8).0, [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn colored_and_mid_gray_icons_keep_their_original_pixels() {
+        for color in [Rgba([20, 120, 220, 255]), Rgba([128, 128, 128, 255])] {
+            let original = glyph(color);
+            assert_eq!(add_contrast_chip_if_needed(original.clone()), original);
+        }
+    }
+
+    #[test]
+    fn opaque_extreme_monochrome_icons_keep_their_original_background() {
+        let original = RgbaImage::from_pixel(16, 16, Rgba([255, 255, 255, 255]));
+        assert_eq!(add_contrast_chip_if_needed(original.clone()), original);
+    }
+
+    #[test]
+    fn fully_transparent_icon_does_not_gain_a_chip() {
+        assert_eq!(
+            add_contrast_chip_if_needed(RgbaImage::new(16, 16)),
+            RgbaImage::new(16, 16)
+        );
+    }
 }
 
 /// 查询管线集成测试（M4 Task 7）：动态槽 × 静态池的引擎合并、剪贴板降级与

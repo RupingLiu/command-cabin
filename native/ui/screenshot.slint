@@ -24,15 +24,15 @@
 // annotation-layer（含选区底图像素，马赛克采样依赖它）；文字标注为矢量 Text
 // 元素叠加（Task 2 决策）。文本提示用 LineEdit（TS 为 textarea 多行：单行化 +
 // Enter 即提交为既定简化差异）。
-import { LineEdit } from "std-widgets.slint";
+import { ComboBox, LineEdit } from "std-widgets.slint";
 
-/// 单个显示器的底图（Rust 侧已解码为位图；坐标为窗口本地逻辑 px）。
+/// 单个显示器的位图与窗口本地物理像素边界。
 export struct ScreenshotDisplayImage {
     image: image,
-    x: length,
-    y: length,
-    width: length,
-    height: length,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
 }
 
 /// 文字标注矢量叠加（选区本地锚点 → 窗口坐标由 Rust 换算）。
@@ -42,10 +42,15 @@ export struct ScreenshotTextAnnotation {
     y: length,
     font-size: length,
     color: color,
+    is-translation: bool,
+    width: length,
+    height: length,
+    padding: length,
 }
 
 /// 工具栏/提示文案（Rust 侧 i18n 按设置语言推送；键名对齐 TS screenshot.*）。
 export struct ScreenshotTexts {
+    drag-to-select: string,
     tool-rectangle: string,
     tool-ellipse: string,
     tool-arrow: string,
@@ -56,6 +61,9 @@ export struct ScreenshotTexts {
     redo: string,
     ocr: string,
     translate: string,
+    target-language: string,
+    copy-original: string,
+    copy-translation: string,
     pin: string,
     save: string,
     cancel: string,
@@ -96,8 +104,8 @@ component tool-button inherits Rectangle {
 
 export component ScreenshotWindow inherits Window {
     // 窗口尺寸/位置由 Rust 侧按虚拟桌面边界设置（set_position + 本属性）。
-    in-out property <length> bounds-width: 800px;
-    in-out property <length> bounds-height: 600px;
+    in property <float> bounds-width: 800;
+    in property <float> bounds-height: 600;
     in property <[ScreenshotDisplayImage]> displays: [];
     /// 标注层（含选区底图 + 栅格标注 + 草稿），Rust 侧整层重绘推送。
     in property <image> annotation-layer;
@@ -149,6 +157,13 @@ export component ScreenshotWindow inherits Window {
     callback redo-requested();
     callback ocr-requested();
     callback translate-requested();
+    in-out property <int> target-language-choice;
+    in property <bool> translating;
+    in property <bool> translation-retry;
+    callback target-language-selected(int);
+    in property <string> translated-text;
+    in property <string> original-text;
+    callback copy-text-requested(string);
     callback pin-requested();
     callback save-requested();
     callback finish-requested();
@@ -168,8 +183,8 @@ export component ScreenshotWindow inherits Window {
     no-frame: true;
     always-on-top: true;
     background: transparent;
-    width: root.bounds-width;
-    height: root.bounds-height;
+    width: root.bounds-width * 1phx;
+    height: root.bounds-height * 1phx;
     forward-focus: key-scope;
     title: "CommandCabin Screenshot";
 
@@ -203,10 +218,25 @@ export component ScreenshotWindow inherits Window {
     // 底图（各显示器，窗口本地逻辑坐标；先声明 = 输入层级最低）。
     for display in root.displays: Image {
         source: display.image;
-        x: display.x;
-        y: display.y;
-        width: display.width;
-        height: display.height;
+        x: display.x * 1phx;
+        y: display.y * 1phx;
+        width: display.width * 1phx;
+        height: display.height * 1phx;
+        if !root.has-selection: Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 16px;
+            width: min(parent.width, hint.preferred-width + 28px);
+            height: 34px;
+            background: #121826ed;
+            border-radius: 8px;
+            hint := Text {
+                text: root.texts.drag-to-select;
+                color: #f9fafb;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
     }
 
     // 选区外暗化（TS box-shadow 0 0 0 9999px rgba(15,17,23,.22) 的四矩形近似）。
@@ -249,13 +279,23 @@ export component ScreenshotWindow inherits Window {
     }
 
     // 文字标注矢量叠加（锚点在选区左上，窗口坐标由 Rust 换算）。
-    for annotation in root.text-annotations: Text {
-        text: annotation.text;
+    for annotation in root.text-annotations: Rectangle {
         x: annotation.x;
         y: annotation.y;
-        font-size: annotation.font-size;
-        color: annotation.color;
-        wrap: no-wrap;
+        width: annotation.is-translation ? annotation.width : label.preferred-width;
+        height: annotation.is-translation ? annotation.height : label.preferred-height;
+        background: annotation.is-translation ? #ffffff : transparent;
+        clip: annotation.is-translation;
+        label := Text {
+            x: annotation.is-translation ? min(annotation.padding, parent.width / 8) : 0px;
+            width: parent.width - 2 * self.x;
+            height: parent.height;
+            text: annotation.text;
+            font-size: annotation.font-size;
+            color: annotation.color;
+            wrap: annotation.is-translation ? word-wrap : no-wrap;
+            vertical-alignment: center;
+        }
     }
 
     // 选区边框（TS 实线 1px 强调色）+ 尺寸徽标。
@@ -345,12 +385,12 @@ export component ScreenshotWindow inherits Window {
     }
 
     // 工具栏（ready 相位显示；尺寸固定，Rust 侧放置常量须同步
-    // TOOLBAR_WIDTH = 520 / TOOLBAR_HEIGHT = 88）。
+    // TOOLBAR_WIDTH = 520 / TOOLBAR_HEIGHT = 122）。
     if root.has-selection: Rectangle {
         x: root.toolbar-x;
         y: root.toolbar-y;
         width: 520px;
-        height: 88px;
+        height: 122px;
         border-radius: 10px;
         background: #121826ad;
         border-width: 1px;
@@ -518,15 +558,17 @@ export component ScreenshotWindow inherits Window {
                 }
 
                 tool-button {
-                    label: root.texts.ocr;
+                    label: root.translated-text == "" ? root.texts.ocr : root.texts.copy-original;
                     clicked => {
-                        root.ocr-requested();
+                        if (root.translated-text == "") { root.ocr-requested(); }
+                        else { root.copy-text-requested(root.original-text); }
                     }
                 }
                 tool-button {
-                    label: root.texts.translate;
+                    label: root.translated-text == "" ? root.texts.translate : root.texts.copy-translation;
                     clicked => {
-                        root.translate-requested();
+                        if (root.translated-text == "") { root.translate-requested(); }
+                        else { root.copy-text-requested(root.translated-text); }
                     }
                 }
                 tool-button {
@@ -542,6 +584,32 @@ export component ScreenshotWindow inherits Window {
                     }
                 }
             }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 8px;
+                Text {
+                    text: root.texts.target-language;
+                    color: #f9fafb;
+                    vertical-alignment: center;
+                    font-size: 12px;
+                }
+                target-choice := ComboBox {
+                    width: 146px;
+                    height: 30px;
+                    enabled: !root.translating;
+                    model: ["简体中文", "繁體中文", "English"];
+                    current-index <=> root.target-language-choice;
+                    accessible-label: root.texts.target-language;
+                    selected(value) => {
+                        root.target-language-selected(target-choice.current-index);
+                        root.refocus-scope();
+                    }
+                }
+                if root.translation-retry && root.translated-text != "": tool-button {
+                    label: root.texts.translate;
+                    clicked => { root.translate-requested(); }
+                }
+            }
         }
     }
 
@@ -553,7 +621,7 @@ export component ScreenshotWindow inherits Window {
         x: root.toolbar-x;
         y: root.toolbar-y >= self.panel-height + 12px
             ? root.toolbar-y - self.panel-height - 12px
-            : root.toolbar-y + 88px + 12px;
+            : root.toolbar-y + 122px + 12px;
         width: 520px;
         height: self.panel-height;
         border-radius: 10px;
@@ -602,7 +670,7 @@ export component ScreenshotWindow inherits Window {
         x: root.toolbar-x;
         y: root.toolbar-y >= 30px + 6px
             ? root.toolbar-y - 30px - 6px
-            : root.toolbar-y + 88px + 6px;
+            : root.toolbar-y + 122px + 6px;
         width: status-label.preferred-width + 20px;
         height: 30px;
         border-radius: 8px;

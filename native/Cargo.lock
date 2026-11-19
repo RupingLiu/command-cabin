@@ -725,7 +725,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cabin-app"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "arboard",
  "cabin-core",
@@ -742,9 +742,11 @@ dependencies = [
 
 [[package]]
 name = "cabin-core"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
+ "ab_glyph",
  "base64",
+ "fontdb",
  "fontdue",
  "image",
  "nucleo-matcher",
@@ -754,12 +756,13 @@ dependencies = [
  "sha2",
  "thiserror 2.0.20",
  "unicode-normalization",
+ "unicode-script",
  "uuid",
 ]
 
 [[package]]
 name = "cabin-platform"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "cabin-core",
  "thiserror 2.0.20",
@@ -767,7 +770,7 @@ dependencies = [
 
 [[package]]
 name = "cabin-platform-windows"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "arboard",
  "cabin-core",
@@ -787,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "cabin-storage"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "cabin-core",
  "rusqlite",

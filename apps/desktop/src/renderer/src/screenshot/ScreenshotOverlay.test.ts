@@ -16,7 +16,6 @@ import {
   getPendingTextPointerAction,
   getScreenshotCompletionAction,
   getScreenshotGlobalKeyboardAction,
-  getScreenshotOcrLanguageForUi,
   getScreenshotTranslationTargetLanguage,
   isScreenshotLaunchStateHydration,
   isScreenshotLaunchStateReady,
@@ -303,13 +302,11 @@ describe('ScreenshotOverlayView', () => {
     expect(error).toContain('Translation failed.');
   });
 
-  it('defaults translation OCR source and target languages from the UI language', () => {
-    expect(getScreenshotOcrLanguageForUi('zh-CN')).toBe('en-US');
-    expect(getScreenshotTranslationTargetLanguage('zh-CN')).toBe('zh-CN');
-    expect(getScreenshotOcrLanguageForUi('zh-TW')).toBe('en-US');
-    expect(getScreenshotTranslationTargetLanguage('zh-TW')).toBe('zh-TW');
-    expect(getScreenshotOcrLanguageForUi('en-US')).toBe('zh-CN');
-    expect(getScreenshotTranslationTargetLanguage('en-US')).toBe('en-US');
+  it('uses the remembered target across UI languages and ignores invalid stored values', () => {
+    expect(getScreenshotTranslationTargetLanguage('en-US', 'zh-CN')).toBe('en-US');
+    expect(getScreenshotTranslationTargetLanguage('zh-TW', 'en-US')).toBe('zh-TW');
+    expect(getScreenshotTranslationTargetLanguage(null, 'en-US')).toBe('en-US');
+    expect(getScreenshotTranslationTargetLanguage('invalid', 'zh-CN')).toBe('zh-CN');
   });
 
   it('renders committed annotations and the current draft in a selection SVG overlay', () => {

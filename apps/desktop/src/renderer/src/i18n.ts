@@ -126,6 +126,7 @@ const zhCnStrings = {
         '翻译会将本次本地 OCR 文字发送到 Google 在线翻译服务（最多 2000 个字符）。是否继续？',
       result: '译文',
       source: '原文',
+      targetLanguage: '译为',
       translating: '正在翻译...',
     },
     status: {
@@ -454,6 +455,7 @@ const zhTwStrings: UiStrings = {
         '翻譯會將本次本地 OCR 文字傳送到 Google 線上翻譯服務（最多 2000 個字元）。是否繼續？',
       result: '譯文',
       source: '原文',
+      targetLanguage: '譯為',
       translating: '正在翻譯...',
     },
     status: {
@@ -774,6 +776,7 @@ const enUsStrings: UiStrings = {
         'Translation sends this locally recognized OCR text to the Google online translation service (up to 2,000 characters). Continue?',
       result: 'Translation',
       source: 'Original',
+      targetLanguage: 'Translate to',
       translating: 'Translating...',
     },
     status: {

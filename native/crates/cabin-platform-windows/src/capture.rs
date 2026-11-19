@@ -1,6 +1,6 @@
 //! GDI 屏幕捕获：`EnumDisplayMonitors` + `GetMonitorInfoW` 枚举显示器，
 //! 选中显示器 `BitBlt` 到内存 DC → `GetDIBits`（自上而下 BGRA）→ 交换为
-//! RGBA → image crate PNG 编码。
+//! RGBA。截图覆盖层直接使用像素；需要 PNG 的调用方通过平台 trait 编码。
 //!
 //! 语义对齐 TS `apps/desktop/src/main/screenshot/screenshotCapture.ts`：
 //! `active_point`（逻辑坐标）落在哪个显示器就只捕获该显示器，否则捕获全部；
@@ -37,8 +37,8 @@ use cabin_core::screenshot::geometry::{
     calculate_capture_bounds, select_displays_for_capture, ScreenshotDisplay,
 };
 use cabin_core::screenshot::state::{Point, Rect};
-use cabin_platform::traits::{CaptureResult, DisplaySnapshot, PlatformError, ScreenshotCapture};
-use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
+use cabin_core::screenshot::RgbaImage;
+use cabin_platform::traits::{CaptureResult, CapturedFrame, PlatformError, ScreenshotCapture};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, RECT};
 use windows::Win32::Graphics::Gdi::{
@@ -75,10 +75,10 @@ struct MonitorInfo {
 }
 
 impl ScreenshotCapture for GdiScreenshotCapture {
-    fn capture_displays(
+    fn capture_frames(
         &self,
         active_point: Option<Point>,
-    ) -> Result<CaptureResult, PlatformError> {
+    ) -> Result<CaptureResult<CapturedFrame>, PlatformError> {
         let monitors = enumerate_monitors()?;
         if monitors.is_empty() {
             return Err(PlatformError::Capture(
@@ -113,13 +113,9 @@ impl ScreenshotCapture for GdiScreenshotCapture {
             let monitor = monitors.get(cursor).ok_or_else(|| {
                 PlatformError::Capture("internal: selected display lost from enumeration".into())
             })?;
-            let png = capture_monitor_png(&screen_dc, &monitor.rect)?;
-            snapshots.push(DisplaySnapshot {
-                // 本实现的 id 空间：枚举顺序 1..=n（评审移交：自分配即可）。
-                id: (cursor + 1) as u32,
-                bounds: display.bounds,
-                scale_factor: display.scale_factor,
-                png,
+            snapshots.push(CapturedFrame {
+                display: *display,
+                rgba: capture_monitor_rgba(&screen_dc, &monitor.rect)?,
             });
             cursor += 1;
         }
@@ -203,8 +199,8 @@ fn checked_extent(rect: &RECT) -> Result<(i32, i32), PlatformError> {
     Ok((width, height))
 }
 
-/// 捕获单个显示器为 PNG（物理像素尺寸）。
-fn capture_monitor_png(screen_dc: &ScreenDc, rect: &RECT) -> Result<Vec<u8>, PlatformError> {
+/// 捕获单个显示器的原始像素。
+fn capture_monitor_rgba(screen_dc: &ScreenDc, rect: &RECT) -> Result<RgbaImage, PlatformError> {
     let (width, height) = checked_extent(rect)?;
     let mem_dc = MemoryDc::compatible(screen_dc.hdc())?;
     let bitmap = GdiBitmap::compatible(screen_dc.hdc(), width, height)?;
@@ -257,7 +253,11 @@ fn capture_monitor_png(screen_dc: &ScreenDc, rect: &RECT) -> Result<Vec<u8>, Pla
             )));
         }
         swap_bgra_to_rgba(&mut buffer);
-        encode_rgba_png(width as u32, height as u32, &buffer)
+        Ok(RgbaImage {
+            width: width as u32,
+            height: height as u32,
+            data: buffer,
+        })
     })();
     // 失败路径同样恢复选择（幂等），保证 GdiBitmap::drop 的 DeleteObject 成功。
     // SAFETY: 再次恢复旧对象。
@@ -282,17 +282,9 @@ fn alloc_pixel_buffer(width: i32, height: i32) -> Result<Vec<u8>, PlatformError>
 /// alpha，原始值不定；TS desktopCapturer 产物同为不透明）。
 fn swap_bgra_to_rgba(bytes: &mut [u8]) {
     for pixel in bytes.as_chunks_mut::<4>().0 {
-        pixel.swap(0, 2);
-        pixel[3] = 255;
+        let [blue, green, red, _] = *pixel;
+        *pixel = [red, green, blue, 255];
     }
-}
-
-fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, PlatformError> {
-    let mut png = Vec::new();
-    PngEncoder::new(&mut png)
-        .write_image(rgba, width, height, ExtendedColorType::Rgba8)
-        .map_err(|e| PlatformError::Capture(format!("PNG encode failed: {e}")))?;
-    Ok(png)
 }
 
 /// 屏幕虚拟桌面 DC 守卫（GetDC(None) / ReleaseDC(None, hdc)）。

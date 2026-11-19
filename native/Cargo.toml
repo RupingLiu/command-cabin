@@ -11,10 +11,22 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "1.0.14"
+version = "1.0.15"
 
 [workspace.lints.clippy]
 all = "warn"
+
+# Capture converts each monitor's pixels before the overlay can accept input.
+[profile.dev.package.cabin-platform-windows]
+opt-level = 2
+
+# The screenshot window repaints a full virtual desktop in software.
+[profile.dev.package.i-slint-renderer-software]
+opt-level = 3
+
+# Winit instantiates the renderer for its Windows framebuffer pixel format.
+[profile.dev.package.i-slint-backend-winit]
+opt-level = 3
 
 [profile.release]
 opt-level = "s"

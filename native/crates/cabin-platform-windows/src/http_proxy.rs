@@ -1,4 +1,4 @@
-//! Proxy selection for HTTPS update traffic. Explorer-launched apps usually have
+//! Proxy selection for HTTPS requests. Explorer-launched apps usually have
 //! no proxy environment variables, so also honor Windows' explicit user proxy.
 //! PAC scripts are not evaluated here.
 use windows::core::{w, HSTRING, PCWSTR};

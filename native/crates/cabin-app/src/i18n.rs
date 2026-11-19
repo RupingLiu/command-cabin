@@ -159,6 +159,7 @@ pub struct HomeUiTexts {
     pub empty_hint: &'static str,
     pub no_results_hint: &'static str,
     pub home_action_ocr: &'static str,
+    pub home_action_translate: &'static str,
     pub home_action_unit_converter: &'static str,
 
     /// 空查询首页 "最近使用" 分组头。
@@ -184,6 +185,7 @@ pub struct HomeUiTexts {
 /// Task 8 补齐 ocr/translation/status 段与输出窗所需的其余键）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenshotUiTexts {
+    pub drag_to_select: &'static str,
     /// screenshot.tools.rectangle 等（TS toolOrder 序）。
     pub tool_rectangle: &'static str,
     pub tool_ellipse: &'static str,
@@ -214,16 +216,12 @@ pub struct ScreenshotUiTexts {
     pub ocr_copy_all: &'static str,
     pub ocr_failed: &'static str,
     /// screenshot.translation.source / result / translating / noText / failed / copy。
-    pub translation_source: &'static str,
-    pub translation_result: &'static str,
+    pub translation_target_label: &'static str,
+    pub translation_copy_original: &'static str,
     pub translation_translating: &'static str,
     pub translation_no_text: &'static str,
     pub translation_failed: &'static str,
     pub translation_copy: &'static str,
-    /// screenshot.translation.onlineConsent（评审 Finding 3：M3 无对话框组件，
-    /// 在线翻译同意门 fail-closed 时把该文案作为"不可用"结果窗消息；同意 UI /
-    /// 设置开关随 M5 落地）。
-    pub translation_online_consent: &'static str,
     /// screenshot.status.imageSaved / saveCanceled / pinned。
     pub status_image_saved: &'static str,
     pub status_save_canceled: &'static str,
@@ -532,6 +530,14 @@ pub fn format_template(template: &str, values: &[(&str, &str)]) -> String {
     formatted
 }
 
+pub fn unavailable_shortcut(language: Language, hotkey: &str) -> String {
+    match language {
+        Language::ZhCn => format!("{hotkey} 不可用"),
+        Language::ZhTw => format!("{hotkey} 無法使用"),
+        Language::EnUs => format!("{hotkey} unavailable"),
+    }
+}
+
 pub fn home_texts(language: Language) -> HomeUiTexts {
     match language {
         Language::ZhCn => HomeUiTexts {
@@ -539,6 +545,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "搜索应用并固定到首页，常用工具将在这里显示。",
             no_results_hint: "未找到匹配项，试试其他关键词。",
             home_action_ocr: "识别文字",
+            home_action_translate: "截图翻译",
             home_action_unit_converter: "单位换算",
 
             recent_group: "最近使用",
@@ -556,6 +563,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "搜尋應用程式並固定到首頁，常用工具將顯示於此。",
             no_results_hint: "未找到符合項目，試試其他關鍵字。",
             home_action_ocr: "辨識文字",
+            home_action_translate: "截圖翻譯",
             home_action_unit_converter: "單位換算",
 
             recent_group: "最近使用",
@@ -573,6 +581,7 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "Search for an app and pin it here for quick access.",
             no_results_hint: "No matches. Try another search.",
             home_action_ocr: "Recognize text",
+            home_action_translate: "Translate",
             home_action_unit_converter: "Unit converter",
 
             recent_group: "Recent",
@@ -592,40 +601,40 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
 /// 逐字复用（zh-CN 规范 + zh-TW + en-US，i18n.ts:104-160 / 432-488 / 752-808）。
 pub fn screenshot_texts(language: Language) -> ScreenshotUiTexts {
     let zh_cn = ScreenshotUiTexts {
-        tool_rectangle: "矩形",                 // screenshot.tools.rectangle
-        tool_ellipse: "椭圆",                   // screenshot.tools.ellipse
-        tool_arrow: "箭头",                     // screenshot.tools.arrow
-        tool_pen: "画笔",                       // screenshot.tools.pen
-        tool_mosaic: "马赛克",                  // screenshot.tools.mosaic
-        tool_text: "文字",                      // screenshot.tools.text
-        undo: "撤销",                           // screenshot.toolbar.undo
-        redo: "重做",                           // screenshot.toolbar.redo
-        ocr: "OCR",                             // screenshot.toolbar.ocr
-        translate: "翻译",                      // screenshot.toolbar.translate
-        pin: "置顶",                            // screenshot.toolbar.pin
-        save: "保存",                           // screenshot.toolbar.save
-        cancel: "取消",                         // screenshot.toolbar.cancel
-        done: "完成",                           // screenshot.toolbar.done
-        prompt_placeholder: "文字",             // screenshot.textPrompt.defaultText
-        action_failed: "截图操作失败。",        // screenshot.actionFailed
-        ocr_recognizing: "正在识别文字...",     // screenshot.ocr.recognizing
-        ocr_no_text: "未识别到文字。",          // screenshot.ocr.noText
-        ocr_copy_all: "复制全部",               // screenshot.ocr.copyAll
-        ocr_failed: "OCR 失败。",               // screenshot.ocr.failed
-        translation_source: "原文",             // screenshot.translation.source
-        translation_result: "译文",             // screenshot.translation.result
+        drag_to_select: "拖动框选 · Esc 取消",
+        tool_rectangle: "矩形",             // screenshot.tools.rectangle
+        tool_ellipse: "椭圆",               // screenshot.tools.ellipse
+        tool_arrow: "箭头",                 // screenshot.tools.arrow
+        tool_pen: "画笔",                   // screenshot.tools.pen
+        tool_mosaic: "马赛克",              // screenshot.tools.mosaic
+        tool_text: "文字",                  // screenshot.tools.text
+        undo: "撤销",                       // screenshot.toolbar.undo
+        redo: "重做",                       // screenshot.toolbar.redo
+        ocr: "OCR",                         // screenshot.toolbar.ocr
+        translate: "翻译",                  // screenshot.toolbar.translate
+        pin: "置顶",                        // screenshot.toolbar.pin
+        save: "保存",                       // screenshot.toolbar.save
+        cancel: "取消",                     // screenshot.toolbar.cancel
+        done: "完成",                       // screenshot.toolbar.done
+        prompt_placeholder: "文字",         // screenshot.textPrompt.defaultText
+        action_failed: "截图操作失败。",    // screenshot.actionFailed
+        ocr_recognizing: "正在识别文字...", // screenshot.ocr.recognizing
+        ocr_no_text: "未识别到文字。",      // screenshot.ocr.noText
+        ocr_copy_all: "复制全部",           // screenshot.ocr.copyAll
+        ocr_failed: "OCR 失败。",           // screenshot.ocr.failed
+        translation_target_label: "目标语言",
+        translation_copy_original: "复制原文",
         translation_translating: "正在翻译...", // screenshot.translation.translating
         translation_no_text: "未翻译出文字。",  // screenshot.translation.noText
         translation_failed: "翻译失败。",       // screenshot.translation.failed
         translation_copy: "复制译文",           // screenshot.translation.copy
-        translation_online_consent:            // screenshot.translation.onlineConsent
-        "翻译会将本次本地 OCR 文字发送到 Google 在线翻译服务（最多 2000 个字符）。是否继续？",
         status_image_saved: "图片已保存。",     // screenshot.status.imageSaved
         status_save_canceled: "已取消保存。",   // screenshot.status.saveCanceled
         status_pinned: "已置顶选区。",          // screenshot.status.pinned
         image_copy: "复制",                     // TS 无此键（M3 置顶窗复制钮）
     };
     let zh_tw = ScreenshotUiTexts {
+        drag_to_select: "拖曳選取範圍 · Esc 取消",
         tool_rectangle: "矩形",
         tool_ellipse: "橢圓",
         tool_arrow: "箭頭",
@@ -646,20 +655,19 @@ pub fn screenshot_texts(language: Language) -> ScreenshotUiTexts {
         ocr_no_text: "未辨識到文字。",
         ocr_copy_all: "複製全部",
         ocr_failed: "OCR 失敗。",
-        translation_source: "原文",
-        translation_result: "譯文",
+        translation_target_label: "目標語言",
+        translation_copy_original: "複製原文",
         translation_translating: "正在翻譯...",
         translation_no_text: "未翻譯出文字。",
         translation_failed: "翻譯失敗。",
         translation_copy: "複製譯文",
-        translation_online_consent: // screenshot.translation.onlineConsent
-        "翻譯會將本次本地 OCR 文字傳送到 Google 線上翻譯服務（最多 2000 個字元）。是否繼續？",
         status_image_saved: "圖片已儲存。",
         status_save_canceled: "已取消儲存。",
         status_pinned: "已置頂選取區域。",
         image_copy: "複製",
     };
     let en_us = ScreenshotUiTexts {
+        drag_to_select: "Drag to select an area · Esc to cancel",
         tool_rectangle: "Rectangle",
         tool_ellipse: "Ellipse",
         tool_arrow: "Arrow",
@@ -680,14 +688,12 @@ pub fn screenshot_texts(language: Language) -> ScreenshotUiTexts {
         ocr_no_text: "No OCR text found.",
         ocr_copy_all: "Copy All",
         ocr_failed: "OCR failed.",
-        translation_source: "Original",
-        translation_result: "Translation",
+        translation_target_label: "Target language",
+        translation_copy_original: "Copy original",
         translation_translating: "Translating...",
         translation_no_text: "No translated text found.",
         translation_failed: "Translation failed.",
         translation_copy: "Copy translation",
-        translation_online_consent: // screenshot.translation.onlineConsent
-        "Translation sends this locally recognized OCR text to the Google online translation service (up to 2,000 characters). Continue?",
         status_image_saved: "Image saved.",
         status_save_canceled: "Save canceled.",
         status_pinned: "Pinned selection.",
@@ -975,24 +981,29 @@ mod tests {
     /// M3 Task 8 新增的输出面板/输出窗文案：三语齐备且 TS 键逐字。
     #[test]
     fn screenshot_output_texts_match_ts_sections() {
-        for (language, ocr_recognizing, translation_source, status_pinned) in [
-            (Language::ZhCn, "正在识别文字...", "原文", "已置顶选区。"),
+        for (language, ocr_recognizing, copy_original, status_pinned) in [
+            (
+                Language::ZhCn,
+                "正在识别文字...",
+                "复制原文",
+                "已置顶选区。",
+            ),
             (
                 Language::ZhTw,
                 "正在辨識文字...",
-                "原文",
+                "複製原文",
                 "已置頂選取區域。",
             ),
             (
                 Language::EnUs,
                 "Recognizing text...",
-                "Original",
+                "Copy original",
                 "Pinned selection.",
             ),
         ] {
             let texts = screenshot_texts(language);
             assert_eq!(texts.ocr_recognizing, ocr_recognizing);
-            assert_eq!(texts.translation_source, translation_source);
+            assert_eq!(texts.translation_copy_original, copy_original);
             assert_eq!(texts.status_pinned, status_pinned);
             // 新键全部非空（防新增语言漏译）。
             for value in [
@@ -1001,8 +1012,7 @@ mod tests {
                 texts.ocr_no_text,
                 texts.ocr_copy_all,
                 texts.ocr_failed,
-                texts.translation_source,
-                texts.translation_result,
+                texts.translation_copy_original,
                 texts.translation_translating,
                 texts.translation_no_text,
                 texts.translation_failed,
@@ -1011,32 +1021,10 @@ mod tests {
                 texts.status_save_canceled,
                 texts.status_pinned,
                 texts.image_copy,
-                texts.translation_online_consent,
             ] {
                 assert!(!value.is_empty(), "{language:?} has an empty output string");
             }
         }
-    }
-
-    /// 评审 Finding 3：在线翻译同意文案逐字移植 TS i18n.ts
-    /// `screenshot.translation.onlineConsent`（M3 fail-closed 同意门的消息）。
-    #[test]
-    fn screenshot_translation_online_consent_matches_ts() {
-        let texts = screenshot_texts(Language::ZhCn);
-        assert_eq!(
-            texts.translation_online_consent,
-            "翻译会将本次本地 OCR 文字发送到 Google 在线翻译服务（最多 2000 个字符）。是否继续？"
-        );
-        let texts = screenshot_texts(Language::ZhTw);
-        assert_eq!(
-            texts.translation_online_consent,
-            "翻譯會將本次本地 OCR 文字傳送到 Google 線上翻譯服務（最多 2000 個字元）。是否繼續？"
-        );
-        let texts = screenshot_texts(Language::EnUs);
-        assert_eq!(
-            texts.translation_online_consent,
-            "Translation sends this locally recognized OCR text to the Google online translation service (up to 2,000 characters). Continue?"
-        );
     }
 
     /// M5 Task 3：设置 About 分区的更新按钮文案（settings.about.check / install

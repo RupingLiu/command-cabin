@@ -503,7 +503,7 @@ pub const HOTKEY_FIELD_DELAYED_SCREENSHOT: &str = "delayed screenshot";
 pub struct HotkeyRegistration {
     pub field: &'static str,
     pub new_hotkey: String,
-    pub rollback_hotkey: String,
+    pub rollback_hotkey: Option<String>,
 }
 
 /// 注册失败时的错误文案（逐字 TS / 任务简报 2c）。
@@ -558,27 +558,31 @@ pub fn assert_merged_hotkeys_unique(
 
 /// TS `registerChangedHotkey` 的决策表：仅收集“patch 中出现且与当前值不同”的
 /// 字段，保持 hotkey → screenshot → delayed screenshot 顺序。
-pub fn hotkey_registrations(current: &Settings, patch: &SettingsPatch) -> Vec<HotkeyRegistration> {
+pub fn hotkey_registrations(
+    current: &Settings,
+    patch: &SettingsPatch,
+    registered_launcher: Option<&str>,
+) -> Vec<HotkeyRegistration> {
     let mut registrations = Vec::new();
     for (field, next, current_hotkey) in [
-        (&HOTKEY_FIELD_LAUNCHER, &patch.hotkey, &current.hotkey),
+        (&HOTKEY_FIELD_LAUNCHER, &patch.hotkey, registered_launcher),
         (
             &HOTKEY_FIELD_SCREENSHOT,
             &patch.screenshot_hotkey,
-            &current.screenshot_hotkey,
+            Some(current.screenshot_hotkey.as_str()),
         ),
         (
             &HOTKEY_FIELD_DELAYED_SCREENSHOT,
             &patch.delayed_screenshot_hotkey,
-            &current.delayed_screenshot_hotkey,
+            Some(current.delayed_screenshot_hotkey.as_str()),
         ),
     ] {
         if let Some(next) = next {
-            if *next != *current_hotkey {
+            if Some(next.as_str()) != current_hotkey {
                 registrations.push(HotkeyRegistration {
                     field,
                     new_hotkey: next.clone(),
-                    rollback_hotkey: current_hotkey.clone(),
+                    rollback_hotkey: current_hotkey.map(str::to_owned),
                 });
             }
         }
@@ -803,68 +807,17 @@ fn civil_from_unix_days(days: i64) -> (i64, u32, u32) {
 // 截图 OCR/翻译语言映射（TS ScreenshotOverlay.tsx:195-203 + screenshotTranslation.ts）
 // ---------------------------------------------------------------------------
 
-/// TS `getScreenshotOcrLanguageForUi`（逐字）：en-US UI 读 zh-CN，zh 系 UI 读
-/// en-US（OCR 语言 = UI 语言的反向）。**仅翻译路径使用**（ScreenshotOverlay
-/// `runTranslation`）；plain OCR（`runOcr`）传 UI 语言原样（见
-/// [`ui_language_tag`]）。
-pub fn ocr_language_for_ui(language: Language) -> &'static str {
-    if language == Language::EnUs {
-        "zh-CN"
-    } else {
-        "en-US"
-    }
-}
-
-/// UI 语言 → BCP-47 tag（"en-US" / "zh-CN" / "zh-TW"）。plain OCR 的请求语言
-/// （TS `runOcr` 把 UI 语言原样传给主进程，无反向翻转、无备选表——评审
-/// Finding 2）；与翻译目标语言同值（`getScreenshotTranslationTargetLanguage`）。
+/// Plain OCR follows the chosen interface language.
 pub fn ui_language_tag(language: Language) -> &'static str {
-    translation_target_language(language)
+    language.as_str()
 }
 
-/// TS `getScreenshotTranslationTargetLanguage`（逐字）：目标语言 = UI 语言。
-pub fn translation_target_language(language: Language) -> &'static str {
+/// The Chinese recognizers also handle Latin text. Prefer an available bilingual
+/// recognizer so changing the *output* language never changes what OCR can read.
+pub fn translation_ocr_languages(language: Language) -> [&'static str; 3] {
     match language {
-        Language::EnUs => "en-US",
-        Language::ZhCn => "zh-CN",
-        Language::ZhTw => "zh-TW",
-    }
-}
-
-/// TS `getScreenshotTranslationOcrLanguageCandidates`（逐字）：主语言 = 请求的
-/// ocrLanguage，次选 = targetLanguage；target 为 zh-CN/zh-TW 时互为备选。
-pub fn translation_ocr_candidates(ocr_language: &str, target_language: &str) -> Vec<String> {
-    let mut candidates = vec![ocr_language.to_string()];
-    if !candidates
-        .iter()
-        .any(|candidate| candidate == target_language)
-    {
-        candidates.push(target_language.to_string());
-    }
-    let sibling = match target_language {
-        "zh-CN" => Some("zh-TW"),
-        "zh-TW" => Some("zh-CN"),
-        _ => None,
-    };
-    if let Some(sibling) = sibling {
-        if !candidates.iter().any(|candidate| candidate == sibling) {
-            candidates.push(sibling.to_string());
-        }
-    }
-    candidates
-}
-
-/// TS `getScreenshotTranslationSourceLanguage`（逐字）：请求的 ocrLanguage 与
-/// target 不同 → 用 ocrLanguage；相同 → 用 OCR 实际解析语言。
-pub fn translation_source_language<'a>(
-    ocr_language: &'a str,
-    target_language: &str,
-    actual_ocr_language: &'a str,
-) -> &'a str {
-    if ocr_language != target_language {
-        ocr_language
-    } else {
-        actual_ocr_language
+        Language::ZhTw => ["zh-TW", "zh-CN", "en-US"],
+        _ => ["zh-CN", "zh-TW", "en-US"],
     }
 }
 
@@ -927,15 +880,15 @@ pub fn theme_patch_json(index: u32) -> Result<String, String> {
 
 /// 语言下标 → `{language:"zh-CN"|"zh-TW"|"en-US"}` patch JSON。
 pub fn language_patch_json(index: u32) -> Result<String, String> {
-    let value = match index {
-        0 => "zh-CN",
-        1 => "zh-TW",
-        2 => "en-US",
-        _ => {
-            return Err("language must be \"zh-CN\", \"zh-TW\", or \"en-US\"".to_string());
-        }
-    };
-    Ok(serde_json::json!({ "language": value }).to_string())
+    let language = language_from_index(index)
+        .ok_or_else(|| "language must be \"zh-CN\", \"zh-TW\", or \"en-US\"".to_string())?;
+    Ok(serde_json::json!({ "language": language }).to_string())
+}
+
+pub fn language_from_index(index: u32) -> Option<Language> {
+    [Language::ZhCn, Language::ZhTw, Language::EnUs]
+        .get(index as usize)
+        .copied()
 }
 
 /// 启动器数字字段（设置窗口 commit-number 的 section 编码，与 .slint 约定：
@@ -2087,21 +2040,33 @@ mod tests {
     fn hotkey_registrations_decision_table() {
         let current = Settings::default();
         // 无热键字段 → 空。
-        assert!(hotkey_registrations(&current, &SettingsPatch::default()).is_empty());
+        assert!(
+            hotkey_registrations(&current, &SettingsPatch::default(), Some(&current.hotkey))
+                .is_empty()
+        );
         // 与当前相同 → 跳过。
-        assert!(hotkey_registrations(&current, &patch_with_hotkey(Some("Alt+Space"))).is_empty());
+        assert!(hotkey_registrations(
+            &current,
+            &patch_with_hotkey(Some("Alt+Space")),
+            Some(&current.hotkey)
+        )
+        .is_empty());
         // 变更 → 记录回滚目标为当前值。
-        let plan = hotkey_registrations(&current, &patch_with_hotkey(Some("Ctrl+Space")));
+        let plan = hotkey_registrations(
+            &current,
+            &patch_with_hotkey(Some("Ctrl+Space")),
+            Some(&current.hotkey),
+        );
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].field, HOTKEY_FIELD_LAUNCHER);
         assert_eq!(plan[0].new_hotkey, "Ctrl+Space");
-        assert_eq!(plan[0].rollback_hotkey, "Alt+Space");
+        assert_eq!(plan[0].rollback_hotkey.as_deref(), Some("Alt+Space"));
 
         // 三个字段全部变更时保持固定顺序。
         let mut all = patch_with_hotkey(Some("Ctrl+1"));
         all.screenshot_hotkey = Some("Ctrl+2".into());
         all.delayed_screenshot_hotkey = Some("Ctrl+3".into());
-        let plan = hotkey_registrations(&current, &all);
+        let plan = hotkey_registrations(&current, &all, Some(&current.hotkey));
         let fields: Vec<&str> = plan.iter().map(|entry| entry.field).collect();
         assert_eq!(
             fields,
@@ -2114,12 +2079,29 @@ mod tests {
     }
 
     #[test]
+    fn retries_a_saved_but_unregistered_launcher_shortcut_only_when_requested() {
+        let current = Settings::default();
+        assert!(hotkey_registrations(&current, &SettingsPatch::default(), None).is_empty());
+        for requested in ["Alt+Space", "Ctrl+Alt+K"] {
+            let plan = hotkey_registrations(&current, &patch_with_hotkey(Some(requested)), None);
+            assert_eq!(
+                plan,
+                [HotkeyRegistration {
+                    field: HOTKEY_FIELD_LAUNCHER,
+                    new_hotkey: requested.to_owned(),
+                    rollback_hotkey: None,
+                }]
+            );
+        }
+    }
+
+    #[test]
     fn register_hotkeys_with_rollback_follows_ts_order_semantics() {
         let current = Settings::default();
         let mut patch = patch_with_hotkey(Some("Ctrl+1"));
         patch.screenshot_hotkey = Some("Ctrl+2".into());
         patch.delayed_screenshot_hotkey = Some("Ctrl+3".into());
-        let registrations = hotkey_registrations(&current, &patch);
+        let registrations = hotkey_registrations(&current, &patch, Some(&current.hotkey));
         assert_eq!(registrations.len(), 3);
 
         // 全部成功：注册顺序 = 决策表顺序，persist 恰好一次。
@@ -2142,7 +2124,13 @@ mod tests {
             {
                 let calls = Rc::clone(&calls);
                 move |registration| {
-                    log_call(&calls, format!("restore {}", registration.rollback_hotkey))
+                    log_call(
+                        &calls,
+                        format!(
+                            "restore {}",
+                            registration.rollback_hotkey.as_deref().unwrap()
+                        ),
+                    )
                 }
             },
             {
@@ -2181,7 +2169,13 @@ mod tests {
             {
                 let calls = Rc::clone(&calls);
                 move |registration| {
-                    log_call(&calls, format!("restore {}", registration.rollback_hotkey))
+                    log_call(
+                        &calls,
+                        format!(
+                            "restore {}",
+                            registration.rollback_hotkey.as_deref().unwrap()
+                        ),
+                    )
                 }
             },
             || unreachable!("persist must not run after registration failure"),
@@ -2211,7 +2205,13 @@ mod tests {
             {
                 let calls = Rc::clone(&calls);
                 move |registration| {
-                    log_call(&calls, format!("restore {}", registration.rollback_hotkey))
+                    log_call(
+                        &calls,
+                        format!(
+                            "restore {}",
+                            registration.rollback_hotkey.as_deref().unwrap()
+                        ),
+                    )
                 }
             },
             || Err("db broken"),
@@ -2235,7 +2235,7 @@ mod tests {
     fn register_hotkeys_with_rollback_tolerates_failing_restore() {
         let current = Settings::default();
         let patch = patch_with_hotkey(Some("Ctrl+1"));
-        let registrations = hotkey_registrations(&current, &patch);
+        let registrations = hotkey_registrations(&current, &patch, Some(&current.hotkey));
         // persist 失败触发回滚；恢复（re-register 旧值）失败被忽略，错误仍按
         // persist 结果返回（TS 忽略回滚动作的结果）。
         let error = register_hotkeys_with_rollback::<&'static str>(
@@ -2842,68 +2842,23 @@ mod tests {
 
     // ---- M3 Task 8：OCR/翻译语言映射（TS ScreenshotOverlay + screenshotTranslation） ----
 
-    use super::{
-        ocr_language_for_ui, screenshot_mode_to_field, translation_ocr_candidates,
-        translation_source_language, translation_target_language, ui_language_tag,
-    };
+    use super::{screenshot_mode_to_field, translation_ocr_languages, ui_language_tag};
 
     #[test]
-    fn ocr_language_flips_ui_language() {
-        // TS getScreenshotOcrLanguageForUi：en-US → zh-CN，zh 系 → en-US。
-        assert_eq!(ocr_language_for_ui(super::Language::EnUs), "zh-CN");
-        assert_eq!(ocr_language_for_ui(super::Language::ZhCn), "en-US");
-        assert_eq!(ocr_language_for_ui(super::Language::ZhTw), "en-US");
-    }
-
-    #[test]
-    fn plain_ocr_uses_ui_language_verbatim() {
-        // 评审 Finding 2：plain OCR 请求语言 = UI 语言原样（TS runOcr 直接传
-        // `language`），与翻译路径的反向翻转（ocr_language_for_ui）互为对照。
+    fn translation_uses_a_bilingual_recognizer_with_english_fallback() {
+        assert_eq!(
+            translation_ocr_languages(super::Language::ZhCn),
+            ["zh-CN", "zh-TW", "en-US"]
+        );
+        assert_eq!(
+            translation_ocr_languages(super::Language::EnUs),
+            ["zh-CN", "zh-TW", "en-US"]
+        );
+        assert_eq!(
+            translation_ocr_languages(super::Language::ZhTw),
+            ["zh-TW", "zh-CN", "en-US"]
+        );
         assert_eq!(ui_language_tag(super::Language::EnUs), "en-US");
-        assert_eq!(ui_language_tag(super::Language::ZhCn), "zh-CN");
-        assert_eq!(ui_language_tag(super::Language::ZhTw), "zh-TW");
-        assert_ne!(
-            ui_language_tag(super::Language::EnUs),
-            ocr_language_for_ui(super::Language::EnUs)
-        );
-    }
-
-    #[test]
-    fn translation_target_is_ui_language() {
-        assert_eq!(translation_target_language(super::Language::EnUs), "en-US");
-        assert_eq!(translation_target_language(super::Language::ZhCn), "zh-CN");
-        assert_eq!(translation_target_language(super::Language::ZhTw), "zh-TW");
-    }
-
-    #[test]
-    fn translation_ocr_candidates_match_ts() {
-        // TS getScreenshotTranslationOcrLanguageCandidates：主语言、目标语言、
-        // zh 兄弟语言去重补齐。
-        assert_eq!(
-            translation_ocr_candidates("en-US", "zh-CN"),
-            vec!["en-US", "zh-CN", "zh-TW"]
-        );
-        assert_eq!(
-            translation_ocr_candidates("en-US", "zh-TW"),
-            vec!["en-US", "zh-TW", "zh-CN"]
-        );
-        assert_eq!(
-            translation_ocr_candidates("zh-CN", "en-US"),
-            vec!["zh-CN", "en-US"]
-        );
-    }
-
-    #[test]
-    fn translation_source_prefers_request_language() {
-        // TS getScreenshotTranslationSourceLanguage：不同 → ocrLanguage；相同 → 实际。
-        assert_eq!(
-            translation_source_language("en-US", "zh-CN", "zh-CN"),
-            "en-US"
-        );
-        assert_eq!(
-            translation_source_language("zh-CN", "zh-CN", "zh-TW"),
-            "zh-TW"
-        );
     }
 
     // ---- M3 Task 8：计划结构回归（ScreenshotHotkeyPlan 字段守卫）。 ----

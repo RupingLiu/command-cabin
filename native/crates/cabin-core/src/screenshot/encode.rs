@@ -45,8 +45,8 @@
 //!   401 KB, see `LICENSE-LiberationSans.txt`). Liberation Sans is a
 //!   `sans-serif` metric-compatible substitute, matching the TS
 //!   `font: '<size>px sans-serif'` intent for Latin/Greek/Cyrillic text.
-//!   Missing glyphs (notably CJK — the browser would fall back to a system
-//!   CJK font here) are skipped entirely: no advance, no notdef box. Canvas
+//!   CJK glyphs missing from the embedded face use an installed system font.
+//!   Unsupported glyphs are skipped. Canvas
 //!   kerning is approximated with the font's `kern` table when present.
 //!   Baseline placement approximates the canvas `top` baseline as
 //!   `line_top + ascent(px)` (hhea ascent); a browser engine's exact
@@ -114,6 +114,71 @@ fn builtin_font() -> &'static Font {
         )
         .expect("built-in Liberation Sans Regular must parse")
     })
+}
+
+/// Use the system CJK face for exported images as well as the desktop preview.
+/// The outline parser loads individual glyphs on demand from the font collection.
+fn system_cjk_font() -> Option<&'static ab_glyph::FontVec> {
+    static FONT: OnceLock<Option<ab_glyph::FontVec>> = OnceLock::new();
+    FONT.get_or_init(|| {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        [
+            "Microsoft YaHei",
+            "Microsoft JhengHei",
+            "Noto Sans CJK SC",
+            "PingFang SC",
+            "SimSun",
+            "Yu Gothic",
+        ]
+        .iter()
+        .find_map(|name| {
+            let id = db.query(&fontdb::Query {
+                families: &[fontdb::Family::Name(name)],
+                ..Default::default()
+            })?;
+            db.with_face_data(id, |bytes, index| {
+                ab_glyph::FontVec::try_from_vec_and_index(bytes.to_vec(), index).ok()
+            })?
+        })
+    })
+    .as_ref()
+}
+
+fn draw_fallback_glyph(
+    img: &mut RgbaImage,
+    character: char,
+    x: f64,
+    top: f64,
+    px: f32,
+    color: [u8; 4],
+) -> Option<f64> {
+    use ab_glyph::{Font as _, ScaleFont};
+    let font = system_cjk_font()?;
+    let id = font.glyph_id(character);
+    if id.0 == 0 {
+        return None;
+    }
+    let scaled = font.as_scaled(px * font.height_unscaled() / font.units_per_em()?);
+    let glyph = id.with_scale_and_position(scaled.scale(), ab_glyph::point(0.0, scaled.ascent()));
+    if let Some(outline) = font.outline_glyph(glyph) {
+        let bounds = outline.px_bounds();
+        let (width, height) = (bounds.width() as usize, bounds.height() as usize);
+        let mut coverage = vec![0; width * height];
+        outline.draw(|col, row, alpha| {
+            coverage[row as usize * width + col as usize] = (255.0 * alpha).round() as u8;
+        });
+        blit_glyph(
+            img,
+            &coverage,
+            width,
+            height,
+            x + f64::from(bounds.min.x),
+            top + f64::from(bounds.min.y),
+            color,
+        );
+    }
+    Some(f64::from(scaled.h_advance(id)))
 }
 
 /// Encodes `img` as a lossless PNG (`canvas.toDataURL('image/png')`).
@@ -289,6 +354,42 @@ pub fn get_translation_overlay_padding(font_size: f64) -> f64 {
     (font_size * 0.55).round().max(8.0)
 }
 
+/// Mirrors `createTranslationOverlayAnnotation`: the overlay is local to the selection.
+pub fn translation_overlay(selection: Rect, text: &str) -> Option<Annotation> {
+    let text = text.trim();
+    if text.is_empty() || !super::state::is_non_empty_rect(&selection) {
+        return None;
+    }
+    let max_size = (selection.height / 2.2).floor().clamp(14.0, 32.0) as u32;
+    let font_size = (12..=max_size)
+        .rev()
+        .map(f64::from)
+        .find(|&size| {
+            let lines = wrap_translation_overlay_text(text, &selection, size);
+            lines.len() as f64 * get_translation_overlay_line_height(size)
+                + 2.0 * get_translation_overlay_padding(size)
+                <= selection.height
+        })
+        .unwrap_or(12.0);
+    Some(Annotation {
+        id: uuid::Uuid::new_v4().to_string(),
+        tool: Tool::Translation,
+        points: vec![
+            Point { x: 0.0, y: 0.0 },
+            Point {
+                x: selection.width,
+                y: selection.height,
+            },
+        ],
+        style: AnnotationStyle {
+            color: "#111827".into(),
+            font_size,
+            line_width: 1.0,
+        },
+        text: Some(text.to_owned()),
+    })
+}
+
 /// TS `getTranslationOverlayLineHeight` (translationOverlay.ts:35-37).
 pub fn get_translation_overlay_line_height(font_size: f64) -> f64 {
     font_size * 1.35
@@ -431,8 +532,10 @@ fn draw_glyph_line(
     for character in line.chars() {
         let glyph_index = font.lookup_glyph_index(character);
         if glyph_index == 0 {
-            // Missing glyph (e.g. CJK): TS would fall back to a system font;
-            // we skip the glyph entirely (see module docs).
+            if is_cjk_character(character) {
+                pen_x +=
+                    draw_fallback_glyph(img, character, pen_x, line_top, px, color).unwrap_or(0.0);
+            }
             previous = None;
             continue;
         }
@@ -887,42 +990,64 @@ mod tests {
     #[test]
     fn compose_export_skips_missing_glyphs_without_panicking() {
         let base = solid(48, 48, BG);
-        let cjk_text = Annotation {
+        let unknown_text = Annotation {
             id: "c".to_string(),
             tool: Tool::Text,
             style: style("#111827", 18.0, 3.0),
             points: vec![point(4.0, 4.0)],
-            text: Some("你好".to_string()),
+            text: Some("\u{10ffff}".to_string()),
         };
         let mixed = Annotation {
             id: "m".to_string(),
             tool: Tool::Text,
             style: style("#111827", 18.0, 3.0),
             points: vec![point(4.0, 4.0)],
-            text: Some("a你b".to_string()),
+            text: Some("a\u{10ffff}b".to_string()),
         };
-        let cjk_translation = Annotation {
+        let unknown_translation = Annotation {
             id: "c2".to_string(),
             tool: Tool::Translation,
             style: style("#111827", 18.0, 1.0),
             points: corners(0.0, 0.0, 48.0, 48.0),
-            text: Some("你好".to_string()),
+            text: Some("\u{10ffff}".to_string()),
         };
 
-        // Pure CJK text: no glyphs available → the buffer is untouched.
-        let composed = compose_export(&base, &[cjk_text], 1.0);
+        // Unsupported text: no glyphs available → the buffer is untouched.
+        let composed = compose_export(&base, &[unknown_text], 1.0);
         assert_eq!(composed.data, base.data);
 
         // Mixed text: only the Latin glyphs render (a, then b after the
-        // skipped CJK glyph).
+        // skipped unsupported glyph).
         let composed = compose_export(&base, &[mixed], 1.0);
         assert!(changed_pixels(&composed, BG)
             .iter()
             .all(|(x, _, _)| *x < 30));
 
         // Translation: the white rect still covers the region.
-        let composed = compose_export(&base, &[cjk_translation], 1.0);
+        let composed = compose_export(&base, &[unknown_translation], 1.0);
         assert_eq!(composed.pixel(10, 10), WHITE);
+    }
+
+    #[test]
+    fn translated_region_covers_source_and_exports_chinese_glyphs() {
+        // translationOverlay.ts creates the annotation in selection-local coordinates.
+        let selection = Rect {
+            x: 300.0,
+            y: 50.0,
+            width: 160.0,
+            height: 60.0,
+        };
+        let base = solid(160, 60, BG);
+        let translated = translation_overlay(selection, "  谢谢  ").unwrap();
+        assert_eq!(translated.text.as_deref(), Some("谢谢"));
+        assert_eq!(translated.points, corners(0.0, 0.0, 160.0, 60.0));
+        assert!(translation_overlay(selection, "  ").is_none());
+        let composed = compose_export(&base, &[translated], 1.0);
+        assert_eq!(composed.pixel(0, 0), WHITE);
+        assert_eq!(composed.pixel(159, 59), WHITE);
+        if system_cjk_font().is_some() {
+            assert!(changed_pixels(&composed, WHITE).len() > 60);
+        }
     }
 
     #[test]

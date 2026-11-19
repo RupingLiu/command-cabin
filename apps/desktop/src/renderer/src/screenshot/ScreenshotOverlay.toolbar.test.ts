@@ -75,6 +75,11 @@ describe('ScreenshotOverlayView toolbar', () => {
       }),
     );
 
+    expect(markup).toContain('aria-label="Translate to"');
+    expect(markup).toContain('<option value="zh-CN" selected="">简体中文</option>');
+    expect(markup).toContain('<option value="zh-TW">繁體中文</option>');
+    expect(markup).toContain('<option value="en-US">English</option>');
+
     for (const label of [
       'Rectangle',
       'Arrow',

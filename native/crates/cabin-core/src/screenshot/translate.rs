@@ -156,12 +156,25 @@ fn trim_js_whitespace(text: &str) -> &str {
     text.trim_matches(is_js_whitespace)
 }
 
-/// `[ \t]+` → `' '`（已是单空格的串保持不变）。
+/// Keep word spacing, except for the single spaces Windows OCR inserts
+/// between consecutive Han characters.
 fn collapse_spaces_and_tabs(text: &str) -> String {
+    use unicode_script::{Script, UnicodeScript};
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         if c == ' ' || c == '\t' {
+            if c == ' '
+                && chars
+                    .peek()
+                    .is_some_and(|next| next.script() == Script::Han)
+                && out
+                    .chars()
+                    .next_back()
+                    .is_some_and(|prev| prev.script() == Script::Han)
+            {
+                continue;
+            }
             while matches!(chars.peek(), Some(' ') | Some('\t')) {
                 chars.next();
             }
@@ -283,7 +296,7 @@ pub fn normalize_text_for_online_translation(text: &str, source_language: &str) 
         &collapse_spaces_and_tabs(&text.replace("\r\n", "\n")),
     ));
 
-    if source_language == "en-US" {
+    if source_language == "en-US" || (source_language == "auto" && text.is_ascii()) {
         for _ in 0..3 {
             let chars: Vec<char> = normalized.chars().collect();
             normalized = replace_word_single_lower_join(&replace_single_upper_join(&chars))
@@ -476,6 +489,28 @@ mod tests {
 
     fn panic_fetch(_: TranslationHttpRequest) -> Result<String, TranslationHttpError> {
         panic!("fetch must not be called");
+    }
+
+    #[test]
+    fn normalizes_only_single_ocr_spaces_between_han_characters() {
+        let input = "谢 谢 世 界\n繁 體 中文 API test 中文  段\t落";
+        let result = translate_text("auto", "zh-TW", input, None, |request| {
+            assert!(request
+                .form
+                .contains(&("q".into(), "谢谢世界\n繁體中文 API test 中文 段 落".into())));
+            Ok(r#"[[["謝謝世界","谢谢世界"]]]"#.into())
+        });
+        assert_eq!(result.status, TranslationStatus::Success);
+    }
+
+    #[test]
+    fn autodetected_screenshot_source_translates_chinese_to_selected_english() {
+        let outcome = translate_text("auto", "en-US", "早上好", None, |request| {
+            assert!(request.form.contains(&("sl".into(), "auto".into())));
+            assert!(request.form.contains(&("tl".into(), "en".into())));
+            Ok(r#"[[["Good morning","早上好"]]]"#.into())
+        });
+        assert_eq!(outcome.translated_text.as_deref(), Some("Good morning"));
     }
 
     #[test]

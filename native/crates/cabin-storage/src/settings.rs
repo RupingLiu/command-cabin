@@ -87,6 +87,32 @@ impl<'a> SettingsRepository<'a> {
         Ok(self.load_cached()?.clone())
     }
 
+    /// Stored separately so older versions can still validate the shared settings JSON.
+    pub fn screenshot_translation_target(&self) -> Result<Option<Language>, StorageError> {
+        let stored: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'screenshot.translationTarget'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(stored.and_then(|value| serde_json::from_str(&value).ok()))
+    }
+
+    pub fn set_screenshot_translation_target(
+        &self,
+        language: Language,
+    ) -> Result<(), StorageError> {
+        let value = serde_json::Value::from(language.as_str()).to_string();
+        self.conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('screenshot.translationTarget', ?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![value, iso_now()],
+        )?;
+        Ok(())
+    }
+
     /// Validates `patch` via `Settings::apply_patch`, upserts the merged
     /// settings, and returns them (TS `updateSettings`).
     pub fn update(&mut self, patch: &SettingsPatch) -> Result<Settings, StorageError> {
@@ -343,6 +369,29 @@ mod tests {
         let conn = Connection::open_in_memory().expect("open in-memory database");
         crate::migrations::run_migrations(&conn).expect("run migrations");
         conn
+    }
+
+    #[test]
+    fn screenshot_language_persists_independently_of_interface_settings() {
+        let conn = open_db();
+        let mut repo = SettingsRepository::new(&conn);
+        assert_eq!(repo.screenshot_translation_target().unwrap(), None);
+        let settings = repo.get().unwrap();
+        repo.set_screenshot_translation_target(Language::EnUs)
+            .unwrap();
+        let mut reopened = SettingsRepository::new(&conn);
+        assert_eq!(
+            reopened.screenshot_translation_target().unwrap(),
+            Some(Language::EnUs)
+        );
+        assert_eq!(reopened.get().unwrap(), settings);
+        reopened
+            .set_screenshot_translation_target(Language::ZhTw)
+            .unwrap();
+        assert_eq!(
+            repo.screenshot_translation_target().unwrap(),
+            Some(Language::ZhTw)
+        );
     }
 
     fn insert_settings_row(conn: &Connection, value: &str) {

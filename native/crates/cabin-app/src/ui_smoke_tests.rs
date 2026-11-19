@@ -207,6 +207,49 @@ fn settings_back_label_is_centered_and_button_stays_accessible() {
     );
 }
 
+#[test]
+fn screenshot_target_follows_interface_only_until_a_target_is_chosen() {
+    use cabin_core::settings::Language;
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters))).unwrap();
+    let window = ScreenshotWindow::new().unwrap();
+    let controller =
+        ScreenshotController::new(window.as_weak(), Box::new(|| false), Box::new(|| {}));
+    controller.set_language(Language::ZhTw);
+    assert_eq!(window.get_target_language_choice(), 1);
+    controller.set_translation_target(Some(Language::EnUs));
+    controller.set_language(Language::ZhCn);
+    assert_eq!(window.get_target_language_choice(), 2);
+}
+
+#[test]
+fn screenshot_translation_annotation_paints_an_opaque_region() {
+    let adapters = Rc::new(RefCell::new(Vec::new()));
+    slint::platform::set_platform(Box::new(PreviewPlatform(adapters.clone()))).unwrap();
+    let window = ScreenshotWindow::new().unwrap();
+    window.show().unwrap();
+    let adapter = adapters.borrow()[0].clone();
+    let before = render(&adapter, "screenshot-source", 800., 600., 1.);
+    window.set_text_annotations(slint::ModelRc::new(slint::VecModel::from(vec![
+        crate::ui_screenshot::ScreenshotTextAnnotation {
+            text: "Translated".into(),
+            x: 80.,
+            y: 70.,
+            width: 180.,
+            height: 60.,
+            padding: 8.,
+            font_size: 22.,
+            color: slint::Color::from_rgb_u8(17, 24, 39),
+            is_translation: true,
+        },
+    ])));
+    let after = render(&adapter, "screenshot-inline-translation", 800., 600., 1.);
+    let pixel = |x: usize, y: usize| after.as_slice()[y * 800 + x];
+    assert_eq!(pixel(85, 75), slint::Rgb8Pixel::new(255, 255, 255));
+    assert_eq!(pixel(265, 100), before.as_slice()[100 * 800 + 265]);
+    assert!((85..250).any(|x| (72..128).any(|y| pixel(x, y).r < 64)));
+}
+
 fn key(window: &slint::Window, key: Key) {
     window.dispatch_event(WindowEvent::KeyPressed { text: key.into() });
     window.dispatch_event(WindowEvent::KeyReleased { text: key.into() });
@@ -877,15 +920,18 @@ fn empty_home_reopen_repaints_chrome_after_windows_surface_loss() {
     launcher.on_run_ocr(move || copy.borrow_mut().push("ocr"));
     let copy = calls.clone();
     launcher.on_open_unit_converter(move || copy.borrow_mut().push("converter"));
+    let copy = calls.clone();
+    launcher.on_run_translate(move || copy.borrow_mut().push("translate"));
     show_launcher_surface(&launcher).unwrap();
     render(&adapter, "launcher-reopen-empty-controls", 640., 520., 1.5);
     click(launcher.window(), 603., 31.);
     click(launcher.window(), 55., 457.);
     click(launcher.window(), 155., 457.);
     click(launcher.window(), 260., 457.);
+    click(launcher.window(), 380., 457.);
     assert_eq!(
         *calls.borrow(),
-        ["settings", "screenshot", "ocr", "converter"]
+        ["settings", "screenshot", "ocr", "converter", "translate"]
     );
     launcher.hide().unwrap();
     show_launcher_surface(&launcher).unwrap();

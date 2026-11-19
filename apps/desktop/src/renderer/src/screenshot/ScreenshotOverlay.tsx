@@ -18,7 +18,9 @@ import type {
   ScreenshotTranslationResult,
 } from '../../../shared/screenshotApi.js';
 import type { CommandCabinLanguage } from '@command-cabin/core';
+import { screenshotTranslationLanguages } from '../../../shared/screenshotApi.js';
 import { DEFAULT_UI_LANGUAGE, getUiStrings, type UiStrings } from '../i18n.js';
+import { getLanguageLabel } from '../settings/LanguageSettings.js';
 import { composeScreenshotSelection } from './screenshotCanvas.js';
 import {
   createInitialScreenshotState,
@@ -192,16 +194,21 @@ export function requireScreenshotApi(
   return screenshotApi;
 }
 
-export function getScreenshotOcrLanguageForUi(
-  language: CommandCabinLanguage,
-): ScreenshotOcrLanguage {
-  return language === 'en-US' ? 'zh-CN' : 'en-US';
-}
+const translationTargetKey = 'screenshot.translationTarget';
 
 export function getScreenshotTranslationTargetLanguage(
-  language: CommandCabinLanguage,
+  saved: string | null,
+  interfaceLanguage: CommandCabinLanguage,
 ): ScreenshotTranslationLanguage {
-  return language;
+  return screenshotTranslationLanguages.find((target) => target === saved) ?? interfaceLanguage;
+}
+
+function readTranslationTarget(): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage.getItem(translationTargetKey);
+  } catch {
+    return null;
+  }
 }
 
 export function createPendingTextAnnotationController({
@@ -383,6 +390,21 @@ export function ScreenshotOverlayView({
   launchState,
   strings = defaultScreenshotStrings,
 }: ScreenshotOverlayViewProps) {
+  const [savedTarget, setSavedTarget] = useState(readTranslationTarget);
+  const targetLanguage = getScreenshotTranslationTargetLanguage(savedTarget, language);
+  // The Windows Chinese OCR packs recognize both Han and Latin text.
+  const translationOcrLanguage: ScreenshotOcrLanguage = language === 'en-US' ? 'zh-CN' : language;
+
+  const changeTranslationTarget = (value: string) => {
+    const target = getScreenshotTranslationTargetLanguage(value, language);
+    setSavedTarget(target);
+    try {
+      window.localStorage.setItem(translationTargetKey, target);
+    } catch {
+      // The current selection still works when persistent storage is unavailable.
+    }
+  };
+
   const [state, dispatch] = useReducer(
     screenshotReducer,
     initialState ?? createInitialScreenshotState(),
@@ -404,7 +426,6 @@ export function ScreenshotOverlayView({
   const [translationPanel, setTranslationPanel] = useState<TranslationPanelState | undefined>();
   const outputOperationGenerationRef = useRef(0);
   const outputOperationBusyRef = useRef(false);
-  const translationConsentGrantedRef = useRef(false);
   const [outputOperationBusy, setOutputOperationBusy] = useState(false);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const [toolbarSize, setToolbarSize] = useState(defaultScreenshotToolbarSize);
@@ -514,13 +535,13 @@ export function ScreenshotOverlayView({
   }, [cancelPendingTextAnnotation, desktopApi, strings]);
 
   const exportImage = useCallback(
-    async (format: ScreenshotSaveFormat = 'png') => {
+    async (format: ScreenshotSaveFormat = 'png', annotations = visibleAnnotations) => {
       if (!state.selection) {
         throw new Error('Select an area first.');
       }
 
       return composeScreenshotSelection({
-        annotations: visibleAnnotations,
+        annotations,
         decodedImages: decodedImagesRef.current,
         format,
         launchState,
@@ -549,9 +570,9 @@ export function ScreenshotOverlayView({
       setTranslationPanel({ status: 'running' });
       const result = await screenshotApi.translateSelection({
         imageDataUrl,
-        ocrLanguage: getScreenshotOcrLanguageForUi(language),
+        ocrLanguage: translationOcrLanguage,
         onlineConsent: true,
-        targetLanguage: getScreenshotTranslationTargetLanguage(language),
+        targetLanguage,
       });
 
       if (result.status !== 'success') {
@@ -579,7 +600,8 @@ export function ScreenshotOverlayView({
     },
     [
       desktopApi,
-      language,
+      targetLanguage,
+      translationOcrLanguage,
       state.selection,
       strings.controlsUnavailable,
       strings.status.translationApplied,
@@ -767,23 +789,18 @@ export function ScreenshotOverlayView({
       return;
     }
 
-    if (action === 'translate' && !translationConsentGrantedRef.current) {
-      if (
-        typeof globalThis.confirm !== 'function' ||
-        !globalThis.confirm(strings.translation.onlineConsent)
-      ) {
-        return;
-      }
-
-      translationConsentGrantedRef.current = true;
-    }
-
     const operationGeneration = ++outputOperationGenerationRef.current;
     outputOperationBusyRef.current = true;
     setOutputOperationBusy(true);
 
     try {
-      const imageDataUrl = await exportImage(action === 'save' ? saveFormat : 'png');
+      // Re-translate the original crop if a previous translation already covers it.
+      const imageDataUrl = await exportImage(
+        action === 'save' ? saveFormat : 'png',
+        action === 'translate'
+          ? visibleAnnotations.filter((annotation) => annotation.type !== 'translation')
+          : visibleAnnotations,
+      );
       const screenshotApi = requireScreenshotApi(desktopApi, strings.controlsUnavailable);
 
       if (action === 'save') {
@@ -814,9 +831,9 @@ export function ScreenshotOverlayView({
       } else if (action === 'translate') {
         setTranslationPanel({
           message: reason instanceof Error ? reason.message : strings.translation.failed,
-          ocrLanguage: getScreenshotOcrLanguageForUi(language),
+          ocrLanguage: translationOcrLanguage,
           status: 'error',
-          targetLanguage: getScreenshotTranslationTargetLanguage(language),
+          targetLanguage,
         });
       } else {
         setStatus(toStatus(reason, strings));
@@ -1065,6 +1082,21 @@ export function ScreenshotOverlayView({
                 <span className="screenshot-icon">{toolbarIcon('ocr')}</span>
                 <span className="screenshot-button-label">{strings.toolbar.ocr}</span>
               </button>
+              <label className="screenshot-translation-target">
+                {strings.translation.targetLanguage}
+                <select
+                  aria-label={strings.translation.targetLanguage}
+                  disabled={outputOperationBusy}
+                  onChange={(event) => changeTranslationTarget(event.currentTarget.value)}
+                  value={targetLanguage}
+                >
+                  {screenshotTranslationLanguages.map((target) => (
+                    <option key={target} value={target}>
+                      {getLanguageLabel(target)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 aria-label={strings.toolbar.translate}
                 disabled={outputOperationBusy}

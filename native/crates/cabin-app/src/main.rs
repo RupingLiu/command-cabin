@@ -2,7 +2,7 @@
 //!
 //! 启动序列（任务简报 1）：单实例守卫 → `%APPDATA%\CommandCabin\`（缺则创建）→
 //! 打开 `command-cabin.sqlite` → `run_migrations` → 读设置（失败=数据损坏，走统一
-//! 错误通道并以非零码退出）→ 按设置热键注册全局热键（失败=退出并诊断）→
+//! 错误通道并以非零码退出）→ 尝试注册全局热键（冲突时仍可用窗口和托盘）→
 //! `is_login_startup(args)` 决定是否呼出窗口 → `WindowsAutostart::set_enabled`
 //! 与设置同步（对齐 TS index.ts:300 启动同步）→ 托盘菜单文案按语言。
 //!
@@ -103,9 +103,6 @@ mod ui_screenshot {
 }
 mod ui_pin {
     include!(concat!(env!("OUT_DIR"), "/pin-window.rs"));
-}
-mod ui_translate {
-    include!(concat!(env!("OUT_DIR"), "/translate-window.rs"));
 }
 use ui_launcher::{LauncherWindow, PinnedTile, ResultItem, UnitConverterTexts};
 use ui_screenshot::{ScreenshotTexts, ScreenshotWindow};
@@ -657,6 +654,8 @@ struct AppContext {
     /// 自最近一次呼出以来是否观测到焦点（hideOnBlur 决策输入，见
     /// `state::hide_on_blur_poll_step`；读写均在 UI 线程，无并发交错）。
     focused_since_shown: AtomicBool,
+    /// The shortcut actually owned by this instance. A saved shortcut can be unavailable.
+    launcher_hotkey: Mutex<Option<String>>,
     /// 截图热键注册表（M3 Task 8 位移语义的状态侧；与热键操作同在 UI 线程
     /// 的设置流闭包内触达，Mutex 仅满足 Send+Sync）。
     screenshot_registrations: Mutex<state::ScreenshotHotkeyRegistrations>,
@@ -740,6 +739,9 @@ impl AppContext {
         window.invoke_commit_pending();
         push_settings_view(self);
         window.set_error_text("".into());
+        if self.launcher_hotkey.lock().unwrap().is_none() {
+            window.set_active_page(1);
+        }
         show_settings_surface(&window).expect("show settings");
     }
 
@@ -1559,6 +1561,7 @@ fn push_launcher_texts(window: &LauncherWindow, language: cabin_core::settings::
     window.set_empty_hint(texts.empty_hint.into());
     window.set_no_results_hint(texts.no_results_hint.into());
     window.set_home_action_ocr(texts.home_action_ocr.into());
+    window.set_home_action_translate(texts.home_action_translate.into());
     window.set_home_action_unit_converter(texts.home_action_unit_converter.into());
     push_converter_texts(window, language);
 
@@ -1691,6 +1694,7 @@ fn wire_unit_converter(
 fn push_screenshot_texts(window: &ScreenshotWindow, language: cabin_core::settings::Language) {
     let texts = i18n::screenshot_texts(language);
     window.set_texts(ScreenshotTexts {
+        drag_to_select: texts.drag_to_select.into(),
         tool_rectangle: texts.tool_rectangle.into(),
         tool_ellipse: texts.tool_ellipse.into(),
         tool_arrow: texts.tool_arrow.into(),
@@ -1701,6 +1705,9 @@ fn push_screenshot_texts(window: &ScreenshotWindow, language: cabin_core::settin
         redo: texts.redo.into(),
         ocr: texts.ocr.into(),
         translate: texts.translate.into(),
+        target_language: texts.translation_target_label.into(),
+        copy_original: texts.translation_copy_original.into(),
+        copy_translation: texts.translation_copy.into(),
         pin: texts.pin.into(),
         save: texts.save.into(),
         cancel: texts.cancel.into(),
@@ -1827,7 +1834,11 @@ fn push_settings_view(context: &AppContext) {
 
     settings_window.set_texts(settings_texts_for_view(settings.language));
     if let Some(launcher) = context.window.upgrade() {
-        launcher.set_hotkey_hint(settings.hotkey.clone().into());
+        let active = context.launcher_hotkey.lock().unwrap();
+        let hint = active
+            .clone()
+            .unwrap_or_else(|| i18n::unavailable_shortcut(settings.language, &settings.hotkey));
+        launcher.set_hotkey_hint(hint.into());
     }
     settings_window.set_hotkey_launcher(settings.hotkey.clone().into());
     settings_window.set_hotkey_screenshot(settings.screenshot_hotkey.clone().into());
@@ -2035,6 +2046,47 @@ fn hotkey_handler_for(
     }
 }
 
+/// Register the new binding before releasing the old one. Only release shortcuts
+/// this instance successfully registered (TS registerGlobalHotkey: "if (registered)").
+fn replace_launcher_hotkey(
+    hotkeys: &impl GlobalHotkeyProvider,
+    active: &mut Option<String>,
+    requested: Option<&str>,
+    handler: Box<dyn Fn() + Send>,
+) -> Result<(), String> {
+    if active.as_deref() == requested {
+        return Ok(());
+    }
+    let previous = active
+        .as_deref()
+        .map(parse_accelerator)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let next = requested
+        .map(parse_accelerator)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    if previous != next {
+        if let Some(next) = &next {
+            hotkeys
+                .register(next, handler)
+                .map_err(|error| error.to_string())?;
+        }
+        if let Some(previous) = &previous {
+            if let Err(error) = hotkeys.unregister(previous) {
+                if let Some(next) = &next {
+                    hotkeys.unregister(next).map_err(|rollback| {
+                        format!("{error}; could not release replacement shortcut: {rollback}")
+                    })?;
+                }
+                return Err(error.to_string());
+            }
+        }
+    }
+    *active = requested.map(str::to_owned);
+    Ok(())
+}
+
 /// 注册替换（TS `tryRegisterLauncherHotkey` / registerChangedHotkey 语义）：
 /// 仅启动器字段——先注册新值，成功后注销旧值。新值解析/注册失败返回
 /// `Err(())`，由纯编排层统一报错与回滚。截图字段走位移语义（见下）。
@@ -2057,27 +2109,18 @@ fn register_hotkey_replacement(
         .then_some(())
         .ok_or(());
     }
-    let accelerator = parse_accelerator(&registration.new_hotkey).map_err(|error| {
-        eprintln!(
-            "CommandCabin: hotkey {:?} is not registrable: {error}",
-            registration.new_hotkey
-        );
-    })?;
-    let handler = hotkey_handler_for(registration.field, context, screenshot);
-    hotkeys.register(&accelerator, handler).map_err(|error| {
+    replace_launcher_hotkey(
+        hotkeys,
+        &mut context.launcher_hotkey.lock().unwrap(),
+        Some(&registration.new_hotkey),
+        hotkey_handler_for(registration.field, context, screenshot),
+    )
+    .map_err(|error| {
         eprintln!(
             "CommandCabin: hotkey registration failed for {}: {error}",
             registration.new_hotkey
         );
-    })?;
-    if let Ok(previous) = parse_accelerator(&registration.rollback_hotkey) {
-        if previous != accelerator {
-            if let Err(error) = hotkeys.unregister(&previous) {
-                eprintln!("CommandCabin: unregistering replaced hotkey failed: {error}");
-            }
-        }
-    }
-    Ok(())
+    })
 }
 
 /// 回滚（TS rollbackActions：re-register 旧值，失败仅诊断）。截图字段经
@@ -2090,32 +2133,36 @@ fn restore_hotkey(
     registration: &state::HotkeyRegistration,
 ) {
     if let Some(field) = screenshot_field_from_name(registration.field) {
+        let previous = registration
+            .rollback_hotkey
+            .as_deref()
+            .expect("screenshot registrations retain the previous setting");
         if !try_register_screenshot_hotkey(
             hotkeys,
             registrations,
             context,
             screenshot,
             field,
-            &registration.rollback_hotkey,
+            previous,
         ) {
             eprintln!(
                 "CommandCabin: restoring {} hotkey {} failed",
-                registration.field, registration.rollback_hotkey
+                registration.field, previous
             );
         }
         return;
     }
-    match parse_accelerator(&registration.rollback_hotkey) {
-        Ok(accelerator) => {
-            let handler = hotkey_handler_for(registration.field, context, screenshot);
-            if let Err(error) = hotkeys.register(&accelerator, handler) {
-                eprintln!(
-                    "CommandCabin: restoring hotkey {} failed: {error}",
-                    registration.rollback_hotkey
-                );
-            }
+    let mut active = context.launcher_hotkey.lock().unwrap();
+    if let Err(error) = replace_launcher_hotkey(
+        hotkeys,
+        &mut active,
+        registration.rollback_hotkey.as_deref(),
+        hotkey_handler_for(registration.field, context, screenshot),
+    ) {
+        eprintln!("CommandCabin: cannot restore launcher shortcut: {error}");
+        if let Err(error) = replace_launcher_hotkey(hotkeys, &mut active, None, Box::new(|| {})) {
+            eprintln!("CommandCabin: cannot release replacement shortcut: {error}");
         }
-        Err(error) => eprintln!("CommandCabin: cannot restore hotkey: {error}"),
     }
 }
 
@@ -2247,7 +2294,11 @@ fn apply_settings_patch(
 
     let mut guard = context.state.lock().unwrap();
     state::assert_merged_hotkeys_unique(&guard.settings, &patch)?;
-    let registrations = state::hotkey_registrations(&guard.settings, &patch);
+    let registrations = state::hotkey_registrations(
+        &guard.settings,
+        &patch,
+        context.launcher_hotkey.lock().unwrap().as_deref(),
+    );
 
     let mut persisted: Option<Result<Settings, String>> = None;
     let outcome = {
@@ -2334,11 +2385,14 @@ fn commit_settings_patch(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let login_startup = is_login_startup(&std::env::args().collect::<Vec<String>>());
     let instance = WindowsSingleInstance::acquire("CommandCabin-Native")?;
     if !instance.is_primary() {
-        return Ok(()); // 已有实例运行，静默退出
+        if !login_startup {
+            instance.request_show()?;
+        }
+        return Ok(());
     }
-    let login_startup = is_login_startup(&std::env::args().collect::<Vec<String>>());
 
     // ---- 启动序列：数据目录 → DB → 迁移 → 设置（失败即退，简报 1） ----
     let app_dir = app_data_dir().unwrap_or_else(|error| fatal(&error));
@@ -2350,6 +2404,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let settings = SettingsRepository::new(&conn)
         .get()
         .unwrap_or_else(|error| fatal(&format!("settings are unreadable: {error}")));
+
+    let screenshot_target = SettingsRepository::new(&conn)
+        .screenshot_translation_target()
+        .unwrap_or_else(|error| {
+            eprintln!("CommandCabin: reading screenshot translation target failed: {error}");
+            None
+        });
 
     // ---- 图标磁盘缓存 + flush 调度 ----
     let icon_cache = Arc::new(Mutex::new(IconDiskCache::load(
@@ -2585,6 +2646,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         extractor,
         hide_on_blur: Arc::clone(&hide_on_blur),
         focused_since_shown: AtomicBool::new(false),
+        launcher_hotkey: Mutex::new(None),
         screenshot_registrations: Mutex::new(state::ScreenshotHotkeyRegistrations::default()),
         app_index_refresh: Mutex::new(app_index_refresh::AppIndexRefresh::default()),
         executor,
@@ -2623,6 +2685,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     };
     screenshot_controller.set_language(settings.language);
+    screenshot_controller.set_translation_target(screenshot_target);
     // 绑定截图系统命令的执行目标（构造序注释见 screenshot_entry 声明处）。
     // unwrap_or_else 而非 expect：OnceLock::set 的 Err 载有原值，expect 会要求
     // Arc<ScreenshotController> 实现 Debug（控制器有意未派生）。
@@ -2631,6 +2694,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| panic!("screenshot entry should bind exactly once"));
     {
         let controller = Arc::clone(&screenshot_controller);
+        screenshot_window.on_copy_text_requested(|text| {
+            screenshot_controller::copy_text_async(text.to_string())
+        });
         screenshot_window.on_pointer_down(move |x, y| controller.on_pointer_down(x, y));
         let controller = Arc::clone(&screenshot_controller);
         screenshot_window.on_pointer_move(move |x, y| controller.on_pointer_move(x, y));
@@ -2655,6 +2721,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         screenshot_window.on_ocr_requested(move || controller.on_ocr());
         let controller = Arc::clone(&screenshot_controller);
         screenshot_window.on_translate_requested(move || controller.on_translate());
+        let controller = Arc::clone(&screenshot_controller);
+        let app_state = Arc::clone(&context.state);
+        screenshot_window.on_target_language_selected(move |index| {
+            let Some(target) = state::language_from_index(index as u32) else {
+                return;
+            };
+            if let Err(error) = SettingsRepository::new(&app_state.lock().unwrap().conn)
+                .set_screenshot_translation_target(target)
+            {
+                eprintln!("CommandCabin: saving screenshot translation target failed: {error}");
+            }
+            controller.set_translation_target(Some(target));
+        });
         let controller = Arc::clone(&screenshot_controller);
         screenshot_window.on_pin_requested(move || controller.on_pin());
         let controller = Arc::clone(&screenshot_controller);
@@ -2682,35 +2761,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             slint::CloseRequestResponse::KeepWindowShown
         });
     }
-    // 首屏视图推送：文案（按设置语言）+ 值快照 + 收藏 + 主题（两个窗口）。
-    push_settings_view(&context);
-
-    // ---- 启动期热键（简报 1 + M3 Task 8 项 1）：launcher 热键（失败=退出并
-    // 诊断）+ 两个截图热键（screenshotHotkey → capture、delayedScreenshotHotkey
-    // → capture-delay-3；失败=非致命，仅 warn + 冲突提示消息——对齐 TS
-    // screenshotShortcutController.start()：注册不上的字段保持未注册，应用继续）。
+    // A conflicting global shortcut must leave the launcher, settings and tray usable.
     let hotkeys = Rc::new(WindowsHotkeys::new()?);
-    let launcher_accelerator = parse_accelerator(&settings.hotkey).unwrap_or_else(|error| {
-        fatal(&format!(
-            "stored launcher hotkey {:?} is invalid: {error}",
+    if let Err(error) = replace_launcher_hotkey(
+        hotkeys.as_ref(),
+        &mut context.launcher_hotkey.lock().unwrap(),
+        Some(&settings.hotkey),
+        hotkey_handler_for(
+            state::HOTKEY_FIELD_LAUNCHER,
+            &context,
+            &screenshot_controller,
+        ),
+    ) {
+        append_diag_log(&format!(
+            "launcher shortcut {} unavailable: {error}",
             settings.hotkey
-        ))
-    });
-    {
-        let context = Arc::clone(&context);
-        if let Err(error) = hotkeys.register(
-            &launcher_accelerator,
-            Box::new(move || {
-                let context = Arc::clone(&context);
-                let _ = slint::invoke_from_event_loop(move || context.toggle_window());
-            }),
-        ) {
-            fatal(&format!(
-                "could not register launcher hotkey {}: {error}",
-                settings.hotkey
-            ));
-        }
+        ));
     }
+    push_settings_view(&context);
     {
         for (field, accelerator) in [
             (
@@ -2860,6 +2928,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let screenshot = Arc::clone(&screenshot_controller);
         window.on_run_ocr(move || screenshot.start_capture(ScreenshotMode::Ocr));
+    }
+    {
+        let screenshot = Arc::clone(&screenshot_controller);
+        window.on_run_translate(move || screenshot.start_capture(ScreenshotMode::Translate));
     }
 
     // ---- 设置窗口提交回调（M2 Task 10）。提交语义见 settings.slint 头注：
@@ -3124,6 +3196,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if screenshot.is_session_active() {
                     return;
                 }
+                if instance.take_show_request() {
+                    context.show_window();
+                    return;
+                }
                 let Some(window) = context.window.upgrade() else {
                     return;
                 };
@@ -3227,6 +3303,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = clipboard_watch_timer;
     let _ = update_check_timer;
     Ok(())
+}
+
+#[cfg(test)]
+mod launcher_hotkey_tests {
+    use super::*;
+    use cabin_platform::{Accelerator, PlatformError};
+    use std::cell::RefCell;
+
+    #[derive(Default)]
+    struct TestHotkeys(RefCell<Vec<Accelerator>>);
+
+    impl GlobalHotkeyProvider for TestHotkeys {
+        fn register(
+            &self,
+            shortcut: &Accelerator,
+            _: Box<dyn Fn() + Send + 'static>,
+        ) -> Result<(), PlatformError> {
+            if shortcut.key == "space" || self.0.borrow().contains(shortcut) {
+                return Err(PlatformError::Hotkey("already in use".into()));
+            }
+            self.0.borrow_mut().push(shortcut.clone());
+            Ok(())
+        }
+
+        fn unregister(&self, shortcut: &Accelerator) -> Result<(), PlatformError> {
+            let mut owned = self.0.borrow_mut();
+            let index = owned
+                .iter()
+                .position(|item| item == shortcut)
+                .expect("only unregister a shortcut the launcher owns");
+            owned.remove(index);
+            Ok(())
+        }
+
+        fn unregister_all(&self) -> Result<(), PlatformError> {
+            self.0.borrow_mut().clear();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn launcher_can_recover_from_a_startup_conflict_and_roll_back_to_no_binding() {
+        // TS desktopApplication.test.ts: "keeps the launcher visible when the startup
+        // hotkey conflict dialog blurs it". The conflicting key remains unregistered.
+        let hotkeys = TestHotkeys::default();
+        let mut active = None;
+        assert!(
+            replace_launcher_hotkey(&hotkeys, &mut active, Some("Alt+Space"), Box::new(|| {}))
+                .is_err()
+        );
+        assert!(active.is_none());
+        replace_launcher_hotkey(&hotkeys, &mut active, Some("Ctrl+Alt+K"), Box::new(|| {}))
+            .unwrap();
+        assert!(
+            replace_launcher_hotkey(&hotkeys, &mut active, Some("Alt+Space"), Box::new(|| {}))
+                .is_err()
+        );
+        assert_eq!(active.as_deref(), Some("Ctrl+Alt+K"));
+        assert_eq!(
+            *hotkeys.0.borrow(),
+            [parse_accelerator("Ctrl+Alt+K").unwrap()]
+        );
+        replace_launcher_hotkey(&hotkeys, &mut active, None, Box::new(|| {})).unwrap();
+        assert!(active.is_none());
+        assert!(hotkeys.0.borrow().is_empty());
+    }
 }
 
 #[cfg(test)]

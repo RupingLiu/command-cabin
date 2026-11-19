@@ -13,7 +13,6 @@ vi.mock('electron', () => ({
 
 import {
   getScreenshotTranslationOcrLanguageCandidates,
-  getScreenshotTranslationSourceLanguage,
   runScreenshotTranslation,
 } from './screenshotTranslation.js';
 
@@ -32,33 +31,7 @@ describe('getScreenshotTranslationOcrLanguageCandidates', () => {
         ocrLanguage: 'zh-CN',
         targetLanguage: 'en-US',
       }),
-    ).toEqual(['zh-CN', 'en-US']);
-  });
-});
-
-describe('getScreenshotTranslationSourceLanguage', () => {
-  it('keeps the intended source language even when OCR falls back to another engine', () => {
-    expect(
-      getScreenshotTranslationSourceLanguage(
-        {
-          ocrLanguage: 'en-US',
-          targetLanguage: 'zh-CN',
-        },
-        'zh-CN',
-      ),
-    ).toBe('en-US');
-  });
-
-  it('uses the actual OCR language when source and target are intentionally the same', () => {
-    expect(
-      getScreenshotTranslationSourceLanguage(
-        {
-          ocrLanguage: 'zh-CN',
-          targetLanguage: 'zh-CN',
-        },
-        'zh-TW',
-      ),
-    ).toBe('zh-TW');
+    ).toEqual(['zh-CN', 'zh-TW', 'en-US']);
   });
 });
 
@@ -100,7 +73,8 @@ describe('runScreenshotTranslation', () => {
       language: 'en-US',
     });
     expect(translate).toHaveBeenCalledWith({
-      sourceLanguage: 'en-US',
+      detectSourceLanguage: true,
+      sourceLanguage: 'zh-CN',
       targetLanguage: 'zh-CN',
       text: 'Google News',
     });

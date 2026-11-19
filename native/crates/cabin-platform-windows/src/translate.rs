@@ -52,8 +52,12 @@ pub fn http_post_form(
     timeout: Duration,
 ) -> Result<String, TranslationHttpError> {
     let body = encode_form(form);
-    let agent = ureq::AgentBuilder::new().timeout(timeout).build();
-    let response = agent
+    let mut builder = ureq::AgentBuilder::new().timeout(timeout);
+    if let Some(proxy) = crate::http_proxy::for_url(url) {
+        builder = builder.proxy(proxy);
+    }
+    let response = builder
+        .build()
         .post(url)
         .set("Accept", "application/json")
         .set(

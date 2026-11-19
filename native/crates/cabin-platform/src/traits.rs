@@ -6,6 +6,7 @@ use std::sync::mpsc::Receiver;
 
 use cabin_core::indexer::IndexScanResult;
 use cabin_core::screenshot::state::{Point, Rect};
+use cabin_core::screenshot::{png_encode_rgba, RgbaImage, ScreenshotDisplay};
 use thiserror::Error;
 
 use crate::accelerator::Accelerator;
@@ -121,9 +122,12 @@ pub trait SystemThemeProvider {
     fn prefers_light_theme(&self) -> Option<bool>;
 }
 
-/// 单实例守卫；析构时释放 OS 锁。非主实例进程应立即退出。
+/// 单实例守卫。再次手动启动时通知已有实例显示窗口，随后退出。
 pub trait SingleInstance: Send {
     fn is_primary(&self) -> bool;
+    fn request_show(&self) -> Result<(), PlatformError>;
+    /// Nonblocking. Consumes a pending request from a subsequent launch.
+    fn take_show_request(&self) -> bool;
 }
 
 pub trait GlobalHotkeyProvider: Send {
@@ -184,20 +188,49 @@ pub struct DisplaySnapshot {
     pub png: Vec<u8>,
 }
 
+/// Opaque RGBA8 physical pixels, ready for display without compressing a desktop frame.
+pub struct CapturedFrame {
+    pub display: ScreenshotDisplay,
+    pub rgba: RgbaImage,
+}
+
 /// 一次屏幕捕获的完整结果：各显示器快照与覆盖全部显示器的虚拟桌面
 /// 逻辑坐标边界（对齐 cabin-core `calculate_virtual_bounds` 的形状）。
 #[derive(Debug, Clone, PartialEq)]
-pub struct CaptureResult {
-    pub displays: Vec<DisplaySnapshot>,
+pub struct CaptureResult<T = DisplaySnapshot> {
+    pub displays: Vec<T>,
     pub virtual_bounds: Rect,
 }
 
 /// 屏幕捕获。Windows 实现走 GDI（Task 5）。
 pub trait ScreenshotCapture: Send + Sync {
+    /// Capture the display containing the logical point, or the whole desktop if omitted.
+    fn capture_frames(
+        &self,
+        active_point: Option<Point>,
+    ) -> Result<CaptureResult<CapturedFrame>, PlatformError>;
+
     /// 捕获活动显示器（或全部）原始尺寸 PNG；失败 PlatformError::Capture（新变体）。
     /// `active_point`（逻辑坐标）用于定位光标所在显示器；None 时捕获全部显示器。
-    fn capture_displays(&self, active_point: Option<Point>)
-        -> Result<CaptureResult, PlatformError>;
+    fn capture_displays(
+        &self,
+        active_point: Option<Point>,
+    ) -> Result<CaptureResult, PlatformError> {
+        let frames = self.capture_frames(active_point)?;
+        Ok(CaptureResult {
+            displays: frames
+                .displays
+                .into_iter()
+                .map(|frame| DisplaySnapshot {
+                    id: frame.display.id as u32,
+                    bounds: frame.display.bounds,
+                    scale_factor: frame.display.scale_factor,
+                    png: png_encode_rgba(&frame.rgba),
+                })
+                .collect(),
+            virtual_bounds: frames.virtual_bounds,
+        })
+    }
 }
 
 /// 剪贴板写入：PNG 图片与纯文本。Windows 实现走 Win32 剪贴板（Task 5）。
@@ -414,22 +447,24 @@ mod tests {
     struct FixedCapture;
 
     impl ScreenshotCapture for FixedCapture {
-        fn capture_displays(
+        fn capture_frames(
             &self,
             active_point: Option<Point>,
-        ) -> Result<CaptureResult, PlatformError> {
+        ) -> Result<CaptureResult<CapturedFrame>, PlatformError> {
             assert_eq!(active_point, Some(Point { x: 10.0, y: 20.0 }));
             Ok(CaptureResult {
-                displays: vec![DisplaySnapshot {
-                    id: 1,
-                    bounds: Rect {
-                        x: 0.0,
-                        y: 0.0,
-                        width: 100.0,
-                        height: 80.0,
+                displays: vec![CapturedFrame {
+                    display: ScreenshotDisplay {
+                        id: 1,
+                        bounds: Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 100.0,
+                            height: 80.0,
+                        },
+                        scale_factor: 1.5,
                     },
-                    scale_factor: 1.5,
-                    png: vec![0x89, b'P', b'N', b'G'],
+                    rgba: RgbaImage::new(150, 120),
                 }],
                 virtual_bounds: Rect {
                     x: 0.0,
@@ -455,7 +490,7 @@ mod tests {
         let display = &result.displays[0];
         assert_eq!(display.id, 1);
         assert_eq!(display.scale_factor, 1.5);
-        assert_eq!(display.png, vec![0x89, b'P', b'N', b'G']);
+        assert!(display.png.starts_with(b"\x89PNG"));
         assert_eq!(result.virtual_bounds.width, 100.0);
         assert_eq!(result.virtual_bounds.height, 80.0);
 
@@ -463,10 +498,10 @@ mod tests {
         struct FailingCapture;
 
         impl ScreenshotCapture for FailingCapture {
-            fn capture_displays(
+            fn capture_frames(
                 &self,
                 _active_point: Option<Point>,
-            ) -> Result<CaptureResult, PlatformError> {
+            ) -> Result<CaptureResult<CapturedFrame>, PlatformError> {
                 Err(PlatformError::Capture("no displays".into()))
             }
         }

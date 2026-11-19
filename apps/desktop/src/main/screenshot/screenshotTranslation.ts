@@ -2,11 +2,10 @@ import type {
   ScreenshotOcrLanguage,
   ScreenshotOcrResult,
   ScreenshotTranslateSelectionRequest,
-  ScreenshotTranslationLanguage,
   ScreenshotTranslationResult,
 } from '../../shared/screenshotApi.js';
 import { runLocalOcr } from './localOcr.js';
-import { runOnlineTranslate } from './onlineTranslate.js';
+import { runOnlineTranslate, type OnlineTranslateRequest } from './onlineTranslate.js';
 
 type RunOcrForTranslation = (request: {
   fallbackLanguages?: readonly ScreenshotOcrLanguage[] | undefined;
@@ -14,52 +13,25 @@ type RunOcrForTranslation = (request: {
   language: ScreenshotOcrLanguage;
 }) => Promise<ScreenshotOcrResult>;
 
-type RunOnlineTranslateForTranslation = (request: {
-  sourceLanguage: ScreenshotTranslationLanguage;
-  targetLanguage: ScreenshotTranslationLanguage;
-  text: string;
-}) => Promise<ScreenshotTranslationResult>;
+type RunOnlineTranslateForTranslation = (
+  request: OnlineTranslateRequest,
+) => Promise<ScreenshotTranslationResult>;
 
 export interface RunScreenshotTranslationDependencies {
   runOcr?: RunOcrForTranslation | undefined;
   translate?: RunOnlineTranslateForTranslation | undefined;
 }
 
-function pushUniqueLanguage(
-  languages: ScreenshotOcrLanguage[],
-  language: ScreenshotOcrLanguage,
-): void {
-  if (!languages.includes(language)) {
-    languages.push(language);
-  }
-}
-
 export function getScreenshotTranslationOcrLanguageCandidates(
   request: Pick<ScreenshotTranslateSelectionRequest, 'ocrLanguage' | 'targetLanguage'>,
 ): ScreenshotOcrLanguage[] {
-  const candidates: ScreenshotOcrLanguage[] = [];
-
-  pushUniqueLanguage(candidates, request.ocrLanguage);
-  pushUniqueLanguage(candidates, request.targetLanguage);
-
-  if (request.targetLanguage === 'zh-CN') {
-    pushUniqueLanguage(candidates, 'zh-TW');
-  } else if (request.targetLanguage === 'zh-TW') {
-    pushUniqueLanguage(candidates, 'zh-CN');
-  }
-
-  return candidates;
-}
-
-export function getScreenshotTranslationSourceLanguage(
-  request: Pick<ScreenshotTranslateSelectionRequest, 'ocrLanguage' | 'targetLanguage'>,
-  actualOcrLanguage: ScreenshotOcrLanguage,
-): ScreenshotTranslationLanguage {
-  if (request.ocrLanguage !== request.targetLanguage) {
-    return request.ocrLanguage;
-  }
-
-  return actualOcrLanguage;
+  // A Chinese pack recognizes both Han and Latin text. Keep the other variant
+  // ahead of English if the preferred Chinese pack is unavailable.
+  const chineseVariants: ScreenshotOcrLanguage[] =
+    request.ocrLanguage === 'zh-TW' || request.targetLanguage === 'zh-TW'
+      ? ['zh-TW', 'zh-CN']
+      : ['zh-CN', 'zh-TW'];
+  return [...new Set<ScreenshotOcrLanguage>([request.ocrLanguage, ...chineseVariants, 'en-US'])];
 }
 
 export async function runScreenshotTranslation(
@@ -78,7 +50,8 @@ export async function runScreenshotTranslation(
 
   if (ocrResult.status === 'success' && ocrResult.text.trim().length > 0) {
     return translate({
-      sourceLanguage: getScreenshotTranslationSourceLanguage(request, ocrResult.language),
+      detectSourceLanguage: true,
+      sourceLanguage: ocrResult.language,
       targetLanguage: request.targetLanguage,
       text: ocrResult.text,
     });

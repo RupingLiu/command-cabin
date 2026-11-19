@@ -57,6 +57,26 @@ describe('runOnlineTranslate', () => {
     expect(body.get('q')).toBe('Updates about Google News');
   });
 
+  it('joins intra-line Han OCR separators in the request and retains the original', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      createJsonResponse([[['謝謝', '谢谢']]]),
+    );
+    const original = '谢 谢 你 API 文 档\n下 一 行';
+    const result = await runOnlineTranslate(
+      {
+        detectSourceLanguage: true,
+        sourceLanguage: 'zh-CN',
+        targetLanguage: 'zh-TW',
+        text: original,
+      },
+      { fetch },
+    );
+    const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get('q')).toBe('谢谢你 API 文档\n下一行');
+    expect(result).toMatchObject({ sourceText: original, translatedText: '謝謝' });
+    expect(normalizeTextForOnlineTranslation('中  文\r\nN\news', 'en-US')).toBe('中 文\nN\news');
+  });
+
   it('calls the online translation endpoint with a language pair', async () => {
     const fetch = vi.fn(async () =>
       createJsonResponse({
@@ -95,6 +115,26 @@ describe('runOnlineTranslate', () => {
     expect(request?.method).toBe('POST');
     expect(body.get('q')).toBe('hello');
     expect(body.get('langpair')).toBe('en|zh-CN');
+  });
+
+  it('uses the selected target even if it matches the OCR engine language', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      createJsonResponse([[['Hello', '你好']]]),
+    );
+    const result = await runOnlineTranslate(
+      {
+        detectSourceLanguage: true,
+        sourceLanguage: 'en-US',
+        targetLanguage: 'en-US',
+        text: '你好',
+      },
+      { fetch },
+    );
+
+    expect(result).toMatchObject({ translatedText: 'Hello', targetLanguage: 'en-US' });
+    const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get('sl')).toBe('auto');
+    expect(body.get('tl')).toBe('en');
   });
 
   it('does not send OCR text to a second provider when the primary endpoint fails', async () => {

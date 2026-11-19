@@ -7,7 +7,7 @@
 //!   Slint 属性/模型。所有 reducer 访问都在 UI 线程（Slint 回调与
 //!   `invoke_from_event_loop` 闭包内）；`Mutex` 仅为满足 `Arc` 跨闭包共享
 //!   （与 main.rs `AppState` 同一约定）。
-//! - 捕获在 worker 线程执行（GDI 同步且快，Task 5），解码 PNG → RGBA 后经
+//! - worker 线程通过 GDI 读取物理像素并准备可供显示与裁剪的共享位图，经
 //!   `invoke_from_event_loop` 交回 UI 线程建会话。隐藏自身窗口后：延时模式
 //!   睡模式延时（3000/5000ms），即时模式在确有窗口被隐藏时睡 16ms 捕获面
 //!   稳定延迟（TS `defaultCaptureSurfaceSettleMs`，screenshotController.ts:136）。
@@ -22,29 +22,17 @@
 //!   - 双击 → 完成；TS `event.detail > 1` 的拖拽抑制以 500ms/4px 双击时间窗
 //!     等价实现（Slint pointer-event 不携带 click count）。
 //! - **输出动作（M3 Task 8）**，对齐 TS finish/runOutputAction：
-//!   - 完成出口：导出 PNG → 非 OCR 模式复制（成功即收束会话，TS
-//!     copyImage → cancel）；**OCR 模式跑 OCR 并把结果显示在覆盖窗的 OCR
-//!     面板，会话保持打开**（T7 评审移交的语义修正，对齐 TS runOcr 仅
-//!     setOcrPanel）。
+//!   - 完成选区时按启动模式复制、识别文字或请求翻译。
 //!   - 单次仅允许一个输出操作（TS outputOperationBusyRef）：操作期间指针与
 //!     输出动作/完成入口全部短路；Esc 取消不受限（TS 同）。
 //!   - 保存：IFileSaveDialog（cabin-platform-windows::save_dialog，png/jpg
 //!     过滤器 + 默认文件名 `CommandCabin-YYYYMMDD-HHMMSS.png`）→ 按扩展名
 //!     判定格式（TS deriveSaveFormatFromPath）→ 写文件；取消不关会话。
-//!   - OCR：`run_ocr` 在 worker 线程执行，请求语言 = UI 语言原样（TS runOcr，
-//!     评审 Finding 2：反向翻转与候选表仅翻译路径使用），结果回 UI 线程面板；
-//!     复制全部 = 剪贴板文本。
-//!   - 翻译：OCR（反向 OCR 语言 + 候选语言表，TS getScreenshotOcrLanguageForUi
-//!     / getScreenshotTranslationOcrLanguageCandidates）→ `run_online_translate`
-//!     （Google 路径）→ 结果显示在独立置顶小窗（M3 简化授权：TS 将译文作为
-//!     标注覆盖选区 + 面板，此处为独立窗，原文/译文点击复制；授权内差异，
-//!     报告注明）。**在线翻译受同意门约束（评审 Finding 3）**：M3 无同意
-//!     对话框，进程内标志默认拒绝——未同意时翻译入口返回"不可用"结果
-//!     （TS `screenshot.translation.onlineConsent` 文案），不外发任何文字；
-//!     同意 UI / 设置开关随 M5 落地。
+//!   - OCR：按界面语言在 worker 线程识别，结果回 UI 线程面板；复制全部写入剪贴板。
+//!   - 翻译：在本机识别中英文，Google 自动检测原文语言，译文覆盖在选区。
 //!   - 置顶：合成选区图在独立置顶小窗展示（TS PinnedImageView 简化：
 //!     可拖 + 保存/复制/关闭按钮）。
-//! - 置顶/翻译窗的所有权：`thread_local` 注册表持有强句柄（窗口只能在 UI
+//! - 置顶窗的所有权：`thread_local` 注册表持有强句柄（窗口只能在 UI
 //!   线程创建/使用，thread_local 规避控制器 `Send` 约束；槽位只置空不移除，
 //!   关闭回调经创建时捕获的下标回收）。
 //!
@@ -69,7 +57,7 @@ use cabin_core::screenshot::{
     TranslationStatus, NO_OCR_TEXT_MESSAGE,
 };
 use cabin_core::settings::Language;
-use cabin_platform::traits::{CaptureResult, ImageClipboard, ScreenshotCapture};
+use cabin_platform::traits::{CapturedFrame, ImageClipboard, ScreenshotCapture};
 use cabin_platform_windows::capture::GdiScreenshotCapture;
 use cabin_platform_windows::clipboard::ArboardClipboard;
 use cabin_platform_windows::ocr::{run_ocr, OcrOutcome, OcrStatus};
@@ -80,18 +68,17 @@ use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel, Weak};
 
 use crate::i18n::{self, ScreenshotUiTexts};
 use crate::state::{
-    derive_save_format_from_path, ocr_language_for_ui, save_file_name_now,
-    translation_ocr_candidates, translation_source_language, translation_target_language,
+    derive_save_format_from_path, language_index, save_file_name_now, translation_ocr_languages,
     ui_language_tag,
 };
 use crate::ui_pin::PinWindow;
 use crate::ui_screenshot::{ScreenshotDisplayImage, ScreenshotTextAnnotation, ScreenshotWindow};
-use crate::ui_translate::TranslateWindow;
+use cabin_core::screenshot::encode::translation_overlay;
 
 /// 工具栏固定宽度（须与 screenshot.slint 工具栏容器 width=520px 同步）。
 pub const TOOLBAR_WIDTH: f64 = 520.0;
-/// 工具栏固定高度（须与 screenshot.slint 工具栏容器 height=88px 同步）。
-pub const TOOLBAR_HEIGHT: f64 = 88.0;
+/// 工具栏固定高度（须与 screenshot.slint 工具栏容器 height=122px 同步）。
+pub const TOOLBAR_HEIGHT: f64 = 122.0;
 /// TS `screenshotToolbarGap`。
 const TOOLBAR_GAP: f64 = 12.0;
 /// 双击判定窗口（Windows 默认 500ms / 4px；Slint 无 click count，等价实现）。
@@ -108,7 +95,7 @@ const FALLBACK_RGB: [u8; 3] = [0xff, 0x33, 0x55];
 /// 以窗口承载原始尺寸图——窗口过大时等比缩小为授权内差异）。
 const PIN_WINDOW_MAX_WIDTH: f64 = 320.0;
 const PIN_WINDOW_MAX_HEIGHT: f64 = 240.0;
-/// 置顶/翻译窗在虚拟桌面右上角的落位边距。
+/// 置顶窗在虚拟桌面右上角的落位边距。
 const FLOATING_WINDOW_MARGIN: f64 = 16.0;
 
 /// 截图启动模式（TS screenshotController 的模式名子集；延时常量逐字）。
@@ -125,21 +112,18 @@ pub enum ScreenshotMode {
     /// 入口 = 启动器系统命令 `system.screenshot.ocr`（Task 9 接线）；完成出口
     /// 语义（OCR 面板 + 会话保持）与 on_ocr 共享同一路径。
     Ocr,
+    /// 完成选区时翻译为工具栏所选语言。
+    Translate,
 }
 
 impl ScreenshotMode {
     /// 捕获前的延时毫秒数（worker 线程睡眠，语义对齐 TS 延时模式）。
     pub fn delay_ms(self) -> Option<u64> {
         match self {
-            ScreenshotMode::Capture | ScreenshotMode::Ocr => None,
+            ScreenshotMode::Capture | ScreenshotMode::Ocr | ScreenshotMode::Translate => None,
             ScreenshotMode::CaptureDelay3 => Some(3000),
             ScreenshotMode::CaptureDelay5 => Some(5000),
         }
-    }
-
-    /// 完成出口（TS `getScreenshotCompletionAction`：ocr 模式 → OCR，其余 → 复制）。
-    pub fn completion_action_is_ocr(self) -> bool {
-        matches!(self, ScreenshotMode::Ocr)
     }
 }
 
@@ -152,6 +136,7 @@ pub fn screenshot_mode_for_system_command(command: &str) -> Option<ScreenshotMod
         "screenshot.capture-delay-3" => Some(ScreenshotMode::CaptureDelay3),
         "screenshot.capture-delay-5" => Some(ScreenshotMode::CaptureDelay5),
         "screenshot.ocr" => Some(ScreenshotMode::Ocr),
+        "screenshot.translate" => Some(ScreenshotMode::Translate),
         _ => None,
     }
 }
@@ -184,11 +169,7 @@ fn screenshot_system_command(
     }
 }
 
-/// TS `createScreenshotCommands`（screenshotCommands.ts）逐字移植：启动器里的
-/// 四个截图入口（capture / capture-delay-3 / capture-delay-5 / ocr，
-/// source=system）。标题/副标题/关键词保留 TS 硬编码英文——TS i18n 的
-/// `launcher.systemCommands` 表不含这些 id，`localizeLauncherResult` 不会
-/// 改写它们（中文可达性由关键词里的 截图/截圖 等承载，同 TS）。
+/// 截图、延时截图、OCR 与翻译命令。关键词支持中英文搜索。
 pub fn screenshot_system_commands() -> Vec<Command> {
     vec![
         screenshot_system_command(
@@ -242,22 +223,37 @@ pub fn screenshot_system_commands() -> Vec<Command> {
             ],
             "screenshot.ocr",
         ),
+        screenshot_system_command(
+            "system.screenshot.translate",
+            "Translate Screenshot",
+            "Select an area and choose the translation language",
+            &[
+                "screenshot translation",
+                "translate",
+                "截图翻译",
+                "截圖翻譯",
+                "翻译",
+                "翻譯",
+            ],
+            "screenshot.translate",
+        ),
     ]
 }
 
-/// 会话内单个显示器的解码位图（物理像素）+ 逻辑边界 + DPI 缩放。
-/// 位图较大，整体移动所有权、不派生 Clone（快照克隆走 [`clone_image`]）。
+/// 显示与裁剪共享同一块物理像素缓冲。
 pub struct SessionDisplay {
-    pub rgba: RgbaImage,
+    pub rgba: slint::SharedPixelBuffer<slint::Rgba8Pixel>,
     pub bounds: Rect,
     pub scale_factor: f64,
 }
 
-/// 一次捕获的会话数据（UI 线程独占；worker 只投递解码结果）。
+/// 一次捕获的会话数据（UI 线程独占；worker 只投递准备好的位图）。
 struct Session {
     displays: Vec<SessionDisplay>,
     virtual_bounds: Rect,
     mode: ScreenshotMode,
+    /// Dropping the session invalidates outstanding translations.
+    lifetime: Arc<()>,
     /// 选区底图（选区本地设备像素；TS `composeScreenshotSelection` 的底图 pass）。
     base: RgbaImage,
     /// `base` 对应的选区（比较失效，`ensure_buffers` 重建）。
@@ -295,6 +291,7 @@ struct ControllerInner {
     /// UI 语言（设置语言）：OCR/翻译语言映射与输出窗文案的来源；设置变更经
     /// [`ScreenshotController::set_language`] 热切换。
     language: Language,
+    translation_target: Option<Language>,
 }
 
 /// 跨线程共享的控制器。所有可变状态只在 UI 线程触达；`session_active`
@@ -329,6 +326,7 @@ impl ScreenshotController {
                 layer_empty: true,
                 output_busy: false,
                 language: Language::ZhCn,
+                translation_target: None,
             }),
             session_active: Arc::new(AtomicBool::new(false)),
             hide_windows,
@@ -342,16 +340,47 @@ impl ScreenshotController {
     }
 
     /// 设置语言热切换（main.rs 设置流调用）：更新会话内语言与已打开的
-    /// 置顶/翻译窗文案。
+    /// 置顶窗文案。
     pub fn set_language(&self, language: Language) {
-        self.inner.lock().unwrap().language = language;
+        let mut inner = self.inner.lock().unwrap();
+        inner.language = language;
+        if let Some(window) = self.window.upgrade() {
+            window.set_target_language_choice(language_index(
+                inner.translation_target.unwrap_or(language),
+            ) as i32);
+        }
+        drop(inner);
         let texts = i18n::screenshot_texts(language);
         with_each_pin_window(|window| push_pin_texts(window, &texts));
-        with_translate_window(|window| push_translate_texts(window, &texts));
+    }
+
+    pub fn set_translation_target(self: &Arc<Self>, choice: Option<Language>) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let mut inner = self.inner.lock().unwrap();
+        let previous = inner.translation_target.unwrap_or(inner.language);
+        inner.translation_target = choice;
+        let target = choice.unwrap_or(inner.language);
+        window.set_target_language_choice(language_index(target) as i32);
+        if previous == target || inner.session.is_none() {
+            return;
+        }
+        let before = inner.state.clone();
+        inner
+            .state
+            .redo_annotations
+            .retain(|a| a.tool != Tool::Translation);
+        let retranslate = translated_text(&inner.state).is_some();
+        sync_after_dispatch(&window, &mut inner, &before);
+        drop(inner);
+        if retranslate {
+            self.on_translate();
+        }
     }
 
     /// 启动截图会话（TS screenshotController.start）：隐藏自身窗口 → worker
-    /// 线程（延时 / 捕获面稳定延迟 →）GDI 捕获 + PNG 解码 → UI 线程建会话并
+    /// 线程（延时 / 捕获面稳定延迟 →）GDI 捕获并准备共享位图 → UI 线程建会话并
     /// 显示覆盖窗口。已有会话时拒绝（TS 'Screenshot capture is already active
     /// or starting.'）。
     pub fn start_capture(self: &Arc<Self>, mode: ScreenshotMode) {
@@ -375,13 +404,18 @@ impl ScreenshotController {
                 } else if was_hidden {
                     std::thread::sleep(Duration::from_millis(CAPTURE_SURFACE_SETTLE_MS));
                 }
-                let outcome = GdiScreenshotCapture::new().capture_displays(None);
-                let payload = outcome.map(decode_capture);
+                let payload = GdiScreenshotCapture::new()
+                    .capture_frames(None)
+                    .map(|capture| {
+                        capture
+                            .displays
+                            .into_iter()
+                            .map(SessionDisplay::from)
+                            .collect::<Vec<_>>()
+                    });
                 let _ = slint::invoke_from_event_loop(move || match payload {
-                    Ok(Some(displays)) if !displays.is_empty() => {
-                        controller.on_captured(mode, displays)
-                    }
-                    Ok(_) => controller.abort_with_error("screenshot decode produced no displays"),
+                    Ok(displays) if !displays.is_empty() => controller.on_captured(mode, displays),
+                    Ok(_) => controller.abort_with_error("screenshot capture produced no displays"),
                     Err(error) => {
                         controller.abort_with_error(&format!("screenshot capture failed: {error}"))
                     }
@@ -404,22 +438,20 @@ impl ScreenshotController {
 
     /// 捕获结果 → 覆盖窗口会话（UI 线程）：装配 Slint 位图、设置窗口几何
     /// （虚拟边界原点 + 尺寸）并显示。
-    fn on_captured(self: &Arc<Self>, mode: ScreenshotMode, displays: Vec<SessionDisplay>) {
+    fn on_captured(self: &Arc<Self>, mode: ScreenshotMode, mut displays: Vec<SessionDisplay>) {
         let Some(window) = self.window.upgrade() else {
             self.abort_with_error("screenshot window is gone");
             return;
         };
+        // A single overlay spans the physical desktop even when monitor DPIs differ.
+        rebase_displays(&mut displays, 1.0);
         let virtual_bounds = session_virtual_bounds(&displays);
         let rows: Vec<ScreenshotDisplayImage> = displays
             .iter()
             .map(|display| {
-                let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                    &display.rgba.data,
-                    display.rgba.width,
-                    display.rgba.height,
-                );
                 ScreenshotDisplayImage {
-                    image: Image::from_rgba8(buffer),
+                    // GDI frames are opaque, so their RGBA is already premultiplied.
+                    image: Image::from_rgba8_premultiplied(display.rgba.clone()),
                     x: (display.bounds.x - virtual_bounds.x) as f32,
                     y: (display.bounds.y - virtual_bounds.y) as f32,
                     width: display.bounds.width as f32,
@@ -434,6 +466,7 @@ impl ScreenshotController {
                 displays,
                 virtual_bounds,
                 mode,
+                lifetime: Arc::new(()),
                 base: RgbaImage::new(1, 1),
                 base_selection: Rect {
                     x: 0.0,
@@ -463,9 +496,9 @@ impl ScreenshotController {
         window.set_displays(ModelRc::new(VecModel::from(rows)));
         window.set_bounds_width(virtual_bounds.width as f32);
         window.set_bounds_height(virtual_bounds.height as f32);
-        window.window().set_position(slint::LogicalPosition::new(
-            virtual_bounds.x as f32,
-            virtual_bounds.y as f32,
+        window.window().set_position(slint::PhysicalPosition::new(
+            virtual_bounds.x.round() as i32,
+            virtual_bounds.y.round() as i32,
         ));
         {
             let mut inner = self.inner.lock().unwrap();
@@ -498,6 +531,10 @@ impl ScreenshotController {
         inner.layer_empty = true;
         if let Some(window) = self.window.upgrade() {
             let _ = window.hide();
+            window.set_displays(ModelRc::default());
+            window.set_annotation_layer(Image::default());
+            window.set_translation_retry(false);
+            window.set_translating(false);
             window.set_ocr_visible(false);
             window.set_ocr_running(false);
             window.set_ocr_copyable(false);
@@ -533,9 +570,9 @@ impl ScreenshotController {
 
     /// 完成请求（done 按钮 / Enter / 双击，TS finish()）：busy 期间短路；
     /// 先提交挂起文本，派发 Complete；仅当置位 done 时导出并走出口——
-    /// 非 OCR 模式复制（成功收束会话），OCR 模式跑 OCR 显示面板（会话保持）。
+    /// 普通截图复制，OCR 与翻译复用对应的工具栏操作。
     pub fn on_finish(self: &Arc<Self>) {
-        let export = {
+        let mode = {
             let Some(window) = self.window.upgrade() else {
                 return;
             };
@@ -553,23 +590,27 @@ impl ScreenshotController {
             if !inner.state.done {
                 return;
             }
-            match export_selection_locked(&mut inner) {
-                Some(png) => png,
-                None => return,
+            let Some(session) = &inner.session else {
+                return;
+            };
+            if session.mode == ScreenshotMode::Translate && translated_text(&inner.state).is_some()
+            {
+                ScreenshotMode::Capture
+            } else {
+                session.mode
             }
         };
-        let mode_is_ocr = {
-            let inner = self.inner.lock().unwrap();
-            inner
-                .session
-                .as_ref()
-                .map(|session| session.mode.completion_action_is_ocr())
-                .unwrap_or(false)
-        };
-        if mode_is_ocr {
-            self.begin_ocr(export);
-        } else {
-            self.begin_copy(export);
+        match mode {
+            ScreenshotMode::Ocr => self.on_ocr(),
+            ScreenshotMode::Translate => self.on_translate(),
+            ScreenshotMode::Capture
+            | ScreenshotMode::CaptureDelay3
+            | ScreenshotMode::CaptureDelay5 => {
+                let export = export_selection_locked(&mut self.inner.lock().unwrap());
+                if let Some(image) = export {
+                    self.begin_copy(image);
+                }
+            }
         }
     }
 
@@ -630,9 +671,7 @@ impl ScreenshotController {
         let spawned = std::thread::Builder::new()
             .name("screenshot-ocr".into())
             .spawn(move || {
-                // TS runOcr 请求语言 = UI 语言原样（ScreenshotOverlay runOcr 直接
-                // 传 `language`，无反向翻转、无备选表）；翻转（反向 OCR 语言）与
-                // 候选表仅翻译路径使用（评审 Finding 2）。
+                // 单独 OCR 沿用界面语言，翻译入口使用双语识别。
                 let primary = ui_language_tag(language);
                 let outcome = run_ocr(&png_encode_rgba(&image), primary, &[]);
                 let _ = slint::invoke_from_event_loop(move || {
@@ -773,96 +812,121 @@ impl ScreenshotController {
         }
     }
 
-    /// 翻译（TS runOutputAction('translate') → runScreenshotTranslation）：
-    /// OCR（候选语言表）→ 有文本则在线翻译 → 结果窗（M3 简化授权：独立置顶
-    /// 窗替代 TS 的译文标注 + 面板）。会话保持打开。
-    ///
-    /// 在线翻译同意门（评审 Finding 3）：M3 无同意对话框，未同意时不做 OCR、
-    /// 不外发文字，直接以 TS consent 文案返回"不可用"结果窗（fail-closed）。
     pub fn on_translate(self: &Arc<Self>) {
-        let language = self.inner.lock().unwrap().language;
-        if let Err(message) = online_translation_gate(
-            ONLINE_TRANSLATION_CONSENTED.load(Ordering::SeqCst),
-            i18n::screenshot_texts(language).translation_online_consent,
-        ) {
-            self.on_translate_done(TranslateView {
-                success: false,
-                source_text: String::new(),
-                target_text: String::new(),
-                message,
-            });
+        let Some(window) = self.window.upgrade() else {
             return;
-        }
-        let export = {
-            let mut inner = self.inner.lock().unwrap();
-            if inner.output_busy {
-                return;
-            }
-            match export_selection_locked(&mut inner) {
-                Some(png) => png,
-                None => return,
-            }
         };
-        {
+        let (input, language, target, session_token) = {
             let mut inner = self.inner.lock().unwrap();
-            if inner.output_busy {
+            if inner.output_busy || !inner.state.selection.is_some_and(|r| is_non_empty_rect(&r)) {
                 return;
             }
+            let Some(session) = &inner.session else {
+                return;
+            };
+            let session_token = Arc::downgrade(&session.lifetime);
+            let input = if translated_text(&inner.state).is_some() {
+                // Keep the visible translation until a replacement succeeds.
+                TranslationInput::OriginalText(window.get_original_text().to_string())
+            } else {
+                let Some(image) = export_selection_locked(&mut inner) else {
+                    return;
+                };
+                TranslationInput::Image(image)
+            };
             inner.output_busy = true;
             inner.drag = DragMode::None;
-        }
+            (
+                input,
+                inner.language,
+                inner.translation_target.unwrap_or(inner.language),
+                session_token,
+            )
+        };
+        window.set_ocr_visible(false);
+        window.set_translation_retry(false);
+        window.set_translating(true);
+        window.set_status_message(
+            i18n::screenshot_texts(language)
+                .translation_translating
+                .into(),
+        );
         let controller = Arc::clone(self);
         let spawned = std::thread::Builder::new()
             .name("screenshot-translate".into())
             .spawn(move || {
-                // 翻译路径保留 TS runTranslation 的反向 OCR 语言 + 候选表
-                // （getScreenshotOcrLanguageForUi / …OcrLanguageCandidates）。
-                let primary = ocr_language_for_ui(language);
-                let target = translation_target_language(language);
-                let candidates = translation_ocr_candidates(primary, target);
-                let fallback: Vec<&str> = candidates.iter().skip(1).map(String::as_str).collect();
-                // TS runScreenshotTranslation：OCR 结果 → 翻译/不可用/错误 的
-                // 分派决策见 translation_step（纯函数，单测覆盖）。
-                let view = match run_ocr(&png_encode_rgba(&export), primary, &fallback) {
-                    Ok(ocr) => match translation_step(&ocr, primary, target) {
-                        TranslationStep::Translate {
-                            source_language,
-                            text,
-                        } => {
-                            let result = run_online_translate(&source_language, target, &text);
-                            translation_view(&result, &text)
+                let view = match input.recognize(language) {
+                    TranslationStep::Translate { text } => {
+                        if session_token.upgrade().is_none() {
+                            return;
                         }
-                        TranslationStep::Unavailable { message }
-                        | TranslationStep::Error { message } => TranslateView {
-                            success: false,
-                            source_text: String::new(),
-                            target_text: String::new(),
-                            message,
-                        },
-                    },
-                    Err(error) => TranslateView {
-                        success: false,
-                        source_text: String::new(),
-                        target_text: String::new(),
-                        message: error.to_string(),
+                        // The OCR pack can recognize both Chinese and Latin text. Let the
+                        // provider detect the actual source independently of that pack.
+                        let result = run_online_translate("auto", target.as_str(), &text);
+                        translation_view(&result, &text)
+                    }
+                    TranslationStep::Unavailable { message }
+                    | TranslationStep::Error { message } => TranslateView {
+                        message,
+                        ..TranslateView::default()
                     },
                 };
                 let _ = slint::invoke_from_event_loop(move || {
-                    controller.on_translate_done(view);
+                    if session_token.upgrade().is_some() {
+                        controller.on_translate_done(view);
+                    }
                 });
             });
         if let Err(error) = spawned {
-            self.inner.lock().unwrap().output_busy = false;
+            let mut inner = self.inner.lock().unwrap();
+            window.set_translation_retry(translated_text(&inner.state).is_some());
+            window.set_translating(false);
+            inner.output_busy = false;
+            self.set_status_inner(&mut inner, ActionFailed);
             eprintln!("CommandCabin: screenshot translate thread failed to spawn: {error}");
         }
     }
 
-    /// 翻译完成 → 结果窗（busy 复位；窗口独立于会话，Esc 收束会话不影响它）。
-    fn on_translate_done(self: &Arc<Self>, view: TranslateView) {
-        self.inner.lock().unwrap().output_busy = false;
-        let language = self.inner.lock().unwrap().language;
-        let texts = i18n::screenshot_texts(language);
-        show_translate_window(&view, &texts, &self.session_window_bounds());
+    /// 把成功的译文作为可撤销的标注提交，失败时在工具栏附近显示原因。
+    fn on_translate_done(&self, view: TranslateView) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let mut inner = self.inner.lock().unwrap();
+        window.set_translating(false);
+        inner.output_busy = false;
+        let replacing = translated_text(&inner.state).is_some();
+        let texts = i18n::screenshot_texts(inner.language);
+        let Some(selection) = inner.state.selection else {
+            return;
+        };
+        if !view.success {
+            let message = match view.message.as_str() {
+                NO_OCR_TEXT_MESSAGE => texts.ocr_no_text,
+                "" => texts.translation_failed,
+                message => message,
+            };
+            window.set_status_message(message.into());
+            window.set_translation_retry(replacing);
+            return;
+        }
+        let Some(annotation) = translation_overlay(selection, &view.target_text) else {
+            window.set_status_message(texts.translation_no_text.into());
+            window.set_translation_retry(replacing);
+            return;
+        };
+        let before = inner.state.clone();
+        inner
+            .state
+            .annotations
+            .retain(|a| a.tool != Tool::Translation);
+        inner.state = reducer(
+            &inner.state,
+            ScreenshotAction::AnnotationAdded { annotation },
+        );
+        window.set_original_text(view.source_text.into());
+        window.set_status_message(SharedString::new());
+        sync_after_dispatch(&window, &mut inner, &before);
     }
 
     /// 置顶（TS runOutputAction('pin')：pinImage → status pinned）：导出合成
@@ -968,9 +1032,18 @@ impl ScreenshotController {
         if inner.output_busy {
             return;
         }
-        let Some(session) = inner.session.as_ref() else {
+        let first_selection = inner.state.selection.is_none();
+        let Some(session) = inner.session.as_mut() else {
             return;
         };
+        if first_selection {
+            // Slint reports pointer positions in the mapped overlay's logical pixels.
+            rebase_displays(
+                &mut session.displays,
+                f64::from(window.window().scale_factor()),
+            );
+            session.virtual_bounds = session_virtual_bounds(&session.displays);
+        }
         let (x, y) = (f64::from(x), f64::from(y));
         let point = window_local_to_virtual(session.virtual_bounds, x, y);
         // 双击判定（TS event.detail > 1 等价）：第二次按下抑制拖拽起点。
@@ -1217,18 +1290,52 @@ fn clamp(value: f64, min: f64, max: f64) -> f64 {
     value.max(min).min(max)
 }
 
-/// [`toolbar_placement`] 的窗口本地坐标封装：虚拟桌面坐标的选区先平移到窗口
-/// 本地（减 `virtual_bounds` 原点）再放置（TS `offsetRect` + placement 的组合）。
-pub fn toolbar_placement_local(selection: Rect, virtual_bounds: Rect) -> Point {
-    toolbar_placement(
+/// Choose a real monitor in the overlay's common logical coordinate space.
+fn toolbar_placement_local(
+    selection: Rect,
+    virtual_bounds: Rect,
+    displays: impl IntoIterator<Item = Rect>,
+) -> Point {
+    let intersection_area = |display: &Rect| {
+        let width = (selection.x + selection.width).min(display.x + display.width)
+            - selection.x.max(display.x);
+        let height = (selection.y + selection.height).min(display.y + display.height)
+            - selection.y.max(display.y);
+        width.max(0.0) * height.max(0.0)
+    };
+    let display = displays
+        .into_iter()
+        .max_by(|a, b| intersection_area(a).total_cmp(&intersection_area(b)))
+        .unwrap_or(virtual_bounds);
+    // Project both corners onto this display. A selection spanning the seam
+    // anchors the toolbar to the part the user can see on the chosen monitor.
+    let left = (selection.x - display.x).clamp(0.0, display.width);
+    let top = (selection.y - display.y).clamp(0.0, display.height);
+    let right = (selection.x + selection.width - display.x).clamp(0.0, display.width);
+    let bottom = (selection.y + selection.height - display.y).clamp(0.0, display.height);
+    // Slint clips the ComboBox popup to its parent window. At a shorter
+    // monitor's bottom edge that window continues into the desktop gap.
+    // The Fluent list is three 40px items plus 8px padding, replacing the
+    // 30px closed control in the last toolbar row.
+    let popup_extension = if display.y + display.height < virtual_bounds.y + virtual_bounds.height {
+        3.0 * 40.0 + 8.0 - 30.0
+    } else {
+        0.0
+    };
+    let placement = toolbar_placement(
         Rect {
-            x: selection.x - virtual_bounds.x,
-            y: selection.y - virtual_bounds.y,
-            ..selection
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
         },
-        (TOOLBAR_WIDTH, TOOLBAR_HEIGHT),
-        (virtual_bounds.width, virtual_bounds.height),
-    )
+        (TOOLBAR_WIDTH, TOOLBAR_HEIGHT + popup_extension),
+        (display.width, display.height),
+    );
+    Point {
+        x: display.x - virtual_bounds.x + placement.x,
+        y: display.y - virtual_bounds.y + placement.y,
+    }
 }
 
 /// 双击判定（500ms / 4px 时间窗内即双击的第二次按下）。
@@ -1334,6 +1441,17 @@ fn session_virtual_bounds(displays: &[SessionDisplay]) -> Rect {
     cabin_core::screenshot::calculate_virtual_bounds(&core_displays)
 }
 
+fn rebase_displays(displays: &mut [SessionDisplay], scale: f64) {
+    for display in displays {
+        let ratio = display.scale_factor / scale;
+        display.bounds.x *= ratio;
+        display.bounds.y *= ratio;
+        display.bounds.width *= ratio;
+        display.bounds.height *= ratio;
+        display.scale_factor = scale;
+    }
+}
+
 /// TS `scalePoint`/`scaleRect`/`scaleStyle` 合一（几何 → 缓冲设备像素）。
 pub fn scale_annotation(annotation: &Annotation, scale: f64) -> Annotation {
     Annotation {
@@ -1367,24 +1485,18 @@ fn window_local_to_virtual(virtual_bounds: Rect, x: f64, y: f64) -> Point {
 // 渲染管线：底图 → 已提交快照 → 草稿层 → Slint 视图
 // ---------------------------------------------------------------------------
 
-/// worker 线程：CaptureResult → 解码位图会话数据（PNG → RGBA）。任一 PNG 解码
-/// 失败返回 None（整次会话作废，UI 线程报错收束）。
-fn decode_capture(result: CaptureResult) -> Option<Vec<SessionDisplay>> {
-    let mut displays = Vec::with_capacity(result.displays.len());
-    for snapshot in result.displays {
-        let decoded = image::load_from_memory(&snapshot.png).ok()?.to_rgba8();
-        let (width, height) = decoded.dimensions();
-        displays.push(SessionDisplay {
-            rgba: RgbaImage {
-                width,
-                height,
-                data: decoded.into_raw(),
-            },
-            bounds: snapshot.bounds,
-            scale_factor: snapshot.scale_factor,
-        });
+impl From<CapturedFrame> for SessionDisplay {
+    fn from(frame: CapturedFrame) -> Self {
+        Self {
+            rgba: slint::SharedPixelBuffer::clone_from_slice(
+                &frame.rgba.data,
+                frame.rgba.width,
+                frame.rgba.height,
+            ),
+            bounds: frame.display.bounds,
+            scale_factor: frame.display.scale_factor,
+        }
     }
-    Some(displays)
 }
 
 /// 选区底图：把相交显示器的位图按 `output_scale` 采样进选区本地设备像素
@@ -1407,14 +1519,14 @@ pub fn compose_base(displays: &[SessionDisplay], selection: Rect, output_scale: 
             };
             let source_x = ((((logical_x - display.bounds.x) * display.scale_factor).floor()
                 as u32)
-                .min(display.rgba.width.saturating_sub(1))) as usize;
+                .min(display.rgba.width().saturating_sub(1))) as usize;
             let source_y = ((((logical_y - display.bounds.y) * display.scale_factor).floor()
                 as u32)
-                .min(display.rgba.height.saturating_sub(1))) as usize;
-            let source_start = (source_y * display.rgba.width as usize + source_x) * 4;
+                .min(display.rgba.height().saturating_sub(1))) as usize;
+            let source_start = (source_y * display.rgba.width() as usize + source_x) * 4;
             let target_start = (target_y as usize * width as usize + target_x as usize) * 4;
             output.data[target_start..target_start + 4]
-                .copy_from_slice(&display.rgba.data[source_start..source_start + 4]);
+                .copy_from_slice(&display.rgba.as_bytes()[source_start..source_start + 4]);
         }
     }
     output
@@ -1430,20 +1542,22 @@ fn session_output_scale(session: &Session) -> f64 {
         .fold(1.0_f64, f64::max)
 }
 
-/// 保证底图/已提交快照与当前选区/标注集一致（惰性重建）。
-fn ensure_buffers(session: &mut Session, state: &ScreenshotState) {
-    let selection = state.selection.unwrap_or(Rect {
-        x: 0.0,
-        y: 0.0,
-        width: 0.0,
-        height: 0.0,
-    });
+/// 普通框选不会渲染标注层，导出与标注预览都应按当前选区准备底图。
+fn ensure_selection_base(session: &mut Session, selection: Rect) {
     if session.base_selection != selection {
         let output_scale = session_output_scale(session);
         session.base = compose_base(&session.displays, selection, output_scale);
         session.base_selection = selection;
         session.committed_valid = false;
     }
+}
+
+/// 保证底图/已提交快照与当前选区/标注集一致（惰性重建）。
+fn ensure_buffers(session: &mut Session, state: &ScreenshotState) {
+    let Some(selection) = state.selection else {
+        return;
+    };
+    ensure_selection_base(session, selection);
     if !session.committed_valid {
         let output_scale = session_output_scale(session);
         let mut committed = clone_image(&session.base);
@@ -1483,10 +1597,20 @@ fn sync_after_dispatch(
     before: &ScreenshotState,
 ) {
     let selection_changed = before.selection != inner.state.selection;
+    if selection_changed {
+        window.set_translation_retry(false);
+        window.set_original_text(SharedString::new());
+        window.set_status_message(SharedString::new());
+    }
     let annotations_changed = before.annotations != inner.state.annotations
         || before.redo_annotations != inner.state.redo_annotations;
     let draft_changed = before.draft_annotation != inner.state.draft_annotation;
     let structural = selection_changed || annotations_changed;
+    if annotations_changed {
+        if let Some(session) = &mut inner.session {
+            session.committed_valid = false;
+        }
+    }
 
     push_view_model(window, inner);
 
@@ -1509,6 +1633,16 @@ fn sync_after_dispatch(
     }
 }
 
+fn translated_text(state: &ScreenshotState) -> Option<&str> {
+    state
+        .annotations
+        .iter()
+        .rev()
+        .find(|a| a.tool == Tool::Translation)?
+        .text
+        .as_deref()
+}
+
 /// 视图模型推送（属性 + 文字标注模型 + 提示框），无渲染缓冲操作。
 /// Slint `length` 属性在生成侧为 f32（`Coord`），f64 状态值在边界处转换。
 fn push_view_model(window: &ScreenshotWindow, inner: &mut ControllerInner) {
@@ -1525,15 +1659,16 @@ fn push_view_model(window: &ScreenshotWindow, inner: &mut ControllerInner) {
         });
     let selection = state.selection;
     window.set_has_selection(selection.is_some_and(|rect| is_non_empty_rect(&rect)));
-    if let Some(selection) = selection {
+    if let (Some(selection), Some(session)) = (selection, &inner.session) {
         window.set_selection_x((selection.x - virtual_bounds.x) as f32);
         window.set_selection_y((selection.y - virtual_bounds.y) as f32);
         window.set_selection_width(selection.width as f32);
         window.set_selection_height(selection.height as f32);
-        // 工具栏在窗口本地坐标系放置（TS 传 offsetSelection）：先把选区换算为
-        // 窗口本地，above/below 判定与钳制才与属性坐标系一致（负原点多屏布局
-        // 下直接传绝对坐标会把工具栏偏移出窗口）。
-        let placement = toolbar_placement_local(selection, virtual_bounds);
+        let placement = toolbar_placement_local(
+            selection,
+            virtual_bounds,
+            session.displays.iter().map(|display| display.bounds),
+        );
         window.set_toolbar_x(placement.x as f32);
         window.set_toolbar_y(placement.y as f32);
     }
@@ -1548,6 +1683,7 @@ fn push_view_model(window: &ScreenshotWindow, inner: &mut ControllerInner) {
 
     // 文字标注矢量行（选区本地锚点 → 窗口坐标）。
     let origin = selection.unwrap_or(virtual_bounds);
+    window.set_translated_text(translated_text(state).unwrap_or_default().into());
     let rows: Vec<ScreenshotTextAnnotation> = state
         .annotations
         .iter()
@@ -1555,7 +1691,14 @@ fn push_view_model(window: &ScreenshotWindow, inner: &mut ControllerInner) {
         .filter_map(|annotation| {
             let anchor = *annotation.points.first()?;
             let rgb = parse_hex_rgb(&annotation.style.color).unwrap_or(FALLBACK_RGB);
+            let overlay = annotation.rect();
             Some(ScreenshotTextAnnotation {
+                is_translation: overlay.is_some(),
+                width: overlay.map_or(0.0, |r| r.width) as f32,
+                height: overlay.map_or(0.0, |r| r.height) as f32,
+                padding: cabin_core::screenshot::get_translation_overlay_padding(
+                    annotation.style.font_size,
+                ) as f32,
                 text: annotation.text.clone().unwrap_or_default().into(),
                 x: (origin.x - virtual_bounds.x + anchor.x) as f32,
                 y: (origin.y - virtual_bounds.y + anchor.y) as f32,
@@ -1613,7 +1756,7 @@ fn push_annotation_layer(window: &ScreenshotWindow, inner: &mut ControllerInner,
 }
 
 // ---------------------------------------------------------------------------
-// 输出动作（M3 Task 8）：导出 / 翻译决策 / 置顶与翻译窗
+// 输出动作（M3 Task 8）：导出 / 翻译决策 / 置顶与选区翻译
 // ---------------------------------------------------------------------------
 
 /// 状态行的四种取值（值语义，便于 set_status_inner 分派）。
@@ -1629,11 +1772,12 @@ use StatusKind::{ActionFailed, ImageSaved, Pinned, SaveCanceled};
 /// 导出当前选区的合成图像（TS exportImage：Task 3 `compose_export` 的底图 +
 /// 全部标注二次矢量绘制；PNG/JPEG 编码由各出口按需进行）。UI 线程、持锁调用。
 fn export_selection_locked(inner: &mut ControllerInner) -> Option<RgbaImage> {
-    let session = inner.session.as_ref()?;
+    let session = inner.session.as_mut()?;
     let selection = inner.state.selection?;
     if !is_non_empty_rect(&selection) {
         return None;
     }
+    ensure_selection_base(session, selection);
     let output_scale = session_output_scale(session);
     Some(compose_export(
         &session.base,
@@ -1642,21 +1786,25 @@ fn export_selection_locked(inner: &mut ControllerInner) -> Option<RgbaImage> {
     ))
 }
 
-/// 在线翻译同意门（评审 Finding 3，M3 最小授权修复）：TS 首次在线翻译前经
-/// `confirm(onlineConsent)` 对话框征得用户同意；M3 无对话框组件，故以进程内
-/// 一次性标志**默认拒绝**（fail-closed）——未同意时翻译入口直接返回"不可用"
-/// 结果（消息 = TS `screenshot.translation.onlineConsent` 文案），不做 OCR、
-/// 不向网络发送任何文字。同意 UI / 设置开关随 M5 落地（届时由设置驱动并在
-/// 此缓存进程内状态）。
-static ONLINE_TRANSLATION_CONSENTED: AtomicBool = AtomicBool::new(false);
+enum TranslationInput {
+    Image(RgbaImage),
+    OriginalText(String),
+}
 
-/// 同意门决策（纯函数，单测锁定 fail-closed 默认）：未同意 → `Err(拒绝文案)`；
-/// 同意 → `Ok(())` 放行在线翻译。
-fn online_translation_gate(consented: bool, consent_message: &str) -> Result<(), String> {
-    if consented {
-        Ok(())
-    } else {
-        Err(consent_message.to_string())
+impl TranslationInput {
+    fn recognize(self, language: Language) -> TranslationStep {
+        match self {
+            Self::OriginalText(text) => TranslationStep::Translate { text },
+            Self::Image(image) => {
+                let languages = translation_ocr_languages(language);
+                match run_ocr(&png_encode_rgba(&image), languages[0], &languages[1..]) {
+                    Ok(ocr) => translation_step(&ocr),
+                    Err(error) => TranslationStep::Error {
+                        message: error.to_string(),
+                    },
+                }
+            }
+        }
     }
 }
 
@@ -1665,24 +1813,15 @@ fn online_translation_gate(consented: bool, consent_message: &str) -> Result<(),
 /// found."；error → 透传消息；unavailable → 透传消息。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranslationStep {
-    Translate {
-        source_language: String,
-        text: String,
-    },
-    Unavailable {
-        message: String,
-    },
-    Error {
-        message: String,
-    },
+    Translate { text: String },
+    Unavailable { message: String },
+    Error { message: String },
 }
 
-pub fn translation_step(ocr: &OcrOutcome, primary: &str, target: &str) -> TranslationStep {
+pub fn translation_step(ocr: &OcrOutcome) -> TranslationStep {
     match ocr.status {
         OcrStatus::Success => match ocr.text.as_deref() {
             Some(text) if !text.trim().is_empty() => TranslationStep::Translate {
-                source_language: translation_source_language(primary, target, &ocr.language)
-                    .to_string(),
                 text: text.to_string(),
             },
             _ => TranslationStep::Unavailable {
@@ -1698,7 +1837,7 @@ pub fn translation_step(ocr: &OcrOutcome, primary: &str, target: &str) -> Transl
     }
 }
 
-/// 翻译结果窗的视图（原文/译文可复制；失败时显示消息）。
+/// 识别与翻译的结果；成功时提交覆盖标注，失败时显示提示。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TranslateView {
     pub success: bool,
@@ -1707,7 +1846,7 @@ pub struct TranslateView {
     pub message: String,
 }
 
-/// `TranslationOutcome` → 结果窗视图（TS TranslationPanel 三态的窗口等价）。
+/// 将翻译服务的结果映射到截图会话。
 fn translation_view(result: &TranslationOutcome, source_text: &str) -> TranslateView {
     match result.status {
         TranslationStatus::Success => TranslateView {
@@ -1716,15 +1855,9 @@ fn translation_view(result: &TranslationOutcome, source_text: &str) -> Translate
             target_text: result.translated_text.clone().unwrap_or_default(),
             message: String::new(),
         },
-        TranslationStatus::Unavailable => TranslateView {
+        TranslationStatus::Unavailable | TranslationStatus::Error => TranslateView {
             success: false,
-            source_text: String::new(),
-            target_text: String::new(),
-            message: result.message.clone().unwrap_or_default(),
-        },
-        TranslationStatus::Error => TranslateView {
-            success: false,
-            source_text: String::new(),
+            source_text: source_text.to_owned(),
             target_text: String::new(),
             message: result.message.clone().unwrap_or_default(),
         },
@@ -1759,16 +1892,14 @@ fn pin_window_image(image: &RgbaImage) -> (f64, f64, RgbaImage) {
     (width as f64, height as f64, out)
 }
 
-// ---- 置顶/翻译窗注册表（thread_local；窗口只能在 UI 线程创建/使用） ----
+// ---- 置顶窗注册表（thread_local；窗口只能在 UI 线程创建/使用） ----
 
 thread_local! {
     /// 打开的置顶窗（槽位只置空不移除：关闭回调经创建时捕获的下标回收，
     /// 追加前压缩一次）。
     static PIN_WINDOWS: std::cell::RefCell<Vec<Option<PinWindow>>> =
         const { std::cell::RefCell::new(Vec::new()) };
-    /// 复用的翻译结果窗（关闭 = 隐藏，下次翻译复用）。
-    static TRANSLATE_WINDOW: std::cell::RefCell<Option<TranslateWindow>> =
-        const { std::cell::RefCell::new(None) };
+
 }
 
 fn with_each_pin_window(mut visitor: impl FnMut(&PinWindow)) {
@@ -1779,24 +1910,10 @@ fn with_each_pin_window(mut visitor: impl FnMut(&PinWindow)) {
     });
 }
 
-fn with_translate_window(visitor: impl FnOnce(&TranslateWindow)) {
-    TRANSLATE_WINDOW.with(|slot| {
-        if let Some(window) = slot.borrow().as_ref() {
-            visitor(window);
-        }
-    });
-}
-
 /// 文案推送（置顶窗）。
 fn push_pin_texts(window: &PinWindow, texts: &ScreenshotUiTexts) {
     window.set_save_label(texts.save.into());
     window.set_copy_label(texts.image_copy.into());
-}
-
-/// 文案推送（翻译窗）。
-fn push_translate_texts(window: &TranslateWindow, texts: &ScreenshotUiTexts) {
-    window.set_source_label(texts.translation_source.into());
-    window.set_result_label(texts.translation_result.into());
 }
 
 /// 打开一个置顶图窗（虚拟桌面右上角落位；保存/复制/关闭回调在 UI 线程）。
@@ -1910,67 +2027,7 @@ fn open_pin_window(image: &RgbaImage, texts: &ScreenshotUiTexts, virtual_bounds:
         .with_winit_window(|winit_window| winit_window.focus_window());
 }
 
-/// 打开/复用翻译结果窗并推送视图（右上角落位略低于置顶窗；已可见时仅更新内容）。
-fn show_translate_window(view: &TranslateView, texts: &ScreenshotUiTexts, virtual_bounds: &Rect) {
-    let window = TRANSLATE_WINDOW.with(|slot| -> Option<TranslateWindow> {
-        let mut slot = slot.borrow_mut();
-        if let Some(existing) = slot.as_ref() {
-            return Some(existing.clone_strong());
-        }
-        let window = TranslateWindow::new().ok()?;
-        let weak = window.as_weak();
-        window.on_drag_requested(move || {
-            if let Some(window) = weak.upgrade() {
-                window.window().with_winit_window(|winit_window| {
-                    let _ = winit_window.drag_window();
-                });
-            }
-        });
-        let weak = window.as_weak();
-        window.on_close_requested(move || {
-            if let Some(window) = weak.upgrade() {
-                let _ = window.hide();
-            }
-        });
-        let weak = window.as_weak();
-        window.on_copy_source_requested(move || {
-            if let Some(window) = weak.upgrade() {
-                copy_text_async(window.get_source_text().to_string());
-            }
-        });
-        let weak = window.as_weak();
-        window.on_copy_target_requested(move || {
-            if let Some(window) = weak.upgrade() {
-                copy_text_async(window.get_target_text().to_string());
-            }
-        });
-        *slot = Some(window.clone_strong());
-        Some(window)
-    });
-    let Some(window) = window else {
-        eprintln!("CommandCabin: failed to create translate window");
-        return;
-    };
-    push_translate_texts(&window, texts);
-    window.set_success(view.success);
-    window.set_source_text(view.source_text.as_str().into());
-    window.set_target_text(view.target_text.as_str().into());
-    window.set_message_text(view.message.as_str().into());
-    if !window.window().is_visible() {
-        // 落位：虚拟边界右上角向下偏移（避免与置顶窗重叠），用户可拖动。
-        let x = virtual_bounds.x + virtual_bounds.width - 420.0 - FLOATING_WINDOW_MARGIN;
-        let y = virtual_bounds.y + 256.0;
-        window.window().set_position(slint::LogicalPosition::new(
-            x.max(virtual_bounds.x) as f32,
-            y as f32,
-        ));
-        window.show().expect("show translate window");
-    }
-    window
-        .window()
-        .with_winit_window(|winit_window| winit_window.focus_window());
-}
-fn copy_text_async(text: String) {
+pub fn copy_text_async(text: String) {
     if text.is_empty() {
         return;
     }

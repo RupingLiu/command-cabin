@@ -8,6 +8,7 @@ const DEFAULT_TRANSLATION_TIMEOUT_MS = 6_000;
 const MAX_TRANSLATION_TEXT_LENGTH = 2_000;
 
 export interface OnlineTranslateRequest {
+  detectSourceLanguage?: boolean;
   sourceLanguage: ScreenshotTranslationLanguage;
   targetLanguage: ScreenshotTranslationLanguage;
   text: string;
@@ -42,6 +43,8 @@ export function normalizeTextForOnlineTranslation(
 ): string {
   let normalized = text
     .replace(/\r\n/g, '\n')
+    // WinRT can insert a word separator between each pair of Han ideographs.
+    .replace(/(\p{Script=Han}) (?=\p{Script=Han})/gu, '$1')
     .replace(/[ \t]+/g, ' ')
     .replace(/[ \t]+([,.;:!?])/g, '$1')
     .replace(/([,.;:!?])(?=\S)/g, '$1 ');
@@ -49,8 +52,8 @@ export function normalizeTextForOnlineTranslation(
   if (sourceLanguage === 'en-US') {
     for (let index = 0; index < 3; index += 1) {
       normalized = normalized
-        .replace(/\b([B-HJ-Z])\s+([a-z]{2,})\b/g, '$1$2')
-        .replace(/\b([A-Za-z]{3,})\s+([a-z])\b/g, '$1$2');
+        .replace(/\b([B-HJ-Z]) +([a-z]{2,})\b/g, '$1$2')
+        .replace(/\b([A-Za-z]{3,}) +([a-z])\b/g, '$1$2');
     }
   }
 
@@ -229,10 +232,13 @@ export async function runOnlineTranslate(
   const sourceLanguage = toOnlineLanguage(request.sourceLanguage);
   const targetLanguage = toOnlineLanguage(request.targetLanguage);
 
-  if (sourceLanguage === targetLanguage) {
+  if (
+    sourceLanguage === targetLanguage &&
+    (!request.detectSourceLanguage || dependencies.endpoint)
+  ) {
     return {
       ocrLanguage: request.sourceLanguage,
-      sourceText,
+      sourceText: request.text,
       status: 'success',
       targetLanguage: request.targetLanguage,
       translatedText: sourceText,
@@ -264,7 +270,7 @@ export async function runOnlineTranslate(
       : await translateWithGoogle({
           endpoint: dependencies.googleEndpoint ?? GOOGLE_TRANSLATE_ENDPOINT,
           fetchImpl,
-          sourceLanguage,
+          sourceLanguage: request.detectSourceLanguage ? 'auto' : sourceLanguage,
           sourceText,
           targetLanguage,
           timeoutMs,
@@ -272,7 +278,7 @@ export async function runOnlineTranslate(
 
     return {
       ocrLanguage: request.sourceLanguage,
-      sourceText,
+      sourceText: request.text,
       status: 'success',
       targetLanguage: request.targetLanguage,
       translatedText,

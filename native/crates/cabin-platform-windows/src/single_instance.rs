@@ -1,39 +1,41 @@
-//! 单实例守卫：命名 mutex。已存在同名 mutex 时本进程为非主实例，应立即退出；
-//! 守卫析构时关闭句柄释放锁。
+//! The mutex elects the primary instance. An auto-reset event lets a subsequent
+//! manual launch request its window, including while the primary is starting.
 
 use cabin_platform::traits::{PlatformError, SingleInstance};
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
-use windows::Win32::System::Threading::CreateMutexW;
+use windows::core::{Owned, HSTRING};
+use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HANDLE, WAIT_OBJECT_0};
+use windows::Win32::System::Threading::{
+    CreateEventW, CreateMutexW, SetEvent, WaitForSingleObject,
+};
 
 pub struct WindowsSingleInstance {
-    handle: Option<HANDLE>,
+    _mutex: Owned<HANDLE>,
+    show_event: Owned<HANDLE>,
     primary: bool,
 }
 
-// SAFETY: HANDLE 是 *mut c_void 而未实现 Send。本结构独占该句柄，
-// 仅在 Drop 中关闭一次，且不提供跨线程共享句柄的 API，因此 Send 是安全的。
+// SAFETY: the owned kernel handles may be moved between threads and are closed once.
 unsafe impl Send for WindowsSingleInstance {}
 
 impl WindowsSingleInstance {
     pub fn acquire(mutex_name: &str) -> Result<Self, PlatformError> {
-        let wide: Vec<u16> = mutex_name
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        // SAFETY: 传入以 NUL 结尾的宽字符；CreateMutexW 失败时返回 NULL。
-        let handle = unsafe { CreateMutexW(None, true, PCWSTR(wide.as_ptr())) }
+        let event_name = HSTRING::from(format!("{mutex_name}-Show"));
+        let mutex_name = HSTRING::from(mutex_name);
+        // Open the event first so a request cannot be lost during primary initialization.
+        // SAFETY: both calls return owned handles and the names live across each call.
+        let show_event = unsafe {
+            Owned::new(
+                CreateEventW(None, false, false, &event_name)
+                    .map_err(|e| PlatformError::SingleInstance(e.to_string()))?,
+            )
+        };
+        let mutex = unsafe { CreateMutexW(None, false, &mutex_name) }
             .map_err(|e| PlatformError::SingleInstance(e.to_string()))?;
-        if handle.is_invalid() {
-            return Err(PlatformError::SingleInstance(
-                "CreateMutexW returned null".into(),
-            ));
-        }
-        // SAFETY: handle 有效；GetLastError 读取当前线程错误码。
-        // 注意必须在成功路径上不插入任何其他 Win32 调用，避免覆盖 last-error。
+        // Read before making another Win32 call.
         let already_exists = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
         Ok(Self {
-            handle: Some(handle),
+            _mutex: unsafe { Owned::new(mutex) },
+            show_event,
             primary: !already_exists,
         })
     }
@@ -43,16 +45,16 @@ impl SingleInstance for WindowsSingleInstance {
     fn is_primary(&self) -> bool {
         self.primary
     }
-}
 
-impl Drop for WindowsSingleInstance {
-    fn drop(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            // SAFETY: handle 由本结构持有且仅关闭一次。
-            unsafe {
-                let _ = CloseHandle(handle);
-            }
-        }
+    fn request_show(&self) -> Result<(), PlatformError> {
+        // SAFETY: this instance holds the event open for the duration of the call.
+        unsafe { SetEvent(*self.show_event) }
+            .map_err(|e| PlatformError::SingleInstance(e.to_string()))
+    }
+
+    fn take_show_request(&self) -> bool {
+        // SAFETY: zero timeout polls the live auto-reset event without blocking the UI thread.
+        unsafe { WaitForSingleObject(*self.show_event, 0) == WAIT_OBJECT_0 }
     }
 }
 
@@ -61,11 +63,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn second_acquisition_is_not_primary() {
+    fn secondary_can_wake_primary_once_even_before_its_event_loop_starts() {
+        // TS singleInstance.ts: app.on('second-instance', ... showExistingWindow()).
         let first = WindowsSingleInstance::acquire("CommandCabin-Test-Mutex-1").unwrap();
         assert!(first.is_primary());
         let second = WindowsSingleInstance::acquire("CommandCabin-Test-Mutex-1").unwrap();
         assert!(!second.is_primary());
-        drop(first);
+        assert!(!first.take_show_request());
+        second.request_show().unwrap();
+        drop(second);
+        assert!(first.take_show_request());
+        assert!(!first.take_show_request());
     }
 }

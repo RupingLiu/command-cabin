@@ -4,12 +4,12 @@
 use std::time::{Duration, Instant};
 
 use super::{
-    annotation_layer_size, compose_base, is_within_double_click, online_translation_gate,
-    parse_hex_rgb, pin_window_image, point_in_rect, scale_annotation,
-    screenshot_mode_for_system_command, screenshot_system_commands, session_virtual_bounds,
-    to_selection_point, tool_from_index, tool_index, toolbar_placement, toolbar_placement_local,
-    translation_step, translation_view, ScreenshotMode, TranslateView, TranslationStep,
-    DOUBLE_CLICK_SLOP, TOOLBAR_HEIGHT, TOOLBAR_WIDTH,
+    annotation_layer_size, compose_base, is_within_double_click, parse_hex_rgb, pin_window_image,
+    point_in_rect, scale_annotation, screenshot_mode_for_system_command,
+    screenshot_system_commands, session_virtual_bounds, to_selection_point, tool_from_index,
+    tool_index, toolbar_placement, toolbar_placement_local, translation_step, translation_view,
+    ScreenshotMode, TranslateView, TranslationStep, DOUBLE_CLICK_SLOP, TOOLBAR_HEIGHT,
+    TOOLBAR_WIDTH,
 };
 use cabin_core::command::types::{CommandActionType, CommandSource};
 use cabin_core::screenshot::{Annotation, AnnotationStyle, Point, Rect, RgbaImage, Tool};
@@ -95,7 +95,7 @@ fn toolbar_placement_local_handles_negative_origin_bounds() {
     // 判定都在错误坐标系求值，工具栏会偏移出窗口。
     let virtual_bounds = rect(-1920.0, 0.0, 3840.0, 1080.0);
     let selection = rect(-1320.0, 100.0, 300.0, 200.0);
-    let placement = toolbar_placement_local(selection, virtual_bounds);
+    let placement = toolbar_placement_local(selection, virtual_bounds, [virtual_bounds]);
     // 下方放得下：y = 100 + 200 + 12；x = 600 + 150 - 520/2 = 490。
     assert_eq!(placement.y, 100.0 + 200.0 + 12.0);
     assert_eq!(placement.x, 600.0 + 150.0 - TOOLBAR_WIDTH / 2.0);
@@ -106,7 +106,7 @@ fn toolbar_placement_local_handles_negative_origin_bounds() {
     // 负 Y 原点：选区绝对坐标 (100, -980) → 窗口本地 (100, 100)。
     let vertical_bounds = rect(0.0, -1080.0, 1920.0, 2160.0);
     let vertical_selection = rect(100.0, -980.0, 300.0, 200.0);
-    let vertical = toolbar_placement_local(vertical_selection, vertical_bounds);
+    let vertical = toolbar_placement_local(vertical_selection, vertical_bounds, [vertical_bounds]);
     assert_eq!(vertical.y, 100.0 + 200.0 + 12.0);
     assert!(vertical.x >= 0.0 && vertical.x + TOOLBAR_WIDTH <= vertical_bounds.width);
     assert!(vertical.y >= 0.0 && vertical.y + TOOLBAR_HEIGHT <= vertical_bounds.height);
@@ -115,9 +115,30 @@ fn toolbar_placement_local_handles_negative_origin_bounds() {
     let zero_bounds = rect(0.0, 0.0, 1920.0, 1080.0);
     let plain = rect(200.0, 100.0, 300.0, 200.0);
     assert_eq!(
-        toolbar_placement_local(plain, zero_bounds),
+        toolbar_placement_local(plain, zero_bounds, [zero_bounds]),
         toolbar_placement(plain, (TOOLBAR_WIDTH, TOOLBAR_HEIGHT), (1920.0, 1080.0))
     );
+}
+
+#[test]
+fn toolbar_fits_the_shorter_monitor_at_a_mixed_dpi_seam() {
+    // 3840×2560 @150% adjacent to 2520×1680 @200%, rebased to the overlay's
+    // 150% logical space. A negative origin also exercises the window offset.
+    let primary = rect(-2560.0, -100.0, 2560.0, 2560.0 / 1.5);
+    let secondary = rect(0.0, 100.0, 2520.0 / 1.5, 1680.0 / 1.5);
+    let desktop = rect(
+        primary.x,
+        primary.y,
+        primary.width + secondary.width,
+        primary.height,
+    );
+    // The larger part of the selection is on the secondary, 10px above its bottom.
+    let selection = rect(-45.0, 1170.0, 245.0, 40.0);
+    let placement = toolbar_placement_local(selection, desktop, [primary, secondary]);
+    assert_eq!(placement.x + desktop.x, secondary.x);
+    let expanded_bottom = placement.y + desktop.y + TOOLBAR_HEIGHT + 98.0;
+    assert!(expanded_bottom <= selection.y - super::TOOLBAR_GAP);
+    assert!(expanded_bottom <= secondary.y + secondary.height);
 }
 
 #[test]
@@ -202,7 +223,7 @@ fn annotation_layer_size_rounds_and_floors_at_one() {
 #[test]
 fn session_virtual_bounds_spans_negative_coordinates() {
     let display = |x: f64, y: f64, width: f64, height: f64| SessionDisplay {
-        rgba: RgbaImage::new(1, 1),
+        rgba: slint::SharedPixelBuffer::new(1, 1),
         bounds: rect(x, y, width, height),
         scale_factor: 1.0,
     };
@@ -244,14 +265,14 @@ fn scale_annotation_maps_geometry_and_style_to_buffer_pixels() {
 fn compose_base_samples_intersecting_display_nearest() {
     // 单个 2x2 逻辑（3x2 物理，scale 1.5）显示器；选区即全显示器。
     let display = SessionDisplay {
-        rgba: RgbaImage {
-            width: 3,
-            height: 2,
-            data: vec![
+        rgba: slint::SharedPixelBuffer::clone_from_slice(
+            &[
                 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, //
                 10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, //
             ],
-        },
+            3,
+            2,
+        ),
         bounds: rect(0.0, 0.0, 2.0, 2.0),
         scale_factor: 1.5,
     };
@@ -262,6 +283,61 @@ fn compose_base_samples_intersecting_display_nearest() {
     assert_eq!(&base.data[0..4], &[255, 0, 0, 255]);
     let last = (base.height as usize - 1) * base.width as usize * 4 + (base.width as usize - 1) * 4;
     assert_eq!(&base.data[last..last + 4], &[70, 80, 90, 255]);
+}
+
+#[test]
+fn mixed_dpi_overlay_preserves_the_physical_seam_and_crops_the_right_screen() {
+    let mut displays = [
+        SessionDisplay {
+            rgba: slint::SharedPixelBuffer::clone_from_slice(&[255, 0, 0, 255].repeat(9), 3, 3),
+            bounds: rect(0.0, 0.0, 2.0, 2.0),
+            scale_factor: 1.5,
+        },
+        SessionDisplay {
+            rgba: slint::SharedPixelBuffer::clone_from_slice(&[0, 0, 255, 255].repeat(4), 2, 2),
+            bounds: rect(1.5, 0.0, 1.0, 1.0),
+            scale_factor: 2.0,
+        },
+    ];
+    super::rebase_displays(&mut displays, 1.0);
+    assert_eq!(session_virtual_bounds(&displays), rect(0.0, 0.0, 5.0, 3.0));
+    super::rebase_displays(&mut displays, 1.5);
+    let crop = compose_base(&displays, displays[1].bounds, 1.5);
+    assert_eq!((crop.width, crop.height), (2, 2));
+    assert_eq!(crop.data, [0, 0, 255, 255].repeat(4));
+}
+
+#[test]
+fn translation_export_crops_the_current_selection_without_annotations() {
+    let bounds = rect(0.0, 0.0, 3.0, 1.0);
+    let pixels = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255];
+    let controller = super::ScreenshotController::new(
+        slint::Weak::default(),
+        Box::new(|| false),
+        Box::new(|| {}),
+    );
+    let mut inner = controller.inner.lock().unwrap();
+    inner.session = Some(super::Session {
+        displays: vec![SessionDisplay {
+            rgba: slint::SharedPixelBuffer::clone_from_slice(&pixels, 3, 1),
+            bounds,
+            scale_factor: 1.0,
+        }],
+        virtual_bounds: bounds,
+        mode: ScreenshotMode::Translate,
+        lifetime: std::sync::Arc::new(()),
+        base: RgbaImage::new(1, 1),
+        base_selection: rect(0.0, 0.0, 0.0, 0.0),
+        committed: RgbaImage::new(1, 1),
+        committed_valid: false,
+    });
+    assert!(super::export_selection_locked(&mut inner).is_none());
+    for offset in [0, 1] {
+        inner.state.selection = Some(rect(offset as f64, 0.0, 2.0, 1.0));
+        let crop = super::export_selection_locked(&mut inner).unwrap();
+        assert_eq!((crop.width, crop.height), (2, 1));
+        assert_eq!(crop.data, pixels[offset * 4..offset * 4 + 8]);
+    }
 }
 
 #[test]
@@ -288,15 +364,7 @@ fn mode_delay_table_matches_ts_constants() {
     assert_eq!(ScreenshotMode::CaptureDelay3.delay_ms(), Some(3000));
     assert_eq!(ScreenshotMode::CaptureDelay5.delay_ms(), Some(5000));
     assert_eq!(ScreenshotMode::Ocr.delay_ms(), None);
-}
-
-#[test]
-fn mode_completion_exit_matches_ts_get_screenshot_completion_action() {
-    // TS getScreenshotCompletionAction：ocr 模式 → OCR 出口，其余 → 复制。
-    assert!(!ScreenshotMode::Capture.completion_action_is_ocr());
-    assert!(!ScreenshotMode::CaptureDelay3.completion_action_is_ocr());
-    assert!(!ScreenshotMode::CaptureDelay5.completion_action_is_ocr());
-    assert!(ScreenshotMode::Ocr.completion_action_is_ocr());
+    assert_eq!(ScreenshotMode::Translate.delay_ms(), None);
 }
 
 // ---- M3 Task 8：翻译分派决策（TS runScreenshotTranslation 的分派段） ----
@@ -313,12 +381,11 @@ fn ocr(status: OcrStatus, text: Option<&str>, message: Option<&str>) -> OcrOutco
 
 #[test]
 fn translation_step_translates_on_success_with_text() {
-    // success + 非空文本 → 翻译；源语言 = 请求语言（与目标不同）。
+    // 成功识别的原文直接送入翻译。
     let outcome = ocr(OcrStatus::Success, Some("  hello  "), None);
     assert_eq!(
-        translation_step(&outcome, "en-US", "zh-CN"),
+        translation_step(&outcome),
         TranslationStep::Translate {
-            source_language: "en-US".to_string(),
             text: "  hello  ".to_string()
         }
     );
@@ -330,7 +397,7 @@ fn translation_step_reports_no_ocr_text_verbatim() {
     for text in [None, Some(""), Some("   ")] {
         let outcome = ocr(OcrStatus::Success, text, None);
         assert_eq!(
-            translation_step(&outcome, "en-US", "zh-CN"),
+            translation_step(&outcome),
             TranslationStep::Unavailable {
                 message: NO_OCR_TEXT_MESSAGE.to_string()
             }
@@ -346,14 +413,14 @@ fn translation_step_passes_through_unavailable_and_error() {
         Some("Windows OCR is not available."),
     );
     assert_eq!(
-        translation_step(&outcome, "en-US", "zh-CN"),
+        translation_step(&outcome),
         TranslationStep::Unavailable {
             message: "Windows OCR is not available.".to_string()
         }
     );
     let outcome = ocr(OcrStatus::Error, None, Some("boom"));
     assert_eq!(
-        translation_step(&outcome, "en-US", "zh-CN"),
+        translation_step(&outcome),
         TranslationStep::Error {
             message: "boom".to_string()
         }
@@ -361,21 +428,6 @@ fn translation_step_passes_through_unavailable_and_error() {
 }
 
 // ---- M3 Task 8：翻译结果视图映射（TS TranslationPanel 三态） ----
-
-/// 评审 Finding 3：在线翻译同意门 fail-closed——默认拒绝（consent=false 必须被
-/// 拒并携带拒绝文案），仅显式同意放行。
-#[test]
-fn online_translation_gate_denies_until_consented() {
-    const CONSENT_MESSAGE: &str = "Translation sends this locally recognized OCR text to the Google online translation service (up to 2,000 characters). Continue?";
-    // 未同意 → Err(consent 文案)：on_translate 据此直接返回不可用结果，
-    // 不做 OCR、不外发文字。
-    assert_eq!(
-        online_translation_gate(false, CONSENT_MESSAGE),
-        Err(CONSENT_MESSAGE.to_string())
-    );
-    // 同意 → 放行。
-    assert_eq!(online_translation_gate(true, CONSENT_MESSAGE), Ok(()));
-}
 
 #[test]
 fn translation_view_maps_three_outcome_states() {
@@ -415,10 +467,9 @@ fn translation_view_maps_three_outcome_states() {
         translated_text: None,
         message: Some("Online translation failed.".into()),
     };
-    assert_eq!(
-        translation_view(&error, "").message,
-        "Online translation failed."
-    );
+    let view = translation_view(&error, "hello");
+    assert_eq!(view.message, "Online translation failed.");
+    assert_eq!(view.source_text, "hello");
 }
 
 // ---- M3 Task 8：置顶窗图像等比缩放（不放大、尺寸下限 1） ----
@@ -456,7 +507,7 @@ fn pin_window_image_scales_down_only_and_keeps_aspect() {
 #[test]
 fn screenshot_system_commands_match_ts() {
     let commands = screenshot_system_commands();
-    assert_eq!(commands.len(), 4);
+    assert_eq!(commands.len(), 5);
     let mut by_id = commands
         .iter()
         .map(|command| (command.id.as_str(), command))
@@ -561,6 +612,12 @@ fn screenshot_system_commands_match_ts() {
         ocr.action.payload.get("command").and_then(|v| v.as_str()),
         Some("screenshot.ocr")
     );
+    let (id, translate) = by_id[4];
+    assert_eq!(id, "system.screenshot.translate");
+    assert!(translate.keywords.iter().any(|k| k == "截图翻译"));
+    assert!(translate.keywords.iter().any(|k| k == "截圖翻譯"));
+    assert_eq!(translate.action.action_type, CommandActionType::RunSystem);
+    assert_eq!(translate.action.payload["command"], "screenshot.translate");
 }
 
 /// payload → 模式映射对齐 TS index.ts `modeByCommand`；未知命令返回 `None`
@@ -588,8 +645,7 @@ fn screenshot_mode_for_system_command_follows_ts_map() {
     }
 }
 
-/// 每条系统命令的 payload 都能映射到模式（注册表与分派不脱节），延时与
-/// 完成出口语义成立（ocr → OCR 出口，其余 → 复制）。
+/// 每条注册的系统命令都能启动对应的截图模式。
 #[test]
 fn every_screenshot_system_command_maps_to_a_live_mode() {
     for command in screenshot_system_commands() {
@@ -605,11 +661,9 @@ fn every_screenshot_system_command_maps_to_a_live_mode() {
             "screenshot.capture" => assert_eq!(mode.delay_ms(), None),
             "screenshot.capture-delay-3" => assert_eq!(mode.delay_ms(), Some(3000)),
             "screenshot.capture-delay-5" => assert_eq!(mode.delay_ms(), Some(5000)),
-            "screenshot.ocr" => assert!(mode.completion_action_is_ocr()),
+            "screenshot.ocr" => assert_eq!(mode, ScreenshotMode::Ocr),
+            "screenshot.translate" => assert_eq!(mode, ScreenshotMode::Translate),
             other => panic!("unexpected payload {other}"),
-        }
-        if payload != "screenshot.ocr" {
-            assert!(!mode.completion_action_is_ocr());
         }
     }
 }

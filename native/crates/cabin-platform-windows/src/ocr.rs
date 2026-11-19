@@ -529,6 +529,33 @@ mod tests {
         png
     }
 
+    #[test]
+    #[ignore = "requires a Windows English or Chinese OCR pack and access to Google Translate"]
+    fn live_screenshot_translation() {
+        let png = render_text_png("THANK YOU", 96.0);
+        let ocr = run_ocr(&png, "en-US", &["zh-CN", "zh-TW"]).unwrap();
+        assert_eq!(ocr.status, OcrStatus::Success, "{ocr:?}");
+        let text = ocr.text.unwrap();
+        assert_eq!(
+            text.split_whitespace().collect::<String>().to_uppercase(),
+            "THANKYOU"
+        );
+        let result = crate::translate::run_online_translate("en-US", "zh-CN", &text);
+        assert_eq!(
+            result.status,
+            cabin_core::screenshot::TranslationStatus::Success,
+            "{result:?}"
+        );
+        let translated = result.translated_text.unwrap();
+        println!("{text} → {translated}");
+        assert!(
+            translated
+                .chars()
+                .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)),
+            "{translated}"
+        );
+    }
+
     /// 真机枚举可用 OCR 语言 tag（Size/GetAt，对齐生产路径）。
     fn available_language_tags() -> Vec<String> {
         let view = OcrEngine::AvailableRecognizerLanguages().expect("AvailableRecognizerLanguages");

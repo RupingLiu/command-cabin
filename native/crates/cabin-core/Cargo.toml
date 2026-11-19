@@ -14,12 +14,15 @@ serde_json = { version = "1", features = ["preserve_order"] }
 roxmltree = "0.21"
 thiserror = "2"
 unicode-normalization = "0.1"
+unicode-script = "0.5"
 nucleo-matcher = "0.3"
 sha2 = "0.10"
 uuid = { version = "1", default-features = false, features = ["v4"] }
 
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 fontdue = "0.9"
+ab_glyph = "0.2"
+fontdb = { version = "0.23", default-features = false, features = ["fs"] }
 
 [lints]
 workspace = true

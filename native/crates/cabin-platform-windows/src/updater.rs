@@ -186,7 +186,7 @@ fn github_agent(
     read_timeout: Option<Duration>,
 ) -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new();
-    if let Some(proxy) = crate::update_proxy::for_url(url) {
+    if let Some(proxy) = crate::http_proxy::for_url(url) {
         builder = builder.proxy(proxy);
     }
     if let Some(timeout) = timeout {

@@ -2063,6 +2063,25 @@ select {
   border-right: 0;
 }
 
+.screenshot-translation-target {
+  display: grid;
+  gap: 1px;
+  color: #fff;
+  font-size: 10px;
+}
+
+.screenshot-translation-target select {
+  height: 22px;
+  max-width: 98px;
+  border: 1px solid var(--screenshot-border);
+  border-radius: 6px;
+  padding: 0 4px;
+  color: #fff;
+  background: #252b36;
+  font: inherit;
+  font-size: 12px;
+}
+
 .screenshot-tool-group legend {
   width: auto;
   margin-right: 2px;

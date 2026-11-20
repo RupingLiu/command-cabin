@@ -214,7 +214,7 @@ fn screenshot_target_follows_interface_only_until_a_target_is_chosen() {
     slint::platform::set_platform(Box::new(PreviewPlatform(adapters))).unwrap();
     let window = ScreenshotWindow::new().unwrap();
     let controller =
-        ScreenshotController::new(window.as_weak(), Box::new(|| false), Box::new(|| {}));
+        ScreenshotController::new(window.as_weak(), Box::new(|| Ok(false)), Box::new(|| {}));
     controller.set_language(Language::ZhTw);
     assert_eq!(window.get_target_language_choice(), 1);
     controller.set_translation_target(Some(Language::EnUs));
@@ -920,8 +920,6 @@ fn empty_home_reopen_repaints_chrome_after_windows_surface_loss() {
     launcher.on_run_ocr(move || copy.borrow_mut().push("ocr"));
     let copy = calls.clone();
     launcher.on_open_unit_converter(move || copy.borrow_mut().push("converter"));
-    let copy = calls.clone();
-    launcher.on_run_translate(move || copy.borrow_mut().push("translate"));
     show_launcher_surface(&launcher).unwrap();
     render(&adapter, "launcher-reopen-empty-controls", 640., 520., 1.5);
     click(launcher.window(), 603., 31.);
@@ -931,7 +929,7 @@ fn empty_home_reopen_repaints_chrome_after_windows_surface_loss() {
     click(launcher.window(), 380., 457.);
     assert_eq!(
         *calls.borrow(),
-        ["settings", "screenshot", "ocr", "converter", "translate"]
+        ["settings", "screenshot", "ocr", "converter"]
     );
     launcher.hide().unwrap();
     show_launcher_surface(&launcher).unwrap();

@@ -308,12 +308,33 @@ fn mixed_dpi_overlay_preserves_the_physical_seam_and_crops_the_right_screen() {
 }
 
 #[test]
+fn failed_window_hide_aborts_before_capture_and_allows_retry() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let restores = Arc::new(AtomicUsize::new(0));
+    let restored = Arc::clone(&restores);
+    let controller = super::ScreenshotController::new(
+        slint::Weak::default(),
+        Box::new(|| Err(slint::PlatformError::Other("window still visible".into()))),
+        Box::new(move || {
+            restored.fetch_add(1, Ordering::Relaxed);
+        }),
+    );
+    for attempt in 1..=2 {
+        controller.start_capture(ScreenshotMode::Capture);
+        assert!(!controller.is_session_active());
+        assert_eq!(restores.load(Ordering::Relaxed), attempt);
+    }
+}
+
+#[test]
 fn translation_export_crops_the_current_selection_without_annotations() {
     let bounds = rect(0.0, 0.0, 3.0, 1.0);
     let pixels = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255];
     let controller = super::ScreenshotController::new(
         slint::Weak::default(),
-        Box::new(|| false),
+        Box::new(|| Ok(false)),
         Box::new(|| {}),
     );
     let mut inner = controller.inner.lock().unwrap();
@@ -324,7 +345,7 @@ fn translation_export_crops_the_current_selection_without_annotations() {
             scale_factor: 1.0,
         }],
         virtual_bounds: bounds,
-        mode: ScreenshotMode::Translate,
+        mode: ScreenshotMode::Capture,
         lifetime: std::sync::Arc::new(()),
         base: RgbaImage::new(1, 1),
         base_selection: rect(0.0, 0.0, 0.0, 0.0),
@@ -364,7 +385,6 @@ fn mode_delay_table_matches_ts_constants() {
     assert_eq!(ScreenshotMode::CaptureDelay3.delay_ms(), Some(3000));
     assert_eq!(ScreenshotMode::CaptureDelay5.delay_ms(), Some(5000));
     assert_eq!(ScreenshotMode::Ocr.delay_ms(), None);
-    assert_eq!(ScreenshotMode::Translate.delay_ms(), None);
 }
 
 // ---- M3 Task 8：翻译分派决策（TS runScreenshotTranslation 的分派段） ----
@@ -507,7 +527,7 @@ fn pin_window_image_scales_down_only_and_keeps_aspect() {
 #[test]
 fn screenshot_system_commands_match_ts() {
     let commands = screenshot_system_commands();
-    assert_eq!(commands.len(), 5);
+    assert_eq!(commands.len(), 4);
     let mut by_id = commands
         .iter()
         .map(|command| (command.id.as_str(), command))
@@ -612,12 +632,6 @@ fn screenshot_system_commands_match_ts() {
         ocr.action.payload.get("command").and_then(|v| v.as_str()),
         Some("screenshot.ocr")
     );
-    let (id, translate) = by_id[4];
-    assert_eq!(id, "system.screenshot.translate");
-    assert!(translate.keywords.iter().any(|k| k == "截图翻译"));
-    assert!(translate.keywords.iter().any(|k| k == "截圖翻譯"));
-    assert_eq!(translate.action.action_type, CommandActionType::RunSystem);
-    assert_eq!(translate.action.payload["command"], "screenshot.translate");
 }
 
 /// payload → 模式映射对齐 TS index.ts `modeByCommand`；未知命令返回 `None`
@@ -643,6 +657,10 @@ fn screenshot_mode_for_system_command_follows_ts_map() {
     for unknown in ["", "open-settings", "screenshot", "screenshot.unknown"] {
         assert_eq!(screenshot_mode_for_system_command(unknown), None);
     }
+    assert_eq!(
+        screenshot_mode_for_system_command("screenshot.translate"),
+        Some(ScreenshotMode::Capture)
+    );
 }
 
 /// 每条注册的系统命令都能启动对应的截图模式。
@@ -662,7 +680,6 @@ fn every_screenshot_system_command_maps_to_a_live_mode() {
             "screenshot.capture-delay-3" => assert_eq!(mode.delay_ms(), Some(3000)),
             "screenshot.capture-delay-5" => assert_eq!(mode.delay_ms(), Some(5000)),
             "screenshot.ocr" => assert_eq!(mode, ScreenshotMode::Ocr),
-            "screenshot.translate" => assert_eq!(mode, ScreenshotMode::Translate),
             other => panic!("unexpected payload {other}"),
         }
     }

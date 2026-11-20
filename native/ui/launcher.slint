@@ -291,10 +291,8 @@ export component LauncherWindow inherits Window {
     in property <string> empty-hint;
     in property <string> no-results-hint;
     in property <string> home-action-ocr;
-    in property <string> home-action-translate;
     in property <string> hotkey-hint;
     callback run-ocr();
-    callback run-translate();
     property <bool> home: root.current-query == "";
     property <bool> home-drag-active: false;
     property <int> gesture-reset: 0;
@@ -506,7 +504,6 @@ export component LauncherWindow inherits Window {
                     CabinButton { icon-kind: "capture"; text: root.home-action-screenshot; clicked => { root.run-screenshot(); } }
                     CabinButton { icon-kind: "text"; text: root.home-action-ocr; clicked => { root.run-ocr(); } }
                     CabinButton { icon-kind: "converter"; text: root.home-action-unit-converter; clicked => { root.open-unit-converter(); } }
-                    CabinButton { text: root.home-action-translate; clicked => { root.run-translate(); } }
                 }
             }
             if root.update-banner-text != "": Rectangle {

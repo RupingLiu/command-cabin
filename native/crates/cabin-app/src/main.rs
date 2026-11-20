@@ -1388,8 +1388,27 @@ fn install_downloaded_update(context: &Arc<AppContext>) {
     }
 }
 
+fn hide_for_screenshot(window: &slint::Window) -> Result<bool, slint::PlatformError> {
+    if !window.is_visible() {
+        return Ok(false);
+    }
+    // Exclude the window from capture even while Windows is animating it out.
+    window.with_winit_window(|native| native.set_content_protected(true));
+    if let Err(error) = window.hide() {
+        window.with_winit_window(|native| native.set_content_protected(false));
+        return Err(error);
+    }
+    Ok(true)
+}
+
+fn show_capturable_window(window: &slint::Window) -> Result<(), slint::PlatformError> {
+    // A hidden HWND can be reused. Restore ordinary screen sharing before mapping it.
+    window.with_winit_window(|native| native.set_content_protected(false));
+    window.show()
+}
+
 fn show_launcher_surface(window: &LauncherWindow) -> Result<(), slint::PlatformError> {
-    window.show()?;
+    show_capturable_window(window.window())?;
     apply_native_window_theme(window.window(), window.get_theme_mode());
     center_window_on_monitor(window);
     // show maps the window; restore native activation and the search/converter focus.
@@ -1402,7 +1421,7 @@ fn show_launcher_surface(window: &LauncherWindow) -> Result<(), slint::PlatformE
 }
 
 fn show_settings_surface(window: &SettingsWindow) -> Result<(), slint::PlatformError> {
-    window.show()?;
+    show_capturable_window(window.window())?;
     apply_native_window_theme(window.window(), window.get_theme_mode());
     repaint_window_surface(window.window(), "settings");
     Ok(())
@@ -1561,7 +1580,6 @@ fn push_launcher_texts(window: &LauncherWindow, language: cabin_core::settings::
     window.set_empty_hint(texts.empty_hint.into());
     window.set_no_results_hint(texts.no_results_hint.into());
     window.set_home_action_ocr(texts.home_action_ocr.into());
-    window.set_home_action_translate(texts.home_action_translate.into());
     window.set_home_action_unit_converter(texts.home_action_unit_converter.into());
     push_converter_texts(window, language);
 
@@ -2653,7 +2671,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // ---- 截图覆盖窗口控制器（M3 Task 7/8）：捕获前隐藏自身窗口（返回是否
-    // 确有窗口被隐藏，决定 16ms 捕获面稳定延迟）、会话收束后恢复启动器
+    // 确有窗口被隐藏，决定是否等待桌面合成）、会话收束后恢复启动器
     //（Weak<AppContext> 打破 controller ↔ context 的 Arc 环）。
     // 回调各自捕获 Arc<ScreenshotController>（Send，供热键线程 invoke）。 ----
     let screenshot_controller = {
@@ -2663,19 +2681,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Box::new(move || {
                 let mut hidden_any = false;
                 if let Some(window) = hide_launcher_weak.upgrade() {
-                    // TS shouldHideWindowForScreenshot：仅可见窗口参与隐藏判定。
-                    if window.window().is_visible() {
-                        let _ = window.hide();
-                        hidden_any = true;
-                    }
+                    hidden_any |= hide_for_screenshot(window.window())?;
                 }
                 if let Some(window) = hide_settings_weak.upgrade() {
-                    if window.window().is_visible() {
-                        let _ = window.hide();
-                        hidden_any = true;
-                    }
+                    hidden_any |= hide_for_screenshot(window.window())?;
                 }
-                hidden_any
+                Ok(hidden_any)
             }),
             Box::new(move || {
                 if let Some(context) = context.upgrade() {
@@ -2928,10 +2939,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let screenshot = Arc::clone(&screenshot_controller);
         window.on_run_ocr(move || screenshot.start_capture(ScreenshotMode::Ocr));
-    }
-    {
-        let screenshot = Arc::clone(&screenshot_controller);
-        window.on_run_translate(move || screenshot.start_capture(ScreenshotMode::Translate));
     }
 
     // ---- 设置窗口提交回调（M2 Task 10）。提交语义见 settings.slint 头注：

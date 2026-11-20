@@ -41,6 +41,7 @@ use cabin_core::screenshot::RgbaImage;
 use cabin_platform::traits::{CaptureResult, CapturedFrame, PlatformError, ScreenshotCapture};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, RECT};
+use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject,
     EnumDisplayMonitors, GetDC, GetDIBits, GetMonitorInfoW, ReleaseDC, SelectObject, BITMAPINFO,
@@ -51,6 +52,18 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 
 /// Windows 参考 DPI：scale_factor = dpi / 96（与 Electron `scaleFactor` 同基）。
 const BASE_DPI: f64 = 96.0;
+
+/// Wait for the compositor to present after our windows were hidden, before BitBlt
+/// reads the desktop. This runs on the capture worker, never on the UI thread.
+pub fn wait_for_desktop_after_hide() {
+    // SAFETY: DwmFlush takes no arguments and has no thread-affinity requirement.
+    if let Err(error) = unsafe { DwmFlush() } {
+        // Some remote sessions cannot provide a composition fence. Give the
+        // desktop time to repaint there without penalizing the normal path.
+        eprintln!("CommandCabin: cannot synchronize screenshot with DWM: {error}");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
 
 /// GDI 截图捕获实现（无状态，可在任意线程调用）。
 pub struct GdiScreenshotCapture;

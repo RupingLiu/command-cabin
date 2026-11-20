@@ -8,9 +8,8 @@
 //!   `invoke_from_event_loop` 闭包内）；`Mutex` 仅为满足 `Arc` 跨闭包共享
 //!   （与 main.rs `AppState` 同一约定）。
 //! - worker 线程通过 GDI 读取物理像素并准备可供显示与裁剪的共享位图，经
-//!   `invoke_from_event_loop` 交回 UI 线程建会话。隐藏自身窗口后：延时模式
-//!   睡模式延时（3000/5000ms），即时模式在确有窗口被隐藏时睡 16ms 捕获面
-//!   稳定延迟（TS `defaultCaptureSurfaceSettleMs`，screenshotController.ts:136）。
+//!   `invoke_from_event_loop` 交回 UI 线程建会话。隐藏自身窗口后等待桌面合成，
+//!   延时截图另按所选模式等待 3000/5000ms。
 //! - 指针/键盘语义对齐 TS `ScreenshotOverlay.tsx`：
 //!   - 宿主契约（Task 1 评审移交）：**文本提示挂起时，指针按下先派发
 //!     `CommitText` 再处理指针**（TS `getPendingTextPointerAction` 语义）。
@@ -22,7 +21,7 @@
 //!   - 双击 → 完成；TS `event.detail > 1` 的拖拽抑制以 500ms/4px 双击时间窗
 //!     等价实现（Slint pointer-event 不携带 click count）。
 //! - **输出动作（M3 Task 8）**，对齐 TS finish/runOutputAction：
-//!   - 完成选区时按启动模式复制、识别文字或请求翻译。
+//!   - 完成选区时按启动模式复制或识别文字，翻译由选区工具栏触发。
 //!   - 单次仅允许一个输出操作（TS outputOperationBusyRef）：操作期间指针与
 //!     输出动作/完成入口全部短路；Esc 取消不受限（TS 同）。
 //!   - 保存：IFileSaveDialog（cabin-platform-windows::save_dialog，png/jpg
@@ -58,7 +57,7 @@ use cabin_core::screenshot::{
 };
 use cabin_core::settings::Language;
 use cabin_platform::traits::{CapturedFrame, ImageClipboard, ScreenshotCapture};
-use cabin_platform_windows::capture::GdiScreenshotCapture;
+use cabin_platform_windows::capture::{wait_for_desktop_after_hide, GdiScreenshotCapture};
 use cabin_platform_windows::clipboard::ArboardClipboard;
 use cabin_platform_windows::ocr::{run_ocr, OcrOutcome, OcrStatus};
 use cabin_platform_windows::save_dialog::show_image_save_dialog;
@@ -86,9 +85,6 @@ const DOUBLE_CLICK_TIME: Duration = Duration::from_millis(500);
 const DOUBLE_CLICK_SLOP: f64 = 4.0;
 /// 草稿层重绘节流间隔（≥30fps 目标；提交/撤销等结构变化不受节流）。
 const LIVE_RENDER_MIN_INTERVAL: Duration = Duration::from_millis(16);
-/// TS `defaultCaptureSurfaceSettleMs`（screenshotController.ts:136）：隐藏自身
-/// 窗口后、即时模式捕获前的稳定延迟（仅当确有窗口被隐藏时插入）。
-const CAPTURE_SURFACE_SETTLE_MS: u64 = 16;
 /// 色板字符串解析失败时文字标注的回退色（TS 默认 `#ff3355`）。
 const FALLBACK_RGB: [u8; 3] = [0xff, 0x33, 0x55];
 /// 置顶图窗的图像逻辑尺寸上限（M3 简化：等比缩放到该框内；TS PinnedImageView
@@ -112,15 +108,13 @@ pub enum ScreenshotMode {
     /// 入口 = 启动器系统命令 `system.screenshot.ocr`（Task 9 接线）；完成出口
     /// 语义（OCR 面板 + 会话保持）与 on_ocr 共享同一路径。
     Ocr,
-    /// 完成选区时翻译为工具栏所选语言。
-    Translate,
 }
 
 impl ScreenshotMode {
     /// 捕获前的延时毫秒数（worker 线程睡眠，语义对齐 TS 延时模式）。
     pub fn delay_ms(self) -> Option<u64> {
         match self {
-            ScreenshotMode::Capture | ScreenshotMode::Ocr | ScreenshotMode::Translate => None,
+            ScreenshotMode::Capture | ScreenshotMode::Ocr => None,
             ScreenshotMode::CaptureDelay3 => Some(3000),
             ScreenshotMode::CaptureDelay5 => Some(5000),
         }
@@ -132,11 +126,11 @@ impl ScreenshotMode {
 /// `Unsupported screenshot command`，调用方转为执行失败）。
 pub fn screenshot_mode_for_system_command(command: &str) -> Option<ScreenshotMode> {
     match command {
-        "screenshot.capture" => Some(ScreenshotMode::Capture),
+        // Saved commands from v1.0.15 open the ordinary screenshot toolbar.
+        "screenshot.capture" | "screenshot.translate" => Some(ScreenshotMode::Capture),
         "screenshot.capture-delay-3" => Some(ScreenshotMode::CaptureDelay3),
         "screenshot.capture-delay-5" => Some(ScreenshotMode::CaptureDelay5),
         "screenshot.ocr" => Some(ScreenshotMode::Ocr),
-        "screenshot.translate" => Some(ScreenshotMode::Translate),
         _ => None,
     }
 }
@@ -169,7 +163,7 @@ fn screenshot_system_command(
     }
 }
 
-/// 截图、延时截图、OCR 与翻译命令。关键词支持中英文搜索。
+/// 截图、延时截图与 OCR 命令。翻译是截图工具栏中的操作。
 pub fn screenshot_system_commands() -> Vec<Command> {
     vec![
         screenshot_system_command(
@@ -222,20 +216,6 @@ pub fn screenshot_system_commands() -> Vec<Command> {
                 "OCR",
             ],
             "screenshot.ocr",
-        ),
-        screenshot_system_command(
-            "system.screenshot.translate",
-            "Translate Screenshot",
-            "Select an area and choose the translation language",
-            &[
-                "screenshot translation",
-                "translate",
-                "截图翻译",
-                "截圖翻譯",
-                "翻译",
-                "翻譯",
-            ],
-            "screenshot.translate",
         ),
     ]
 }
@@ -301,8 +281,8 @@ pub struct ScreenshotController {
     inner: Mutex<ControllerInner>,
     session_active: Arc<AtomicBool>,
     /// 捕获前隐藏启动器/设置窗口（对齐 TS hideLauncherWindowsForScreenshot）；
-    /// 返回是否确有窗口被隐藏（TS launcherWasHidden，决定 16ms 捕获面稳定延迟）。
-    hide_windows: Box<dyn Fn() -> bool + Send + Sync>,
+    /// 只在确有窗口被隐藏时才需要等待桌面合成。
+    hide_windows: Box<dyn Fn() -> Result<bool, slint::PlatformError> + Send + Sync>,
     /// 会话结束时恢复启动器/设置窗口。
     restore_windows: Box<dyn Fn() + Send + Sync>,
 }
@@ -310,7 +290,7 @@ pub struct ScreenshotController {
 impl ScreenshotController {
     pub fn new(
         window: Weak<ScreenshotWindow>,
-        hide_windows: Box<dyn Fn() -> bool + Send + Sync>,
+        hide_windows: Box<dyn Fn() -> Result<bool, slint::PlatformError> + Send + Sync>,
         restore_windows: Box<dyn Fn() + Send + Sync>,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -394,15 +374,22 @@ impl ScreenshotController {
         }
         // TS 顺序：ensureOverlayWindow（Rust 窗口常驻，无操作）→ hideLauncher
         // → 模式延时 / 捕获面稳定 → captureDisplays。
-        let was_hidden = (self.hide_windows)();
+        let was_hidden = match (self.hide_windows)() {
+            Ok(hidden) => hidden,
+            Err(error) => {
+                self.abort_with_error(&format!("could not hide window before capture: {error}"));
+                return;
+            }
+        };
         let controller = Arc::clone(self);
         let spawned = std::thread::Builder::new()
             .name("screenshot-capture".into())
             .spawn(move || {
                 if let Some(delay) = mode.delay_ms() {
                     std::thread::sleep(Duration::from_millis(delay));
-                } else if was_hidden {
-                    std::thread::sleep(Duration::from_millis(CAPTURE_SURFACE_SETTLE_MS));
+                }
+                if was_hidden {
+                    wait_for_desktop_after_hide();
                 }
                 let payload = GdiScreenshotCapture::new()
                     .capture_frames(None)
@@ -570,7 +557,7 @@ impl ScreenshotController {
 
     /// 完成请求（done 按钮 / Enter / 双击，TS finish()）：busy 期间短路；
     /// 先提交挂起文本，派发 Complete；仅当置位 done 时导出并走出口——
-    /// 普通截图复制，OCR 与翻译复用对应的工具栏操作。
+    /// 普通截图复制，OCR 模式复用工具栏的识别操作。
     pub fn on_finish(self: &Arc<Self>) {
         let mode = {
             let Some(window) = self.window.upgrade() else {
@@ -593,16 +580,10 @@ impl ScreenshotController {
             let Some(session) = &inner.session else {
                 return;
             };
-            if session.mode == ScreenshotMode::Translate && translated_text(&inner.state).is_some()
-            {
-                ScreenshotMode::Capture
-            } else {
-                session.mode
-            }
+            session.mode
         };
         match mode {
             ScreenshotMode::Ocr => self.on_ocr(),
-            ScreenshotMode::Translate => self.on_translate(),
             ScreenshotMode::Capture
             | ScreenshotMode::CaptureDelay3
             | ScreenshotMode::CaptureDelay5 => {

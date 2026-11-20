@@ -159,7 +159,6 @@ pub struct HomeUiTexts {
     pub empty_hint: &'static str,
     pub no_results_hint: &'static str,
     pub home_action_ocr: &'static str,
-    pub home_action_translate: &'static str,
     pub home_action_unit_converter: &'static str,
 
     /// 空查询首页 "最近使用" 分组头。
@@ -545,7 +544,6 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "搜索应用并固定到首页，常用工具将在这里显示。",
             no_results_hint: "未找到匹配项，试试其他关键词。",
             home_action_ocr: "识别文字",
-            home_action_translate: "截图翻译",
             home_action_unit_converter: "单位换算",
 
             recent_group: "最近使用",
@@ -563,7 +561,6 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "搜尋應用程式並固定到首頁，常用工具將顯示於此。",
             no_results_hint: "未找到符合項目，試試其他關鍵字。",
             home_action_ocr: "辨識文字",
-            home_action_translate: "截圖翻譯",
             home_action_unit_converter: "單位換算",
 
             recent_group: "最近使用",
@@ -581,7 +578,6 @@ pub fn home_texts(language: Language) -> HomeUiTexts {
             empty_hint: "Search for an app and pin it here for quick access.",
             no_results_hint: "No matches. Try another search.",
             home_action_ocr: "Recognize text",
-            home_action_translate: "Translate",
             home_action_unit_converter: "Unit converter",
 
             recent_group: "Recent",

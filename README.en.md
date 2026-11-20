@@ -76,7 +76,7 @@ It is not meant to become a heavy workflow platform. The goal is a responsive, q
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Quick launcher        | Default `Alt+Space`; the hotkey is configurable in Settings.                                                                         |
 | App search            | Scans Start Menu, desktop shortcuts and common install locations (including MSIX/APPX apps) with fuzzy matching and ranked ordering. |
-| Home shortcuts        | An empty query shows pinned apps, recent items and shortcuts for screenshots, OCR, unit conversion and screenshot translation.       |
+| Home shortcuts        | An empty query shows pinned apps, recent items and shortcuts for screenshots, OCR and unit conversion. |
 | Icon resolution       | Resolves real executable icons, falling back to shortcuts, AppUserModelID, associated files and an on-disk cache.                    |
 | Screenshot tool       | Default `Ctrl+Alt+A`; delayed capture on `Ctrl+Alt+D`. Rectangle, ellipse, arrow, pen, mosaic and text annotations.                   |
 | Screenshot follow-ups | In-region OCR, online translation, pin-on-top, copy to clipboard and save as PNG.                                                    |
@@ -118,7 +118,7 @@ Common actions:
 | Unpin an app          | Right-click a pinned tile                        |
 | Open unit conversion  | The unit converter entry on the home screen      |
 | Quick screenshot      | Default `Ctrl+Alt+A`                             |
-| Translate a screenshot | Choose **Translate** on the home screen or search for **Translate Screenshot**, select the text, and press `Enter`. You can also choose **Translate** in the screenshot toolbar. |
+| Translate a screenshot | Choose **Screenshot** on the home screen and select an area. Choose **Translate** in the toolbar to see the translation in place. Press `Enter` to copy the current screenshot. |
 | Delayed screenshot    | Default `Ctrl+Alt+D`                             |
 | Open settings         | The gear icon in the title bar, or the tray menu |
 | Hide to tray          | Close the window or use the tray menu            |
